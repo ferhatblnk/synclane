@@ -1,0 +1,11 @@
+<Solution>
+  <Folder Name="/samples/">
+    <Project Path="samples/Demo/Demo.csproj" />
+  </Folder>
+  <Folder Name="/src/">
+    <Project Path="src/SyncLane/SyncLane.csproj" />
+  </Folder>
+  <Folder Name="/tests/">
+    <Project Path="tests/SyncLane.Tests/SyncLane.Tests.csproj" />
+  </Folder>
+</Solution>

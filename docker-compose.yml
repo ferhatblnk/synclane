@@ -1,0 +1,30 @@
+# Demo stack: PostgreSQL and a small app that syncs four pretend shop accounts with SyncLane.
+#
+#   docker compose up --build
+#
+# Then open http://localhost:8080 and watch the jobs table drain.
+# The database accepts connections without a password. It is a demo; do not deploy it.
+
+services:
+  postgres:
+    image: postgres:17
+    environment:
+      POSTGRES_DB: synclane
+      POSTGRES_HOST_AUTH_METHOD: trust
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d synclane"]
+      interval: 2s
+      timeout: 2s
+      retries: 30
+
+  demo:
+    build:
+      context: .
+      dockerfile: samples/Demo/Dockerfile
+    environment:
+      ConnectionStrings__Postgres: Host=postgres;Username=postgres;Database=synclane
+    ports:
+      - "8080:8080"
+    depends_on:
+      postgres:
+        condition: service_healthy

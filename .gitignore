@@ -1,0 +1,13 @@
+bin/
+obj/
+TestResults/
+.vs/
+.idea/
+.vscode/
+*.user
+*.suo
+.DS_Store
+
+.env
+appsettings.Development.json
+appsettings.*.local.json

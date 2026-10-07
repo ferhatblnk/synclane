@@ -1,0 +1,38 @@
+CREATE SCHEMA IF NOT EXISTS synclane;
+
+CREATE TABLE IF NOT EXISTS synclane.jobs (
+    id               bigint GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+    queue            text        NOT NULL,
+    owner            text        NOT NULL,
+    lane             text        NOT NULL,
+    type             text        NOT NULL,
+    mode             text        NOT NULL,
+    status           text        NOT NULL DEFAULT 'pending',
+    priority         integer     NOT NULL DEFAULT 0,
+    window_start     timestamptz,
+    window_end       timestamptz,
+    dedup_key        text,
+    cursor           text,
+    processed_count  bigint      NOT NULL DEFAULT 0,
+    attempt_count    integer     NOT NULL DEFAULT 0,
+    error            text,
+    next_run_at      timestamptz NOT NULL,
+    leased_by        text,
+    lease_expires_at timestamptz,
+    created_at       timestamptz NOT NULL,
+    started_at       timestamptz,
+    heartbeat_at     timestamptz,
+    completed_at     timestamptz,
+    updated_at       timestamptz NOT NULL,
+    CONSTRAINT jobs_mode_check CHECK (mode IN ('initial', 'recurring', 'manual')),
+    CONSTRAINT jobs_status_check CHECK (status IN ('pending', 'running', 'completed', 'failed', 'deferred', 'abandoned'))
+);
+
+CREATE UNIQUE INDEX IF NOT EXISTS jobs_dedup
+    ON synclane.jobs (queue, owner, type, dedup_key);
+
+CREATE UNIQUE INDEX IF NOT EXISTS jobs_one_running_per_lane
+    ON synclane.jobs (queue, lane) WHERE status = 'running';
+
+CREATE INDEX IF NOT EXISTS jobs_due
+    ON synclane.jobs (queue, next_run_at) WHERE status IN ('pending', 'running', 'failed', 'deferred');
