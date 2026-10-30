@@ -2,7 +2,7 @@
 
 A recipe tells `SyncLane.Http` how to fetch one job type over HTTP: the request, how the job's window is written into it, and where the records are in the answer. It replaces a hand-written `IJobHandler` for APIs that fit it.
 
-> **Preview.** This page describes the recipe format as of phase 1.1. Recipes can be loaded and checked, and the request of a page can be built. Sending it, paging and authentication arrive in the next parts; see [design/phase-1.md](design/phase-1.md).
+> **Preview.** As of phase 1.2 a recipe fetches one page per job: there is no paging and no authentication beyond fixed headers yet. Both arrive in the next parts; see [design/phase-1.md](design/phase-1.md).
 
 ## A recipe
 
@@ -40,6 +40,75 @@ if (!result.Succeeded)
 ```
 
 The same recipe can be built in C#, as `new HttpRecipe { Name = ..., Request = new HttpRecipeRequest { ... } }`, and checked with `recipe.Validate()`.
+
+## Running a recipe
+
+Declare the job type with `HttpRecipeHandler`, and register its recipe and where its records go:
+
+```csharp
+builder.Services.AddSyncLane(lane =>
+{
+    lane.ConnectionString = builder.Configuration.GetConnectionString("Postgres")!;
+    lane.AddQueue("shops", queue =>
+    {
+        queue.Owners<ConnectedShops>();
+        queue.Windowed<HttpRecipeHandler>("orders", horizon: TimeSpan.FromDays(365), slice: TimeSpan.FromDays(7), every: TimeSpan.FromMinutes(15));
+    });
+});
+
+builder.Services.AddSyncLaneHttp(http =>
+{
+    http.Recipe("orders", File.ReadAllText("recipes/orders.json")).WriteTo<OrderSink>();
+});
+```
+
+A sink receives each page's records:
+
+```csharp
+public sealed class OrderSink(AppDb db) : IRecordSink
+{
+    public async Task WriteAsync(RecordPage page, CancellationToken cancellationToken)
+    {
+        foreach (var record in page.Records.EnumerateArray())
+            db.Orders.Upsert(page.Job.Owner, record);   // a page can run twice: write with upserts
+
+        await db.SaveChangesAsync(cancellationToken);
+    }
+}
+```
+
+`page.Records` is only valid during the call; clone what you keep. For a quick start, `.WriteTo((page, cancellationToken) => ...)` takes a delegate instead of a class.
+
+Every problem is reported before anything runs. `AddSyncLaneHttp` throws one `SyncLaneException` holding every error of every recipe and setting. When the application starts, it compares recipes with the declared job types: a job type declared with `HttpRecipeHandler` and no recipe (`SL5014`), or a recipe for a type no queue declares (`SL5015`), stops it before any job runs.
+
+### How answers become outcomes
+
+| Answer | Outcome | Code |
+| --- | --- | --- |
+| 2xx | Records go to the sink; the job completes. | |
+| 429 | The job waits for `Retry-After` (at most `MaxRetryAfter`), or the queue's throttle delay, and continues. | `SL5105` |
+| 401, 403 | The job is abandoned at once. The same credentials will not work on the next try. | `SL5106` |
+| 408, 5xx | Retried with the queue's growing delay. | `SL5107` |
+| No answer within `Timeout` | Retried. | `SL5108` |
+| DNS, connection or TLS failure | Retried. | `SL5109` |
+| 3xx | Abandoned. Redirects are not followed. | `SL5111` |
+| Other 4xx | Abandoned: retrying gets the same answer. | `SL5110` |
+| Larger than `MaxResponseBytes` | Abandoned. | `SL5112` |
+| Not valid JSON | Retried. | `SL5113` |
+| Nothing at the records path | Retried; some APIs answer 200 with an error now and then. | `SL5103`, `SL5104` |
+
+An abandoned job waits for you: fix the cause, then `RequeueAsync`. It continues from its cursor.
+
+### Settings
+
+| Setting | Default | What it does |
+| --- | --- | --- |
+| `Timeout` | 100 seconds | How long one request may take, to the last byte of the answer. |
+| `MaxResponseBytes` | 16 MiB | The largest answer read. |
+| `MaxRetryAfter` | 1 hour | The longest wait taken from a `Retry-After` header. |
+| `UserAgent` | `SyncLane.Http/<version>` | Sent when a recipe sets no `User-Agent`. |
+
+The requests go through the named `HttpClient` `HttpSource.ClientName`. Add handlers to it with `services.AddHttpClient(HttpSource.ClientName)`, for a proxy for example. Do not add retry handlers: the engine already retries the job from its cursor.
 
 ## Fields
 
@@ -85,6 +154,9 @@ These are deliberate limits, checked when the recipe is loaded or the request is
 - **Call a host it does not name.** The scheme, host and port are fixed text. A placeholder cannot change where the request goes.
 - **Carry credentials in the URL.** `https://user:password@host` is refused. Credentials go in headers, and with phase 1.4 in a credential store.
 - **Inject into the request.** Placeholder values are percent-encoded in the URL and written as JSON strings in the body, so a value cannot add a parameter or change the shape of the body. A header that would contain a line break after filling is not sent.
-- **Put a secret into an error message.** Messages name the recipe and the field, never a header value or a credential.
+- **Put a secret into an error message.** Messages name the recipe and the field, never a header value, a credential, a URL or a response body.
+- **Follow a redirect.** A redirect could send the recipe's headers, keys included, to another host. It abandons the job instead.
+- **Log its URLs.** The `HttpClient` loggers that would write each request's URL, owner key and query included, are removed.
+- **Decompress with anything but the standard.** Answers in gzip, deflate or brotli are accepted when the server offers them. There is no compression of SyncLane's own.
 
 Every error code is listed in [errors.md](errors.md#the-http-source).

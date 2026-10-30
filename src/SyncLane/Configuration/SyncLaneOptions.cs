@@ -31,6 +31,17 @@ public sealed class SyncLaneOptions
 
     internal IReadOnlyList<QueueOptions> Queues => _queues;
 
+    /// <summary>
+    /// What has been declared: every queue and its job types with their handlers. A copy, so reading it can never change
+    /// a setting. Packages use it to check at start-up that what they need is declared.
+    /// </summary>
+    public IReadOnlyList<QueueDescription> Describe() =>
+        _queues
+            .Select(queue => new QueueDescription(
+                queue.Name,
+                queue.Types.Select(type => new JobTypeDescription(type.Name, type.Handler)).ToList()))
+            .ToList();
+
     /// <summary>Declares a queue: its job types, its owners and how its workers behave.</summary>
     public SyncLaneOptions AddQueue(string name, Action<QueueOptions> configure)
     {

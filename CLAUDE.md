@@ -39,9 +39,10 @@ Each rule has a reason. If a rule is in your way, change the rule here first, wi
 
 ### 1. Dependencies
 
-- The library depends on the BCL, `Npgsql` and `Microsoft.Extensions.*.Abstractions`. Nothing else.
+- The engine depends on the BCL, `Npgsql` and `Microsoft.Extensions.*.Abstractions`. Nothing else. `SyncLane.Http` adds `Microsoft.Extensions.Http` (decision D13).
 - No platform is named in `src`: not in code, not in comments. Platform knowledge belongs in recipes. **(checked)**
 - **No in-house or company packages in this solution.** Nothing private, from any employer or client. SyncLane is public and must build for anyone. An adapter to such a package (for example mapping `SyncResult<T>` to `ApiResult<T>`) lives in a separate solution that references SyncLane, never the other way round.
+- `SyncLane.Http` uses only the engine's public API. If it needs something internal, make a small, read-only public API in the engine instead (as `SyncLaneOptions.Describe()`).
 - Adding any dependency needs an entry in the decision log of ARCHITECTURE.md: what it does, why the BCL is not enough, its license, and who maintains it.
 
 ### 2. Errors

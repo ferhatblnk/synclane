@@ -55,6 +55,28 @@ internal static class HttpErrors
         HttpErrorCodes.TemplateMalformed, SyncErrorKind.Validation,
         $"Recipe '{recipe}': {location} has an unclosed or empty placeholder. Write placeholders as {{{{window.start}}}}.");
 
+    public static SyncError OptionInvalid(string setting, string rule) => new(
+        HttpErrorCodes.OptionInvalid, SyncErrorKind.Configuration,
+        $"AddSyncLaneHttp: {setting} {rule}.");
+
+    public static SyncError SinkMissing(string type) => new(
+        HttpErrorCodes.SinkMissing, SyncErrorKind.Configuration,
+        $"The recipe for job type '{type}' has no sink. Add .WriteTo<TSink>() or .WriteTo((page, cancellationToken) => ...) after Recipe(...).");
+
+    public static SyncError RecipeMissing(string queue, string type) => new(
+        HttpErrorCodes.RecipeMissing, SyncErrorKind.Configuration,
+        $"Job type '{type}' on queue '{queue}' runs with HttpRecipeHandler but has no recipe. Register one with " +
+        $"http.Recipe(\"{type}\", ...) in AddSyncLaneHttp.");
+
+    public static SyncError RecipeUnused(string type) => new(
+        HttpErrorCodes.RecipeUnused, SyncErrorKind.Configuration,
+        $"A recipe is registered for job type '{type}', but no queue declares '{type}' with HttpRecipeHandler. " +
+        "Check the spelling, or declare the type with Snapshot, Windowed or Handle<HttpRecipeHandler>.");
+
+    public static SyncError RecipeDeclaredTwice(string type) => new(
+        HttpErrorCodes.RecipeDeclaredTwice, SyncErrorKind.Configuration,
+        $"Two recipes are registered for job type '{type}'. Register one recipe per job type.");
+
     // 51xx: the recipe met a job or a response it does not fit. Found while running.
 
     public static SyncError WindowMissing(string recipe) => new(
@@ -70,6 +92,48 @@ internal static class HttpErrors
     public static SyncError RecordsNotFound(string recipe, string path) => new(
         HttpErrorCodes.RecordsNotFound, SyncErrorKind.Configuration,
         $"Recipe '{recipe}': the response has nothing at records '{path}'. Compare the path with a real response.");
+
+    public static SyncError Throttled(string recipe) => new(
+        HttpErrorCodes.Throttled, SyncErrorKind.Throttled,
+        $"Recipe '{recipe}': the API answered 429 and asked to slow down. The job waits and continues from its cursor.");
+
+    public static SyncError Unauthorized(string recipe, int status) => new(
+        HttpErrorCodes.Unauthorized, SyncErrorKind.Unauthorized,
+        $"Recipe '{recipe}': the API answered {status}. The credentials are wrong, expired or no longer allowed for this " +
+        "owner. Fix the credentials, then requeue the job.");
+
+    public static SyncError ServerError(string recipe, int status) => new(
+        HttpErrorCodes.ServerError, SyncErrorKind.Unavailable,
+        $"Recipe '{recipe}': the API answered {status}. The job is retried with a growing delay.");
+
+    public static SyncError Timeout(string recipe, TimeSpan timeout) => new(
+        HttpErrorCodes.Timeout, SyncErrorKind.Unavailable,
+        $"Recipe '{recipe}': the API did not answer within {timeout.TotalSeconds:0.#} s. The job is retried; if it keeps " +
+        "happening, ask for smaller pages or raise Timeout in AddSyncLaneHttp.");
+
+    public static SyncError Unreachable(string recipe) => new(
+        HttpErrorCodes.Unreachable, SyncErrorKind.Unavailable,
+        $"Recipe '{recipe}': the API could not be reached. The inner exception says whether DNS, the connection or TLS " +
+        "failed. The job is retried.");
+
+    public static SyncError RequestRejected(string recipe, int status) => new(
+        HttpErrorCodes.RequestRejected, SyncErrorKind.Configuration,
+        $"Recipe '{recipe}': the API refused the request with {status}. Retrying will not change that: compare the " +
+        "recipe with the API's documentation, then requeue the job.");
+
+    public static SyncError Redirected(string recipe, int status) => new(
+        HttpErrorCodes.Redirected, SyncErrorKind.Configuration,
+        $"Recipe '{recipe}': the API answered {status} with a redirect. SyncLane does not follow redirects, so a recipe " +
+        "only ever calls the host it names. Put the final URL in the recipe.");
+
+    public static SyncError ResponseTooLarge(string recipe, long limit) => new(
+        HttpErrorCodes.ResponseTooLarge, SyncErrorKind.Configuration,
+        $"Recipe '{recipe}': the response is larger than {limit:N0} bytes. Ask for smaller pages, or raise " +
+        "MaxResponseBytes in AddSyncLaneHttp.");
+
+    public static SyncError ResponseNotJson(string recipe) => new(
+        HttpErrorCodes.ResponseNotJson, SyncErrorKind.Unavailable,
+        $"Recipe '{recipe}': the response is not valid JSON. It may have been cut off; the job is retried.");
 
     public static SyncError RecordsNotArray(string recipe, string path, string kind) => new(
         HttpErrorCodes.RecordsNotArray, SyncErrorKind.Configuration,

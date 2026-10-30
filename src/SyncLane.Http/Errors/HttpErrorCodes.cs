@@ -39,6 +39,21 @@ public static class HttpErrorCodes
     /// <summary>A template has an unclosed or empty placeholder.</summary>
     public const string TemplateMalformed = "SL5011";
 
+    /// <summary>A setting of the HTTP source cannot work.</summary>
+    public const string OptionInvalid = "SL5012";
+
+    /// <summary>A recipe was registered without saying where its records go.</summary>
+    public const string SinkMissing = "SL5013";
+
+    /// <summary>A job type runs with <c>HttpRecipeHandler</c> and has no recipe.</summary>
+    public const string RecipeMissing = "SL5014";
+
+    /// <summary>A recipe was registered for a job type that no queue runs with <c>HttpRecipeHandler</c>.</summary>
+    public const string RecipeUnused = "SL5015";
+
+    /// <summary>Two recipes were registered for one job type.</summary>
+    public const string RecipeDeclaredTwice = "SL5016";
+
     /// <summary>The recipe uses the job's window, and the job has none.</summary>
     public const string WindowMissing = "SL5101";
 
@@ -50,4 +65,31 @@ public static class HttpErrorCodes
 
     /// <summary>The records path leads to something that is not an array.</summary>
     public const string RecordsNotArray = "SL5104";
+
+    /// <summary>The API answered 429: slow down.</summary>
+    public const string Throttled = "SL5105";
+
+    /// <summary>The API answered 401 or 403: the credentials are wrong or no longer allowed.</summary>
+    public const string Unauthorized = "SL5106";
+
+    /// <summary>The API answered 408 or a 5xx status.</summary>
+    public const string ServerError = "SL5107";
+
+    /// <summary>The API did not answer within the timeout.</summary>
+    public const string Timeout = "SL5108";
+
+    /// <summary>The API could not be reached: DNS, connection or TLS failed.</summary>
+    public const string Unreachable = "SL5109";
+
+    /// <summary>The API refused the request with a 4xx status that retrying will not change.</summary>
+    public const string RequestRejected = "SL5110";
+
+    /// <summary>The API answered with a redirect, which SyncLane does not follow.</summary>
+    public const string Redirected = "SL5111";
+
+    /// <summary>The response is larger than the limit.</summary>
+    public const string ResponseTooLarge = "SL5112";
+
+    /// <summary>The response is not valid JSON.</summary>
+    public const string ResponseNotJson = "SL5113";
 }

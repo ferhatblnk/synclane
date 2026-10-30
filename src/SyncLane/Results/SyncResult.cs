@@ -34,11 +34,11 @@ public class SyncResult
     /// <summary>A failed result with several errors. At least one is required.</summary>
     public static SyncResult Failure(IEnumerable<SyncError> errors) => new(Many(errors));
 
-    /// <summary>Throws a <see cref="SyncLaneException"/> for the first error when the operation failed.</summary>
+    /// <summary>Throws a <see cref="SyncLaneException"/> carrying every error when the operation failed.</summary>
     public void ThrowIfFailed()
     {
-        if (Error is { } error)
-            throw new SyncLaneException(error);
+        if (!Succeeded)
+            throw new SyncLaneException(Errors);
     }
 
     /// <summary>The code and message of every error, or <c>Succeeded</c>.</summary>

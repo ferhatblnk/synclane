@@ -7,6 +7,10 @@ All notable changes to this project are recorded here. The format follows [Keep 
 ### Added
 
 - `SyncLane.Http`, phase 1.1: the recipe model. `HttpRecipe.Parse` reads a recipe from JSON and reports every problem at once with codes `SL5001` to `SL5011`; placeholders `{{window.start}}`, `{{window.end}}` and `{{owner.key}}` are escaped for where they land; a recipe can only call the host it names. Requests are built but not sent yet. See `docs/recipes.md`.
+- `SyncLane.Http`, phase 1.2: recipes run. `HttpRecipeHandler` sends the request, maps answers to outcomes (429 waits, 401/403 and other 4xx abandon, 408/5xx/timeouts/network errors retry), reads at most `MaxResponseBytes`, and hands the records to an `IRecordSink`. `AddSyncLaneHttp` throws every problem at once; a start-up check stops the host when recipes and declared job types do not match. Codes `SL5012` to `SL5016` and `SL5105` to `SL5113`.
+- The HTTP client follows no redirects, accepts gzip, deflate and brotli, and logs no URLs.
+- `SyncLaneOptions.Describe()`: a read-only list of the declared queues and job types with their handlers.
+- `SyncLaneException.Errors`: an exception can carry several errors; `ThrowIfFailed()` throws all of them.
 - A convention test that fails when a platform is named in the library's code.
 - `docs/design/phase-1.md`: the parts of phase 1, their gates and the checks against refuted ideas.
 

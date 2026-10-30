@@ -30,6 +30,18 @@ public class ResultTests
     }
 
     [Fact]
+    public void Throwing_a_failure_keeps_every_error()
+    {
+        var other = new SyncError(SyncErrorCodes.LimitOutOfRange, SyncErrorKind.Validation, "Limit 0 is out of range.");
+
+        var thrown = Assert.Throws<SyncLaneException>(() => SyncResult.Failure([Missing, other]).ThrowIfFailed());
+
+        Assert.Equal([Missing, other], thrown.Errors);
+        Assert.Same(Missing, thrown.Error);
+        Assert.Equal($"{Missing}{Environment.NewLine}{other}", thrown.Message);
+    }
+
+    [Fact]
     public void A_failure_needs_at_least_one_error()
     {
         Assert.Throws<ArgumentOutOfRangeException>(() => SyncResult.Failure([]));
