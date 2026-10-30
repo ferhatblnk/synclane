@@ -32,6 +32,17 @@ public static class HttpSourceServiceCollectionExtensions
         foreach (var sink in options.Bindings.Select(binding => binding.SinkType).OfType<Type>().Distinct())
             services.TryAddScoped(sink);
 
+        if (options.CredentialStore is { } store)
+            services.AddScoped(typeof(ICredentialStore), store);
+
+        foreach (var (name, signer) in options.Signers)
+            services.AddKeyedScoped(typeof(IRequestSigner), name, signer);
+
+        services.TryAddSingleton(provider => new OAuthTokens(
+            provider.GetRequiredService<IHttpClientFactory>(),
+            provider.GetRequiredService<HttpSourceOptions>(),
+            provider.GetRequiredService<TimeProvider>()));
+
         // Registered with a factory because the constructor is internal. AddSyncLane registers every declared handler
         // by type; if it ran first, that registration is replaced, so validating the container never tries to build it.
         // If it runs later, it finds this registration and adds nothing.

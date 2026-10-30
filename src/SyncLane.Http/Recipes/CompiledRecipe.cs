@@ -17,6 +17,12 @@ internal sealed partial class CompiledRecipe
         "Host", "Content-Length", "Transfer-Encoding", "Connection"
     };
 
+    /// <summary>Headers that carry credentials. A recipe is shared and committed, so it never holds one; auth sets them.</summary>
+    private static readonly HashSet<string> CredentialHeaders = new(StringComparer.OrdinalIgnoreCase)
+    {
+        "Authorization", "Proxy-Authorization"
+    };
+
     private CompiledRecipe(
         HttpRecipe recipe,
         HttpMethod method,
@@ -26,7 +32,8 @@ internal sealed partial class CompiledRecipe
         IReadOnlyDictionary<string, Template> bodyStrings,
         RecordPath records,
         bool usesWindow,
-        IPaginator paginator)
+        IPaginator paginator,
+        RecipeAuth? auth)
     {
         Recipe = recipe;
         Method = method;
@@ -37,6 +44,7 @@ internal sealed partial class CompiledRecipe
         Records = records;
         UsesWindow = usesWindow;
         Paginator = paginator;
+        Auth = auth;
     }
 
     public HttpRecipe Recipe { get; }
@@ -61,6 +69,9 @@ internal sealed partial class CompiledRecipe
     public bool UsesWindow { get; }
 
     public IPaginator Paginator { get; }
+
+    /// <summary>How requests are authenticated, or <c>null</c> for an open API.</summary>
+    public RecipeAuth? Auth { get; }
 
     /// <summary>Checks <paramref name="recipe"/> and returns every problem found, or the compiled recipe.</summary>
     public static SyncResult<CompiledRecipe> Compile(HttpRecipe recipe)
@@ -105,7 +116,9 @@ internal sealed partial class CompiledRecipe
         foreach (var (key, value) in request.Headers)
         {
             var location = $"request.headers.{key}";
-            if (!HeaderName().IsMatch(key) || ReservedHeaders.Contains(key) || value is null || value.AsSpan().ContainsAny('\r', '\n'))
+            if (CredentialHeaders.Contains(key))
+                errors.Add(HttpErrors.CredentialInRecipe(name, key));
+            else if (!HeaderName().IsMatch(key) || ReservedHeaders.Contains(key) || value is null || value.AsSpan().ContainsAny('\r', '\n'))
                 errors.Add(HttpErrors.HeaderInvalid(name, key));
             else if (Parse(name, value, location, errors) is { } template)
             {
@@ -134,15 +147,19 @@ internal sealed partial class CompiledRecipe
         if (recipe.Window is { } window && !Enum.IsDefined(window.Format))
             errors.Add(HttpErrors.WindowFormatUnknown(name, window.Format.ToString()));
 
+        var auth = AuthCompiler.Compile(name, recipe, ReservedHeaders, errors);
+
         // Paging is checked only against a valid URL, because a next-page URL is compared with the recipe's host.
-        var paginator = origin is null ? null : PaginationCompiler.Compile(name, recipe.Pagination, origin, request.Query, errors);
+        var paginator = origin is null
+            ? null
+            : PaginationCompiler.Compile(name, recipe.Pagination, origin, request.Query, auth?.SecretParam, errors);
 
         if (errors.Count > 0)
             return SyncResult<CompiledRecipe>.Failure(errors);
 
         var usesWindow = placeholders.Any(found => Placeholders.IsWindow(found.Placeholder));
         return SyncResult<CompiledRecipe>.Success(
-            new CompiledRecipe(recipe, method!, url!, query, headers, bodyStrings, records!, usesWindow, paginator!));
+            new CompiledRecipe(recipe, method!, url!, query, headers, bodyStrings, records!, usesWindow, paginator!, auth));
     }
 
     private static HttpMethod? ParseMethod(string? method) => method?.ToUpperInvariant() switch

@@ -6,7 +6,12 @@ namespace SyncLane.Http;
 internal static partial class PaginationCompiler
 {
     public static IPaginator? Compile(
-        string recipe, HttpRecipePagination? pagination, Origin origin, IReadOnlyDictionary<string, string> query, List<SyncError> errors)
+        string recipe,
+        HttpRecipePagination? pagination,
+        Origin origin,
+        IReadOnlyDictionary<string, string> query,
+        string? secretParam,
+        List<SyncError> errors)
     {
         if (pagination is null)
             return SinglePage.Instance;
@@ -110,7 +115,7 @@ internal static partial class PaginationCompiler
             PaginationType.Page => new NumberedPagination(recipe, false, pagination.Param!, pagination.Start ?? 1, pagination.Size, pagination.SizeParam),
             PaginationType.Offset => new NumberedPagination(recipe, true, pagination.Param!, pagination.Start ?? 0, pagination.Size, pagination.SizeParam),
             PaginationType.Cursor => new CursorPagination(recipe, pagination.Param!, from, pagination.FromLastRecord, hasMore, pagination.Size, pagination.SizeParam),
-            _ => new UrlPagination(recipe, origin, from)
+            _ => new UrlPagination(recipe, origin, from, secretParam)
         };
     }
 

@@ -81,6 +81,25 @@ internal static class HttpErrors
         HttpErrorCodes.PaginationInvalid, SyncErrorKind.Validation,
         $"Recipe '{recipe}': pagination.{field} {rule}. See the pagination types in docs/recipes.md.");
 
+    public static SyncError AuthInvalid(string recipe, string field, string rule) => new(
+        HttpErrorCodes.AuthInvalid, SyncErrorKind.Validation,
+        $"Recipe '{recipe}': auth.{field} {rule}. See the auth types in docs/recipes.md.");
+
+    public static SyncError CredentialInRecipe(string recipe, string header) => new(
+        HttpErrorCodes.CredentialInRecipe, SyncErrorKind.Validation,
+        $"Recipe '{recipe}': request.headers sets '{header}', which carries credentials. A recipe never holds a secret: " +
+        "use auth, and the credential store gives the value for each owner.");
+
+    public static SyncError CredentialStoreMissing(string recipe) => new(
+        HttpErrorCodes.CredentialStoreMissing, SyncErrorKind.Configuration,
+        $"Recipe '{recipe}' uses auth, but no credential store is registered. Add http.Credentials<TStore>() in " +
+        "AddSyncLaneHttp, with a class that implements ICredentialStore.");
+
+    public static SyncError SignerMissing(string recipe, string signer) => new(
+        HttpErrorCodes.SignerMissing, SyncErrorKind.Configuration,
+        $"Recipe '{recipe}' is signed by '{signer}', which is not registered. Add http.Signer<TSigner>(\"{signer}\") in " +
+        "AddSyncLaneHttp, with a class that implements IRequestSigner.");
+
     // 51xx: the recipe met a job or a response it does not fit. Found while running.
 
     public static SyncError WindowMissing(string recipe) => new(
@@ -115,10 +134,9 @@ internal static class HttpErrors
         $"Recipe '{recipe}': the API did not answer within {timeout.TotalSeconds:0.#} s. The job is retried; if it keeps " +
         "happening, ask for smaller pages or raise Timeout in AddSyncLaneHttp.");
 
-    public static SyncError Unreachable(string recipe) => new(
+    public static SyncError Unreachable(string recipe, HttpRequestError error) => new(
         HttpErrorCodes.Unreachable, SyncErrorKind.Unavailable,
-        $"Recipe '{recipe}': the API could not be reached. The inner exception says whether DNS, the connection or TLS " +
-        "failed. The job is retried.");
+        $"Recipe '{recipe}': the API could not be reached: {NetworkFailure(error)}. The job is retried.");
 
     public static SyncError RequestRejected(string recipe, int status) => new(
         HttpErrorCodes.RequestRejected, SyncErrorKind.Configuration,
@@ -164,6 +182,51 @@ internal static class HttpErrors
         $"Recipe '{recipe}': the job reached {limit:N0} pages. Either the API ignores the page parameter and returns the " +
         "same page again, or a window holds more than expected: check the parameter, cut smaller slices, or raise " +
         "MaxPagesPerJob in AddSyncLaneHttp.");
+
+    public static SyncError CredentialMissing(string recipe, string credential) => new(
+        HttpErrorCodes.CredentialMissing, SyncErrorKind.Unauthorized,
+        $"Recipe '{recipe}': the credential store has no credential '{credential}' for the job's owner. Connect the " +
+        "owner's account, then requeue the job.");
+
+    public static SyncError CredentialInvalid(string recipe, string credential, string problem) => new(
+        HttpErrorCodes.CredentialInvalid, SyncErrorKind.Configuration,
+        $"Recipe '{recipe}': credential '{credential}' of the job's owner {problem}. Fix it in the credential store, " +
+        "then requeue the job.");
+
+    public static SyncError TokenRefused(string recipe, int status, string? oauthError) => new(
+        HttpErrorCodes.TokenRefused, SyncErrorKind.Unauthorized,
+        $"Recipe '{recipe}': the token endpoint refused to issue a token with {status}" +
+        (oauthError is null ? "" : $" ({oauthError})") + ". The client id, secret or refresh token is wrong, revoked " +
+        "or not allowed the scope. Fix the credential, then requeue the job.");
+
+    public static SyncError TokenUnavailable(string recipe, string reason) => new(
+        HttpErrorCodes.TokenUnavailable, SyncErrorKind.Unavailable,
+        $"Recipe '{recipe}': no access token, because the token endpoint {reason}. The job is retried.");
+
+    public static SyncError TokenAnswerInvalid(string recipe, string problem) => new(
+        HttpErrorCodes.TokenAnswerInvalid, SyncErrorKind.Configuration,
+        $"Recipe '{recipe}': the token endpoint answered, but its answer {problem}. Check auth.tokenUrl and " +
+        "auth.grant against the API's documentation.");
+
+    public static SyncError SignerMovedRequest(string recipe, string signer) => new(
+        HttpErrorCodes.SignerMovedRequest, SyncErrorKind.Configuration,
+        $"Recipe '{recipe}': signer '{signer}' changed the method, scheme, host or port of the request, so it was not " +
+        "sent. A signer may add headers and query parameters only.");
+
+    /// <summary>What failed on the way to an answer, in words. Never the exception's own message, which may hold a URL or a proxy's credentials.</summary>
+    public static string NetworkFailure(HttpRequestError error) => error switch
+    {
+        HttpRequestError.NameResolutionError => "the host name could not be resolved",
+        HttpRequestError.ConnectionError => "the connection could not be made",
+        HttpRequestError.SecureConnectionError => "the TLS handshake failed",
+        HttpRequestError.ProxyTunnelError => "the proxy refused to open a tunnel",
+        HttpRequestError.UserAuthenticationError => "the server or proxy refused the connection's authentication",
+        HttpRequestError.ResponseEnded => "the connection closed before the answer was complete",
+        HttpRequestError.HttpProtocolError or HttpRequestError.InvalidResponse => "the answer was not valid HTTP",
+        HttpRequestError.VersionNegotiationError => "no HTTP version suits both sides",
+        HttpRequestError.ConfigurationLimitExceeded => "the answer exceeded a limit of the HTTP client, such as header size",
+        _ => "the request failed before an answer arrived"
+    };
 
     public static SyncError RecordsNotArray(string recipe, string path, string kind) => new(
         HttpErrorCodes.RecordsNotArray, SyncErrorKind.Configuration,

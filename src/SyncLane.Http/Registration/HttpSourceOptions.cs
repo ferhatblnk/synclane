@@ -5,8 +5,12 @@ public sealed class HttpSourceOptions
 {
     private readonly List<HttpRecipeBinding> _bindings = [];
     private readonly List<SyncError> _errors = [];
+    private readonly List<(string Name, Type Type)> _signers = [];
 
-    /// <summary>How long one request may take, from sending it to reading the last byte. Default 100 seconds.</summary>
+    /// <summary>
+    /// How long one request may take, from sending it to reading the last byte: a page, or a token from an OAuth 2.0
+    /// token endpoint. Default 100 seconds.
+    /// </summary>
     public TimeSpan Timeout { get; set; } = TimeSpan.FromSeconds(100);
 
     /// <summary>The largest response read, in bytes. A larger one fails the job. Default 16 MiB.</summary>
@@ -28,6 +32,31 @@ public sealed class HttpSourceOptions
     public string UserAgent { get; set; } = $"SyncLane.Http/{typeof(HttpSourceOptions).Assembly.GetName().Version?.ToString(3)}";
 
     internal IReadOnlyList<HttpRecipeBinding> Bindings => _bindings;
+
+    internal Type? CredentialStore { get; private set; }
+
+    internal IReadOnlyList<(string Name, Type Type)> Signers => _signers;
+
+    /// <summary>
+    /// Uses <typeparamref name="TStore"/> to look up owners' credentials for recipes with <c>auth</c>. It is resolved from
+    /// the scope of each page, so it may use a scoped database context.
+    /// </summary>
+    public HttpSourceOptions Credentials<TStore>() where TStore : class, ICredentialStore
+    {
+        CredentialStore = typeof(TStore);
+        return this;
+    }
+
+    /// <summary>
+    /// Registers <typeparamref name="TSigner"/> for recipes whose <c>auth.signer</c> is <paramref name="name"/>. It is
+    /// resolved from the scope of each page.
+    /// </summary>
+    public HttpSourceOptions Signer<TSigner>(string name) where TSigner : class, IRequestSigner
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(name);
+        _signers.Add((name, typeof(TSigner)));
+        return this;
+    }
 
     /// <summary>Registers a recipe for a job type. Every problem with the recipe is reported when the application starts.</summary>
     /// <param name="jobType">The job type, as declared on the queue with <c>HttpRecipeHandler</c>.</param>
@@ -88,6 +117,24 @@ public sealed class HttpSourceOptions
             .Select(group => HttpErrors.RecipeDeclaredTwice(group.Key)));
 
         errors.AddRange(_bindings.Where(binding => !binding.HasSink).Select(binding => HttpErrors.SinkMissing(binding.JobType)));
+
+        errors.AddRange(_signers
+            .GroupBy(signer => signer.Name, StringComparer.Ordinal)
+            .Where(group => group.Count() > 1)
+            .Select(group => HttpErrors.OptionInvalid($"Signer(\"{group.Key}\")", "is registered twice; register one signer per name")));
+
+        var authenticated = _bindings
+            .Select(binding => binding.Recipe)
+            .Where(recipe => recipe?.Auth is not null)
+            .DistinctBy(recipe => recipe.Name, StringComparer.Ordinal)
+            .ToList();
+
+        if (CredentialStore is null)
+            errors.AddRange(authenticated.Select(recipe => HttpErrors.CredentialStoreMissing(recipe.Name)));
+
+        errors.AddRange(authenticated
+            .Where(recipe => recipe.Auth is SignedAuth signed && !_signers.Any(signer => signer.Name == signed.Signer))
+            .Select(recipe => HttpErrors.SignerMissing(recipe.Name, ((SignedAuth)recipe.Auth!).Signer)));
 
         return errors;
     }

@@ -301,7 +301,7 @@ That also means the decisions are yours. When you use SyncLane, you are responsi
 
 - **Your right to call the API.** Having an account or app registration with the provider, accepting its terms, and staying within the limits and uses it allows.
 - **The pace you choose.** Concurrency, windows, retries and delays are settings. SyncLane applies them; it does not know what a provider tolerates. Start slow on an account that matters.
-- **Your credentials.** Where they are stored, who can read them and when they are rotated.
+- **Your credentials.** Where they are stored, who can read them and when they are rotated. Recipes ask your `ICredentialStore` for them page by page; SyncLane stores none.
 - **The data you pull and where you write it.** Including personal data and the laws that apply to it where you and your users are, such as the GDPR or Turkey's KVKK: what you keep, for how long and who may see it.
 - **What your handlers do.** SyncLane calls your code; it does not review it.
 

@@ -170,14 +170,19 @@ public class HandlerTests
     }
 
     [Fact]
-    public async Task A_network_failure_is_retried_and_keeps_its_cause()
+    public async Task A_network_failure_is_retried_and_names_its_kind_but_never_quotes_its_message()
     {
-        var api = new FakeApi((_, _) => throw new HttpRequestException("Connection refused"));
+        // A proxy or a handler added to the client may put the URL, or its own password, into the message.
+        var api = new FakeApi((request, _) =>
+            throw new HttpRequestException(HttpRequestError.ConnectionError, $"Proxy http://user:hunter2@proxy failed for {request.RequestUri}"));
 
         var thrown = await Assert.ThrowsAsync<SyncLaneException>(() => RunAsync(api));
 
         Assert.Equal(HttpErrorCodes.Unreachable, thrown.Error.Code);
-        Assert.IsType<HttpRequestException>(thrown.InnerException);
+        Assert.Contains("the connection could not be made", thrown.Message);
+        Assert.Null(thrown.InnerException);
+        Assert.DoesNotContain("hunter2", thrown.Message);
+        Assert.DoesNotContain("shops/", thrown.Message);
     }
 
     [Fact]

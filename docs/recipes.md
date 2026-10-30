@@ -2,7 +2,7 @@
 
 A recipe tells `SyncLane.Http` how to fetch one job type over HTTP: the request, how the job's window is written into it, and where the records are in the answer. It replaces a hand-written `IJobHandler` for APIs that fit it.
 
-> **Preview.** As of phase 1.3 recipes run and page. Authentication beyond fixed headers arrives in the next part; see [design/phase-1.md](design/phase-1.md).
+> **Preview.** As of phase 1.4 recipes run, page and authenticate. The live check against real APIs is the next part; see [design/phase-1.md](design/phase-1.md).
 
 ## A recipe
 
@@ -87,15 +87,19 @@ Every problem is reported before anything runs. `AddSyncLaneHttp` throws one `Sy
 | --- | --- | --- |
 | 2xx | Records go to the sink; the job completes. | |
 | 429 | The job waits for `Retry-After` (at most `MaxRetryAfter`), or the queue's throttle delay, and continues. | `SL5105` |
+| 401 to an OAuth 2.0 token kept from an earlier page | The token is renewed once and the page sent again. | |
 | 401, 403 | The job is abandoned at once. The same credentials will not work on the next try. | `SL5106` |
 | 408, 5xx | Retried with the queue's growing delay. | `SL5107` |
 | No answer within `Timeout` | Retried. | `SL5108` |
-| DNS, connection or TLS failure | Retried. | `SL5109` |
+| DNS, connection, TLS or proxy failure | Retried. The message says which; the exception's own text is not kept. | `SL5109` |
 | 3xx | Abandoned. Redirects are not followed. | `SL5111` |
 | Other 4xx | Abandoned: retrying gets the same answer. | `SL5110` |
 | Larger than `MaxResponseBytes` | Abandoned. | `SL5112` |
 | Not valid JSON | Retried. | `SL5113` |
 | Nothing at the records path | Retried; some APIs answer 200 with an error now and then. | `SL5103`, `SL5104` |
+| No credential for the owner, or one that lacks a value | Abandoned before anything is sent. | `SL5119`, `SL5120` |
+| The token endpoint refuses, or answers without a usable token | Abandoned. | `SL5121`, `SL5123` |
+| The token endpoint answers 408, 429 or 5xx, times out or cannot be reached | Retried, or waits after 429. | `SL5122` |
 
 An abandoned job waits for you: fix the cause, then `RequeueAsync`. It continues from its cursor.
 
@@ -103,7 +107,7 @@ An abandoned job waits for you: fix the cause, then `RequeueAsync`. It continues
 
 | Setting | Default | What it does |
 | --- | --- | --- |
-| `Timeout` | 100 seconds | How long one request may take, to the last byte of the answer. |
+| `Timeout` | 100 seconds | How long one request may take, to the last byte of the answer: a page, or a token from a token endpoint. |
 | `MaxResponseBytes` | 16 MiB | The largest answer read. |
 | `MaxRetryAfter` | 1 hour | The longest wait taken from a `Retry-After` header. |
 | `MaxPagesPerJob` | 1,000 | The most pages one job reads with `page` or `offset` paging. |
@@ -148,6 +152,109 @@ With `nextUrl` and `linkHeader`, pages after the first are called exactly as the
 
 Not supported yet: a page number, offset or cursor that the API expects in the body or in a header rather than in the query, as GraphQL APIs often do. Such APIs need a hand-written handler for now.
 
+## Authentication
+
+A recipe names a credential; it never holds one. For every page, SyncLane asks your credential store for the values of the job's owner and adds them as the auth type says.
+
+```jsonc
+"auth": { "type": "bearer", "credential": "example-shop" }
+```
+
+| `type` | What is sent | Values it needs | Other fields |
+| --- | --- | --- | --- |
+| `bearer` | `Authorization: Bearer <Token>` | `Token` | |
+| `basic` | `Authorization: Basic`, user name and password in UTF-8 | `Username`, and `Password` if there is one | |
+| `apiKey` | The key in a header or a query parameter | `Token` | `name` (required); `in`: `header` (default) or `query`; `prefix` before a key in a header, such as `"Token "` |
+| `oauth2` | `Authorization: Bearer` with an access token from `tokenUrl` | Client credentials: `ClientId`, `ClientSecret`. Refresh token: `ClientId`, `RefreshToken`, and `ClientSecret` if the client has one | `grant`: `clientCredentials` or `refreshToken` (required); `tokenUrl` (required); `scope`; `clientAuth`: `basic` (default) or `body` |
+| `signed` | Whatever your signer adds | Any, including `Values` | `signer` (required) |
+
+`credential` is required for every type. A field that does not apply to the type is an error, as with pagination. Prefer a header for an API key when the API accepts one: a URL is recorded in more places than a header, by proxies and by the API's own access logs.
+
+### The credential store
+
+```csharp
+builder.Services.AddSyncLaneHttp(http =>
+{
+    http.Credentials<ShopCredentials>();
+    http.Recipe("orders", File.ReadAllText("recipes/orders.json")).WriteTo<OrderSink>();
+});
+```
+
+```csharp
+public sealed class ShopCredentials(AppDb db, Secrets secrets) : ICredentialStore
+{
+    public async ValueTask<Credential?> GetAsync(CredentialKey key, CancellationToken cancellationToken)
+    {
+        var connection = await db.Connections.FindAsync([key.Owner, key.Name], cancellationToken);
+        return connection is null ? null : new Credential { Token = secrets.Decrypt(connection.Token) };
+    }
+
+    public async ValueTask SaveRefreshTokenAsync(CredentialKey key, string refreshToken, CancellationToken cancellationToken)
+    {
+        var connection = await db.Connections.FindAsync([key.Owner, key.Name], cancellationToken);
+        connection!.RefreshToken = secrets.Encrypt(refreshToken);
+        await db.SaveChangesAsync(cancellationToken);
+    }
+}
+```
+
+- `key.Owner` is the job's owner; `key.Name` is the recipe's `credential`. Recipes for one account share a name.
+- Credentials stay where you keep them, encrypted as you choose. SyncLane stores none.
+- `GetAsync` is called once for every page and resolved from the page's scope, so a scoped database context works. Cache inside the store if a lookup is slow or rate limited.
+- Return `null` when the owner has no credential, for example after they disconnected: the job is abandoned with `SL5119`. Throw when the store cannot answer: the job is retried.
+- A recipe with `auth` and no registered store stops the application at start-up (`SL5020`).
+
+### OAuth 2.0
+
+- The access token is fetched when a page first needs it and kept in memory, one per owner and credential. It is renewed a minute before it expires (a tenth of its lifetime, for tokens that live less than ten minutes). Without `expires_in` it is kept until the API answers 401, and never longer than a day.
+- Pages that need a token at the same moment share one request to the token endpoint.
+- A 401 to a kept token renews it once and sends the page again. A 401 to a token fetched for that very page abandons the job.
+- When the token endpoint issues a new refresh token, `SaveRefreshTokenAsync` is called before the page goes on, with a token that is never cancelled: the old refresh token may already be retired.
+- With several instances, two may use the same rotating refresh token at once, and the slower one gets `invalid_grant`. SyncLane then reads the store once more and, if it holds a different refresh token, tries again with it. If the other instance has not saved yet, the job is abandoned with `SL5121` and a requeue fixes it.
+- Tokens are never written anywhere, so a restarted process fetches new ones.
+- Token requests go through the same `HttpClient`, so they never follow a redirect either.
+- Not supported: the authorization code flow itself, the consent screen where the owner grants access, which stays in your application (SyncLane starts from the refresh token it produced); the device flow; client authentication with a signed JWT or mutual TLS. Use a hand-written handler for those.
+
+### Signed requests
+
+For APIs that want a signature, for example a hash of the method, path and time:
+
+```csharp
+builder.Services.AddSyncLaneHttp(http =>
+{
+    http.Credentials<ShopCredentials>();
+    http.Signer<ExampleHmacSigner>("example-hmac");
+    http.Recipe("orders", File.ReadAllText("recipes/orders.json")).WriteTo<OrderSink>();
+});
+```
+
+```csharp
+public sealed class ExampleHmacSigner(TimeProvider time) : IRequestSigner
+{
+    public ValueTask SignAsync(HttpRequestMessage request, Credential credential, CancellationToken cancellationToken)
+    {
+        var timestamp = time.GetUtcNow().ToUnixTimeSeconds().ToString(CultureInfo.InvariantCulture);
+        var data = Encoding.UTF8.GetBytes($"{request.Method}\n{request.RequestUri!.PathAndQuery}\n{timestamp}");
+        var signature = Convert.ToHexString(HMACSHA256.HashData(Encoding.UTF8.GetBytes(credential.Values["secret"]), data));
+
+        request.Headers.Add("X-Timestamp", timestamp);
+        request.Headers.Add("X-Signature", signature);
+        return ValueTask.CompletedTask;
+    }
+}
+```
+
+The recipe says `"auth": { "type": "signed", "credential": "example-shop", "signer": "example-hmac" }`. The signer sees the complete request: the URL with its paging parameters, the headers and the body. It may add headers and query parameters; changing the method, scheme, host or port abandons the job (`SL5124`), so a signer cannot send a request somewhere the recipe does not name.
+
+### Where a credential never goes
+
+- **Into a recipe.** `Authorization` and `Proxy-Authorization` in `request.headers` are refused (`SL5019`). A recipe can be shared and committed.
+- **Into the jobs table.** Many APIs copy a query-string key into their next-page URLs. The key is taken out before the URL becomes the job's cursor, and added again when the page is requested.
+- **Into a message, a log or a span.** Messages name the credential and the missing value, such as "has no ClientSecret", never the value. A network error keeps only its kind, not the exception's text, which can hold the URL or a proxy's password. From a token endpoint's refusal, only a standard RFC 6749 code such as `invalid_grant` is quoted.
+- **To another host.** No redirects are followed, next-page URLs on another host are refused, and a signer cannot move the request.
+
+A test holds this: every type runs through the engine against an API and a token endpoint that echo every secret they receive in bodies and exception messages, and the test searches every log line, span, metric and database row for them. What it cannot cover is tracing of `HttpClient` itself, if you turn it on: a key in a query string is part of the URL there. One more thing SyncLane does not pretend: .NET cannot wipe a string from memory, so a credential lives in memory as long as the page that uses it.
+
 ## Fields
 
 | Field | Required | What it is |
@@ -156,12 +263,13 @@ Not supported yet: a page number, offset or cursor that the API expects in the b
 | `request.method` | no | `GET` (default) or `POST`. |
 | `request.url` | yes | Absolute `https` URL. Placeholders may appear in the path and the query, never in the scheme, host or port. |
 | `request.query` | no | Parameters added to the URL. Values are strings and may contain placeholders. |
-| `request.headers` | no | Request headers. Values may contain placeholders. `Host`, `Content-Length`, `Transfer-Encoding` and `Connection` cannot be set. |
+| `request.headers` | no | Request headers. Values may contain placeholders. `Host`, `Content-Length`, `Transfer-Encoding` and `Connection` cannot be set; `Authorization` and `Proxy-Authorization` are refused, because credentials never go in a recipe. |
 | `request.body` | no | A JSON body, for `POST` only. Placeholders are filled in string values. |
-| `request.allowHttp` | no | Allow a plain `http` URL. For local test servers only. |
+| `request.allowHttp` | no | Allow a plain `http` URL, and a plain `http` token URL. For local test servers only. |
 | `records` | no | Where the array of records is in the answer: `$` (default) for the root, or `$.data.items`. Property names only. |
 | `window.format` | no | How `{{window.start}}` and `{{window.end}}` are written. Default `iso8601`. |
 | `pagination` | no | How to get the next page. See [Pagination](#pagination). |
+| `auth` | no | How requests are authenticated. See [Authentication](#authentication). |
 
 ## Placeholders
 
@@ -191,9 +299,9 @@ All formats are in UTC.
 These are deliberate limits, checked when the recipe is loaded or the request is built:
 
 - **Call a host it does not name.** The scheme, host and port are fixed text. A placeholder cannot change where the request goes.
-- **Carry credentials in the URL.** `https://user:password@host` is refused. Credentials go in headers, and with phase 1.4 in a credential store.
+- **Hold a credential.** `https://user:password@host` and an `Authorization` header are refused. A recipe names a credential; the credential store gives its values. See [Authentication](#authentication).
 - **Inject into the request.** Placeholder values are percent-encoded in the URL and written as JSON strings in the body, so a value cannot add a parameter or change the shape of the body. A header that would contain a line break after filling is not sent.
-- **Put a secret into an error message.** Messages name the recipe and the field, never a header value, a credential, a URL or a response body.
+- **Put a secret into an error message.** Messages name the recipe and the field, never a header value, a credential, a URL or a response body. A network error keeps only its kind, never the exception's own text.
 - **Follow a redirect.** A redirect could send the recipe's headers, keys included, to another host. It abandons the job instead.
 - **Log its URLs.** The `HttpClient` loggers that would write each request's URL, owner key and query included, are removed.
 - **Decompress with anything but the standard.** Answers in gzip, deflate or brotli are accepted when the server offers them. There is no compression of SyncLane's own.

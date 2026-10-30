@@ -235,9 +235,12 @@ Trust boundaries and what crosses them:
 | Configuration to SyncLane | Connection string, schema name | The connection string is never logged. The schema name must match `^[a-z_][a-z0-9_]{0,62}$` before it reaches SQL. |
 | SyncLane to PostgreSQL | Job state | Values are always parameters. Only the validated schema name is interpolated. |
 | SyncLane to user handlers | The `Job` row | Handlers look up credentials themselves; SyncLane never sees them. |
+| Credential store to `SyncLane.Http` | One owner's credential, for one page | Added to the request only. Never stored, logged, traced or put in a message. OAuth 2.0 access tokens are kept in memory, never written. |
+| `SyncLane.Http` to an API | Requests carrying credentials | Only to the recipe's host and its token URL, both fixed text. No redirects; next-page URLs on another host are refused; a signer cannot move a request. |
+| API answers to the table | Error messages and cursors | Messages never quote a body, a URL or a network exception's text. A query-string key is taken out of next-page URLs before they become cursors. |
 | Handler exceptions to the table | Exception type and message | Capped at 2,000 characters. Handlers must not put secrets in exception messages ([SECURITY.md](SECURITY.md)). |
 | SyncLane to observability | Metrics, spans, logs | Queue and type only. Never owner, lane, cursor, headers or bodies. |
-| SyncLane to the internet | Nothing | No telemetry home, no license check, no update check. |
+| SyncLane to the internet | Nothing of its own | No telemetry home, no license check, no update check. `SyncLane.Http` calls only the hosts your recipes name. |
 
 Anyone who can write to the `jobs` table can make workers run a handler for any owner. Treat write access to it like access to the application.
 
@@ -250,8 +253,8 @@ Each is a small interface the user implements; SyncLane calls it.
 | `IJobHandler` | Available | Run one page of a job and return the next cursor. |
 | `IOwnerSource` | Available | List the accounts a queue should plan for. |
 | `IRecordSink` | Available in `SyncLane.Http` | Write the records of a page. Ready-made sinks (PostgreSQL `jsonb`, HTTP POST) are phase 3. |
-| `IRequestSigner` | Planned, phase 1 | Sign an outgoing request for platforms that require it. |
-| `ICredentialStore` | Planned, phase 1 | Keep credentials encrypted, outside the jobs table. |
+| `ICredentialStore` | Available in `SyncLane.Http` | Give an owner's credential for a page, and save a rotated refresh token. Credentials stay in the user's storage, outside the jobs table. |
+| `IRequestSigner` | Available in `SyncLane.Http` | Sign an outgoing request for APIs that require it. May add headers and query parameters, never move the request. |
 | Rate budgets | Proposed, phase 2 | See [docs/design/rate-budgets.md](docs/design/rate-budgets.md). |
 
 ## Packages
@@ -259,7 +262,7 @@ Each is a small interface the user implements; SyncLane calls it.
 | Package | Contents | Status |
 | --- | --- | --- |
 | `SyncLane` | Engine: planning, running, storage, results, errors, telemetry | This repository |
-| `SyncLane.Http` | Declarative HTTP source: recipes, pagination, auth, rate budgets | In progress: recipes run and page ([docs/recipes.md](docs/recipes.md)); authentication next |
+| `SyncLane.Http` | Declarative HTTP source: recipes, pagination, auth, rate budgets | In progress: recipes run, page and authenticate ([docs/recipes.md](docs/recipes.md)); live check against real APIs next |
 | `SyncLane.Sinks.*` | Destinations | Planned |
 | `SyncLane.Cli` | `init --curl`, `probe`, `test` | Planned |
 | Adapters to in-house packages | For example `SyncResult` to `ApiResult` | Separate solution, never in this one |
@@ -282,3 +285,6 @@ Each is a small interface the user implements; SyncLane calls it.
 | D12 | Rate budgets separate from lanes | Lanes serialise; shared limits should not. | Proposed |
 | D13 | `SyncLane.Http` depends on `Microsoft.Extensions.Http` | `IHttpClientFactory` manages connection lifetimes and lets users add handlers to a named client; writing that ourselves would be worse. Maintained by Microsoft, MIT licensed. The engine does not take the dependency. | Accepted |
 | D14 | The HTTP source follows no redirects | A redirect could carry a recipe's headers to another host, and would break the rule that a recipe only calls the host it names. | Accepted |
+| D15 | Credentials never in a recipe or the jobs table; an `ICredentialStore` gives them per owner, once per page | A recipe is meant to be shared and committed, and the jobs table is read by dashboards and support staff. Asking per page makes a rotated or revoked credential count at once; a store that is slow to ask can cache. | Accepted |
+| D16 | OAuth 2.0 access tokens live in memory only | Writing them down would add a table of live secrets to protect. A restart costs one token request per owner. | Accepted |
+| D17 | A network error keeps its kind, not its message | The engine stores every message of an exception chain, and the messages of `HttpClient` and proxies can hold the URL, with a key in its query, or a proxy's password. The kind (DNS, connection, TLS, proxy) is enough to act on. | Accepted |

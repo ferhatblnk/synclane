@@ -1,24 +1,23 @@
-using System.Buffers;
+using System.Diagnostics;
+using System.Net;
 using System.Text.Json;
 using Microsoft.Extensions.DependencyInjection;
 
 namespace SyncLane.Http;
 
 /// <summary>
-/// Runs a job from its recipe: builds the request, sends it, finds the records and hands them to the recipe's sink.
-/// Declare job types with it, for example <c>queue.Windowed&lt;HttpRecipeHandler&gt;("orders", ...)</c>, and register their
-/// recipes with <c>AddSyncLaneHttp</c>.
+/// Runs a job from its recipe: builds the request, authenticates it, sends it, finds the records and hands them to the
+/// recipe's sink. Declare job types with it, for example <c>queue.Windowed&lt;HttpRecipeHandler&gt;("orders", ...)</c>,
+/// and register their recipes with <c>AddSyncLaneHttp</c>.
 /// </summary>
 /// <remarks>
-/// How answers become job outcomes: 2xx is a page; 429 waits, honouring <c>Retry-After</c>; 401 and 403 abandon the job,
-/// because retrying with the same credentials cannot help; 408, 5xx, timeouts, network errors and broken JSON retry
-/// with the queue's growing delay; redirects and other 4xx abandon. No message ever contains a response body, a header
-/// value or a URL.
+/// How answers become job outcomes: 2xx is a page; 429 waits, honouring <c>Retry-After</c>; 401 renews an OAuth 2.0
+/// token once, and otherwise abandons the job, as 403 does, because retrying with the same credentials cannot help;
+/// 408, 5xx, timeouts, network errors and broken JSON retry with the queue's growing delay; redirects and other 4xx
+/// abandon. No message ever contains a response body, a header value, a credential or a URL.
 /// </remarks>
 public sealed class HttpRecipeHandler : IJobHandler
 {
-    private const int ReadChunk = 81920;
-
     private readonly RecipeRegistry _recipes;
     private readonly HttpClient _client;
     private readonly IServiceProvider _services;
@@ -47,7 +46,8 @@ public sealed class HttpRecipeHandler : IJobHandler
         if (!pageRequest.Succeeded)
             throw new JobAbandonedException(string.Join("; ", pageRequest.Errors));
 
-        using var answer = await FetchAsync(recipe, job, pageRequest.Value, cancellationToken);
+        var auth = recipe.Auth is { } scheme ? await AuthenticateAsync(recipe, scheme, job, cancellationToken) : null;
+        using var answer = await FetchAsync(recipe, job, pageRequest.Value, auth, cancellationToken);
 
         var records = recipe.Records.Find(answer.Document.RootElement, recipe.Name);
         if (!records.Succeeded)
@@ -64,28 +64,84 @@ public sealed class HttpRecipeHandler : IJobHandler
         return new JobPage(next.Value, page.Count);
     }
 
-    /// <summary>Sends the page's request and returns its answer, or throws the exception that gives the right outcome.</summary>
-    private async Task<Answer> FetchAsync(CompiledRecipe recipe, Job job, PageRequest pageRequest, CancellationToken cancellationToken)
+    /// <summary>The owner's credential for this page, or an abandoned job when the store has none.</summary>
+    private async Task<AuthContext> AuthenticateAsync(CompiledRecipe recipe, RecipeAuth scheme, Job job, CancellationToken cancellationToken)
     {
-        var rendered = RequestRenderer.Render(recipe, job, pageRequest);
+        var store = _services.GetRequiredService<ICredentialStore>();
+        var key = new CredentialKey(job.Owner, scheme.Credential);
+        var credential = await store.GetAsync(key, cancellationToken)
+            ?? throw new JobAbandonedException(HttpErrors.CredentialMissing(recipe.Name, scheme.Credential).ToString());
+
+        return new AuthContext(key, credential, store, _services);
+    }
+
+    /// <summary>
+    /// Sends the page's request and returns its answer, or throws the exception that gives the right outcome. A token
+    /// the API rejects with 401 is renewed and the request sent once more, unless the token was fetched just now.
+    /// </summary>
+    private async Task<Answer> FetchAsync(CompiledRecipe recipe, Job job, PageRequest page, AuthContext? auth, CancellationToken cancellationToken)
+    {
+        var (first, stamp) = await PrepareAsync(recipe, job, page, auth, rejected: null, cancellationToken);
+        using (first)
+        {
+            var renewable = recipe.Auth is { Renews: true } && !stamp.Fresh;
+            if (await SendAsync(recipe, first, renewable, cancellationToken) is { } answer)
+                return answer;
+        }
+
+        var (second, _) = await PrepareAsync(recipe, job, page, auth, stamp.Token, cancellationToken);
+        using (second)
+            return await SendAsync(recipe, second, renewable: false, cancellationToken) ?? throw new UnreachableException();
+    }
+
+    /// <summary>The request for the page, with its credential.</summary>
+    private async Task<(HttpRequestMessage Request, AuthStamp Stamp)> PrepareAsync(
+        CompiledRecipe recipe, Job job, PageRequest page, AuthContext? auth, string? rejected, CancellationToken cancellationToken)
+    {
+        var rendered = RequestRenderer.Render(recipe, job, page);
         if (!rendered.Succeeded)
             throw new JobAbandonedException(string.Join("; ", rendered.Errors));
 
-        using var request = rendered.Value!;
+        var request = rendered.Value!;
         if (!request.Headers.Contains("User-Agent"))
             request.Headers.TryAddWithoutValidation("User-Agent", _options.UserAgent);
 
+        if (auth is null)
+            return (request, AuthStamp.None);
+
+        try
+        {
+            return (request, await recipe.Auth!.ApplyAsync(request, auth, rejected, cancellationToken));
+        }
+        catch
+        {
+            request.Dispose();
+            throw;
+        }
+    }
+
+    /// <summary>Sends one request. <c>null</c> means a 401 that <paramref name="renewable"/> allows to try again.</summary>
+    private async Task<Answer?> SendAsync(CompiledRecipe recipe, HttpRequestMessage request, bool renewable, CancellationToken cancellationToken)
+    {
         using var timeout = new CancellationTokenSource(_options.Timeout, _time);
         using var linked = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, timeout.Token);
 
         try
         {
             using var response = await _client.SendAsync(request, HttpCompletionOption.ResponseHeadersRead, linked.Token);
+            if (renewable && response.StatusCode == HttpStatusCode.Unauthorized)
+                return null;
+
             ThrowUnlessSuccess(response, recipe.Name);
 
             var links = response.Headers.TryGetValues("Link", out var values) ? values.ToArray() : [];
-            var document = await ReadJsonAsync(response.Content, recipe.Name, linked.Token);
-            return new Answer(document, links, request.RequestUri!);
+            var (document, tooLarge) = await JsonBody.ReadAsync(response.Content, _options.MaxResponseBytes, linked.Token);
+            if (tooLarge)
+                throw new JobAbandonedException(HttpErrors.ResponseTooLarge(recipe.Name, _options.MaxResponseBytes).ToString());
+
+            return document is null
+                ? throw new SyncLaneException(HttpErrors.ResponseNotJson(recipe.Name))
+                : new Answer(document, links, request.RequestUri!);
         }
         catch (OperationCanceledException exception) when (timeout.IsCancellationRequested && !cancellationToken.IsCancellationRequested)
         {
@@ -93,7 +149,9 @@ public sealed class HttpRecipeHandler : IJobHandler
         }
         catch (HttpRequestException exception)
         {
-            throw new SyncLaneException(HttpErrors.Unreachable(recipe.Name), exception);
+            // The exception's own message may hold the URL, with a key in its query, or a proxy's credentials, and the
+            // engine stores every message of the chain. Only the kind of failure is kept.
+            throw new SyncLaneException(HttpErrors.Unreachable(recipe.Name, exception.HttpRequestError));
         }
     }
 
@@ -105,55 +163,13 @@ public sealed class HttpRecipeHandler : IJobHandler
 
         throw status switch
         {
-            429 => new JobThrottledException(HttpErrors.Throttled(recipe).ToString(), RetryAfter(response)),
+            429 => new JobThrottledException(
+                HttpErrors.Throttled(recipe).ToString(), RetryAfter.From(response, _time.GetUtcNow(), _options.MaxRetryAfter)),
             401 or 403 => new JobAbandonedException(HttpErrors.Unauthorized(recipe, status).ToString()),
             408 or >= 500 => new SyncLaneException(HttpErrors.ServerError(recipe, status)),
             >= 300 and < 400 => new JobAbandonedException(HttpErrors.Redirected(recipe, status).ToString()),
             _ => (Exception)new JobAbandonedException(HttpErrors.RequestRejected(recipe, status).ToString())
         };
-    }
-
-    /// <summary>The wait the other side asked for, never negative and never longer than <see cref="HttpSourceOptions.MaxRetryAfter"/>.</summary>
-    private TimeSpan? RetryAfter(HttpResponseMessage response)
-    {
-        var header = response.Headers.RetryAfter;
-        var wait = header?.Delta ?? (header?.Date is { } date ? date - _time.GetUtcNow() : null);
-        if (wait is not { } asked)
-            return null;
-
-        return asked < TimeSpan.Zero ? TimeSpan.Zero : asked > _options.MaxRetryAfter ? _options.MaxRetryAfter : asked;
-    }
-
-    /// <summary>Reads the body up to the size limit and parses it. The body is never put into a message.</summary>
-    private async Task<JsonDocument> ReadJsonAsync(HttpContent content, string recipe, CancellationToken cancellationToken)
-    {
-        if (content.Headers.ContentLength > _options.MaxResponseBytes)
-            throw new JobAbandonedException(HttpErrors.ResponseTooLarge(recipe, _options.MaxResponseBytes).ToString());
-
-        await using var stream = await content.ReadAsStreamAsync(cancellationToken);
-        var buffer = new ArrayBufferWriter<byte>();
-
-        // Sequential: reading one stream.
-        while (true)
-        {
-            var read = await stream.ReadAsync(buffer.GetMemory(ReadChunk), cancellationToken);
-            if (read == 0)
-                break;
-
-            buffer.Advance(read);
-            if (buffer.WrittenCount > _options.MaxResponseBytes)
-                throw new JobAbandonedException(HttpErrors.ResponseTooLarge(recipe, _options.MaxResponseBytes).ToString());
-        }
-
-        try
-        {
-            return JsonDocument.Parse(buffer.WrittenMemory);
-        }
-        catch (JsonException)
-        {
-            // The parser's message quotes the text it choked on, which is part of the body, so it is not kept.
-            throw new SyncLaneException(HttpErrors.ResponseNotJson(recipe));
-        }
     }
 
     /// <summary>A parsed answer and what paging needs from its headers.</summary>

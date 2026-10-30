@@ -61,6 +61,23 @@ public abstract class PostgresTest : IAsyncLifetime
     internal async Task<Job> JobAsync(long id) =>
         await Store.FindAsync(id, CancellationToken.None) ?? throw new InvalidOperationException($"Job {id} does not exist.");
 
+    /// <summary>Every row of every table in the test's schema, as JSON text, for tests that search what was stored.</summary>
+    protected async Task<string> DumpSchemaAsync()
+    {
+        await using var command = _admin!.CreateCommand(
+            $"SELECT coalesce(string_agg(row_to_json(j)::text, E'\\n'), '') FROM {Schema}.jobs j " +
+            $"UNION ALL SELECT coalesce(string_agg(row_to_json(m)::text, E'\\n'), '') FROM {Schema}.migrations m");
+
+        var rows = new List<string>();
+        await using var reader = await command.ExecuteReaderAsync();
+
+        // Sequential: reading rows from one data reader.
+        while (await reader.ReadAsync())
+            rows.Add(reader.GetString(0));
+
+        return string.Join('\n', rows);
+    }
+
     protected async Task<int> ExecuteAsync(string statement)
     {
         await using var command = _admin!.CreateCommand(statement);
