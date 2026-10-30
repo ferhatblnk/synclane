@@ -4,6 +4,8 @@ All notable changes to this project are recorded here. The format follows [Keep 
 
 ## [0.2.0] - Unreleased
 
+Packed as `0.2.0-preview.1` until the HTTP source has met the APIs of a production integration.
+
 ### Added
 
 - `SyncLane.Http`, phase 1.1: the recipe model. `HttpRecipe.Parse` reads a recipe from JSON and reports every problem at once with codes `SL5001` to `SL5011`; placeholders `{{window.start}}`, `{{window.end}}` and `{{owner.key}}` are escaped for where they land; a recipe can only call the host it names. Requests are built but not sent yet. See `docs/recipes.md`.
@@ -11,6 +13,8 @@ All notable changes to this project are recorded here. The format follows [Keep 
 - The HTTP client follows no redirects, accepts gzip, deflate and brotli, and logs no URLs.
 - `SyncLane.Http`, phase 1.3: pagination by page number, offset, cursor (from the answer or the last record, with an optional has-more flag), next URL in the body, and `Link` header. The job's cursor holds the paging state, so a job continues from the page it reached. Next URLs must keep the recipe's scheme, host and port; a page pointing to itself and more than `MaxPagesPerJob` numbered pages stop the job. Codes `SL5017` and `SL5114` to `SL5118`.
 - `SyncLane.Http`, phase 1.4: authentication. A recipe's `auth` names a credential and never holds one; `ICredentialStore` gives each owner's values page by page. Types `bearer`, `basic`, `apiKey` (header or query) and `oauth2` (client credentials and refresh token: tokens kept in memory, renewed before they expire, shared by pages that need one at once, renewed once after a 401, rotated refresh tokens saved), and `signed` with an `IRequestSigner` that may not move the request. An API key the API copies into its next-page URLs is taken out before the URL becomes the cursor. `Authorization` in `request.headers` is refused. Codes `SL5018` to `SL5021` and `SL5119` to `SL5124`. A test runs every type through the engine against an API that echoes every secret, and finds none in logs, spans, metrics or the database.
+- `samples/LiveCheck`, phase 1.5: five public APIs, one per paging style, synced through the engine with recipes only and compared with the totals the APIs report; an optional sixth checks a bearer token against a real API. Run by hand, not in CI. The first run passed 5 of 5.
+- A README section on recipes, which is also the package page of `SyncLane.Http`.
 - `SyncLaneOptions.Describe()`: a read-only list of the declared queues and job types with their handlers.
 - `SyncLaneException.Errors`: an exception can carry several errors; `ThrowIfFailed()` throws all of them.
 - A convention test that fails when a platform is named in the library's code.

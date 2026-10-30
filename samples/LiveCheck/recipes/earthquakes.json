@@ -1,0 +1,15 @@
+{
+  // A record offset that starts at 1, inside the job's window. Sorted by time, so offsets stay stable.
+  "name": "usgs/earthquakes",
+  "request": {
+    "url": "https://earthquake.usgs.gov/fdsnws/event/1/query",
+    "query": {
+      "format": "geojson",
+      "starttime": "{{window.start}}",
+      "endtime": "{{window.end}}",
+      "orderby": "time-asc"
+    }
+  },
+  "records": "$.features",
+  "pagination": { "type": "offset", "param": "offset", "start": 1, "size": 100, "sizeParam": "limit" }
+}

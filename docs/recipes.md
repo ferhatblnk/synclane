@@ -2,7 +2,7 @@
 
 A recipe tells `SyncLane.Http` how to fetch one job type over HTTP: the request, how the job's window is written into it, and where the records are in the answer. It replaces a hand-written `IJobHandler` for APIs that fit it.
 
-> **Preview.** As of phase 1.4 recipes run, page and authenticate. The live check against real APIs is the next part; see [design/phase-1.md](design/phase-1.md).
+> **Preview.** Recipes run, page and authenticate, and have synced five public APIs, one per paging style ([samples/LiveCheck](../samples/LiveCheck)). They have not yet met the APIs of a production integration; see [design/phase-1.md](design/phase-1.md).
 
 ## A recipe
 

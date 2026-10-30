@@ -53,20 +53,34 @@ Gate: tests against an in-process fake server; a job runs end to end through the
 
 Gate: each paginator against the fake server, including a crash between pages.
 
-### 1.4 Authentication (in review)
+### 1.4 Authentication (merged before 1.5)
 
 - Static header, API key, Basic, Bearer; OAuth2 client credentials and refresh token.
 - `ICredentialStore` (credentials per owner, never in the jobs table) and `IRequestSigner` for platforms that sign requests.
 
 Gate: tests for each scheme; a test that no credential reaches a log, a span, an error or the `error` column.
 
-### 1.5 Live check and preview
+### 1.5 Live check and preview (in review)
 
 - Four public APIs, one per pagination style, synced with recipes by a sample program run by hand. Not in CI: live APIs are slow, rate limited and change.
 - The owner's integrations, as a second check: for each, whether a recipe can describe it, and if not, what is missing. Their samples stay outside the repository; only the verdicts and made-up examples of the shapes go in. This is a better test of the stop rule than public APIs alone, because these are the APIs the library is for.
 - Package `SyncLane.Http` 0.2.0-preview, if the gate passes.
 
 Gate: the phase gate above.
+
+**Result, 2026-10-30** ([samples/LiveCheck](../../samples/LiveCheck)): five public APIs, one per paging style, synced through the engine with recipes only. No custom code, no retries, and every total an API reports matched.
+
+| Paging | API | Pages | Records | The API's own total |
+| --- | --- | --- | --- | --- |
+| page | Open Brewery DB, Oregon | 6 | 296 | 296 |
+| offset, in a window | USGS earthquakes, 2026-10-29 | 3 | 202 | 202 |
+| cursor | Bluesky, posts of `bsky.app` | 11 | 1,081 | none |
+| next URL | PokeAPI | 7 | 1,351 | 1,351 |
+| `Link` header | GitHub, `dotnet/runtime` issues updated since 2026-10-29 | 7 | 633 | none |
+
+Authentication against a real API: with an invalid token, GitHub answered 401 and the job was abandoned with `SL5106`, which shows the header arrived. The success path waits for a run with a real token.
+
+**What this does and does not show.** The phase gate passes: 0 of 5 needed custom code. But these APIs are the easy kind: public, JSON, one host, no account. They prove the paging styles work end to end, not that recipes fit the APIs the library is for. The owner's integrations, the second check above, are that test, and the stop rule is applied to them too. Packages are prepared as `0.2.0-preview.1`; publishing them is the owner's decision.
 
 ## Checks against what we refuted
 

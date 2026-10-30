@@ -1,0 +1,10 @@
+{
+  // A cursor in the answer, sent back as a query parameter. The owner key is the account whose feed is read.
+  "name": "bluesky/author-feed",
+  "request": {
+    "url": "https://public.api.bsky.app/xrpc/app.bsky.feed.getAuthorFeed",
+    "query": { "actor": "{{owner.key}}" }
+  },
+  "records": "$.feed",
+  "pagination": { "type": "cursor", "param": "cursor", "from": "$.cursor", "size": 100, "sizeParam": "limit" }
+}
