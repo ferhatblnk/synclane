@@ -1,5 +1,10 @@
 # SyncLane
 
+[![CI](https://github.com/ferhatblnk/synclane/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/ferhatblnk/synclane/actions/workflows/ci.yml)
+[![License: Apache 2.0](https://img.shields.io/badge/license-Apache%202.0-blue.svg)](LICENSE)
+[![.NET 10](https://img.shields.io/badge/.NET-10-512BD4.svg)](https://dotnet.microsoft.com/)
+[![Tested on PostgreSQL 17](https://img.shields.io/badge/tested%20on-PostgreSQL%2017-336791.svg)](.github/workflows/ci.yml)
+
 **A small job scheduler for syncing data from other people's APIs. Every job is one row in a PostgreSQL table you own: its window, its cursor, its attempts, its error.**
 
 If your application pulls orders, products or anything else from an external API on behalf of many accounts, you end up needing the same things: load two years of history without one request that runs for a day, pick up what is new every few minutes, continue after a crash instead of starting over, back off when the other side says "slow down", and never hit one account's rate limit from two workers at once.
