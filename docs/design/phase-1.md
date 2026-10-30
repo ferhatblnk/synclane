@@ -53,7 +53,7 @@ Gate: tests against an in-process fake server; a job runs end to end through the
 
 Gate: each paginator against the fake server, including a crash between pages.
 
-### 1.4 Authentication (merged before 1.5)
+### 1.4 Authentication (merged)
 
 - Static header, API key, Basic, Bearer; OAuth2 client credentials and refresh token.
 - `ICredentialStore` (credentials per owner, never in the jobs table) and `IRequestSigner` for platforms that sign requests.
