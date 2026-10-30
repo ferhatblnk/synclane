@@ -29,6 +29,7 @@ Run the PostgreSQL tests before calling any change to storage, running or the pu
 | `src/SyncLane/Storage` | Every SQL statement (`JobSql`), table access (`JobStore`), migrations. |
 | `src/SyncLane/Running` | Workers, the page loop, the failure policy. |
 | `src/SyncLane/Telemetry` | Metrics instruments and outcome names. |
+| `src/SyncLane.Http` | The declarative HTTP source: recipes, request building, record paths, its own codes (`HttpErrorCodes`) and catalog (`HttpErrors`). Uses only the engine's public API. |
 | `tests/SyncLane.Tests` | Unit tests, PostgreSQL tests (`[PostgresFact]`) and `ConventionTests`. |
 | `docs` | User documentation, `errors.md`, design proposals in `docs/design`. |
 
@@ -39,6 +40,7 @@ Each rule has a reason. If a rule is in your way, change the rule here first, wi
 ### 1. Dependencies
 
 - The library depends on the BCL, `Npgsql` and `Microsoft.Extensions.*.Abstractions`. Nothing else.
+- No platform is named in `src`: not in code, not in comments. Platform knowledge belongs in recipes. **(checked)**
 - **No in-house or company packages in this solution.** Nothing private, from any employer or client. SyncLane is public and must build for anyone. An adapter to such a package (for example mapping `SyncResult<T>` to `ApiResult<T>`) lives in a separate solution that references SyncLane, never the other way round.
 - Adding any dependency needs an entry in the decision log of ARCHITECTURE.md: what it does, why the BCL is not enough, its license, and who maintains it.
 
@@ -59,7 +61,7 @@ Every failure falls into exactly one category. Pick the mechanism from the categ
 - **All messages come from `SyncLaneErrors`.** Never write an error message in place: no `new XException("...")` anywhere in `src`. **(checked)**
 - Every message says what went wrong and how to fix it, in plain English, naming the setting, queue or type involved.
 - Never put a secret, a token, a header value or a response body in a message.
-- To add an error: add a constant to `SyncErrorCodes` with the next free number in its range, a factory to `SyncLaneErrors`, and a row to `docs/errors.md` with cause and fix. **(checked: every code has a factory and a row, and every row has a code)**
+- To add an error: add a constant to the package's code list (`SyncErrorCodes` or `HttpErrorCodes`) with the next free number in its range, a factory to its catalog (`SyncLaneErrors` or `HttpErrors`), and a row to `docs/errors.md` with cause and fix. **(checked: every code has a factory and a row, and every row has a code)**
 - Codes are public contract. Never renumber, reuse or remove one. Rewording a message is fine.
 - `catch (Exception)` only where the exception is turned into state (a job's status) or logged and the loop continues. Never swallow silently. Use `when` filters to keep cancellation out.
 

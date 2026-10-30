@@ -10,8 +10,9 @@ The first digit is the area:
 | `SL2xxx` | Schema and stored data | `SyncLaneException` at start-up, or when a row cannot be read. |
 | `SL3xxx` | Calls to `ISyncLane` | A failed `SyncResult`, never an exception. |
 | `SL4xxx` | Running jobs | Text in the job's `error` column, starting with the code. |
+| `SL5xxx` | The HTTP source (`SyncLane.Http`) | `SL50xx`: a failed result when a recipe is loaded. `SL51xx`: a recipe that does not fit a job or a response, while running. |
 
-`SyncErrorCodes` holds every code as a constant. A test checks that each one is listed on this page.
+`SyncErrorCodes` and `HttpErrorCodes` hold every code as a constant. A test checks that each one is listed on this page.
 
 ## Configuration
 
@@ -51,6 +52,28 @@ These are written to the `error` column of the job, which ends `abandoned`.
 | --- | --- | --- | --- |
 | `SL4001` | Configuration | A worker took a job whose type has no handler in that process, usually because instances run different versions or configurations. | Declare the type on every instance that runs workers, then requeue. |
 | `SL4002` | Internal | The job was taken more often than its attempts allow without ever reporting a result. Its worker most likely dies while running it. | Look for crashes or out-of-memory kills during this job, fix them, then requeue. |
+
+## The HTTP source
+
+Recipes are checked when they are loaded, and every problem is reported at once. Messages name the recipe and the field, never a header value or a credential.
+
+| Code | Kind | Cause | Fix |
+| --- | --- | --- | --- |
+| `SL5001` | Validation | The recipe is not valid JSON, misses `name` or `request`, has a field the format does not know (often a typo), or a value of the wrong type. The message says which. | Correct the JSON; see [recipes.md](recipes.md). |
+| `SL5002` | Validation | A required field is empty, such as `name` or `request.url`. | Fill it in. |
+| `SL5003` | Validation | `request.url` is not absolute, does not use https, or contains a user name or password. | Use an absolute https URL. Put credentials in headers. Set `allowHttp` only for a local test server. |
+| `SL5004` | Validation | A placeholder names a value that does not exist. The message lists the ones that do. | Use `{{window.start}}`, `{{window.end}}` or `{{owner.key}}`. |
+| `SL5005` | Validation | A placeholder appears in the scheme, host or port of the URL. A recipe may only call the host it names. | Write the host out. Use the path or the query for values that change. |
+| `SL5006` | Validation | `records` is not `$` or `$.name.name`. Filters, indexes and `..` are not supported. | Point the path at the array of records by property names. |
+| `SL5007` | Validation | `window.format` is not a known format. | Use `iso8601`, `unix`, `unixMilliseconds` or `date`. |
+| `SL5008` | Validation | `request.method` is not GET or POST. | Use GET or POST. |
+| `SL5009` | Validation | A header name is not an HTTP token, is one SyncLane sets itself (`Host`, `Content-Length`, `Transfer-Encoding`, `Connection`), or a value has a line break. | Correct or remove the header. |
+| `SL5010` | Validation | `request.body` is set on a GET. | Use POST, or remove the body. |
+| `SL5011` | Validation | A placeholder is unclosed or empty, such as `{{window.start` or `{{}}`. | Close it: `{{window.start}}`. |
+| `SL5101` | Configuration | The recipe uses `{{window.start}}` or `{{window.end}}`, and the job has no window. | Declare the job type with `Windowed`, or remove the window placeholders. |
+| `SL5102` | Validation | A header would contain a line break once its placeholders were filled, usually from an owner key. The request is not sent. | Remove line breaks from the owner key. |
+| `SL5103` | Configuration | The response has nothing at the `records` path. | Compare the path with a real response. |
+| `SL5104` | Configuration | The `records` path leads to an object or a value, not an array. | Point the path at the list itself. |
 
 ## Errors that are not on this page
 

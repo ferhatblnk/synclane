@@ -1,5 +1,6 @@
 using System.Reflection;
 using System.Text.RegularExpressions;
+using SyncLane.Http;
 
 namespace SyncLane.Tests;
 
@@ -17,8 +18,11 @@ public partial class ConventionTests
         .Select(path => new SourceFile(Path.GetRelativePath(Root, path), File.ReadAllLines(path)))
         .ToList();
 
-    private static IEnumerable<FieldInfo> Codes => typeof(SyncErrorCodes)
-        .GetFields(BindingFlags.Public | BindingFlags.Static)
+    /// <summary>Every class that lists error codes, one per package.</summary>
+    private static readonly Type[] CodeLists = [typeof(SyncErrorCodes), typeof(HttpErrorCodes)];
+
+    private static IEnumerable<FieldInfo> Codes => CodeLists
+        .SelectMany(list => list.GetFields(BindingFlags.Public | BindingFlags.Static))
         .Where(constant => constant.IsLiteral);
 
     [Fact]
@@ -27,7 +31,7 @@ public partial class ConventionTests
         var values = Codes.Select(code => (string)code.GetRawConstantValue()!).ToList();
 
         Assert.Equal(values.Count, values.Distinct().Count());
-        Assert.All(values, value => Assert.Matches("^SL[1-4][0-9]{3}$", value));
+        Assert.All(values, value => Assert.Matches("^SL[1-5][0-9]{3}$", value));
     }
 
     [Fact]
@@ -44,9 +48,9 @@ public partial class ConventionTests
     [Fact]
     public void Every_error_code_has_a_message_in_the_catalog()
     {
-        var catalog = Library.Single(file => file.Path.EndsWith("SyncLaneErrors.cs", StringComparison.Ordinal)).Text;
+        var catalogs = string.Join('\n', Library.Where(file => file.Path.EndsWith("Errors.cs", StringComparison.Ordinal)).Select(file => file.Text));
 
-        Assert.All(Codes, code => Assert.Contains($"SyncErrorCodes.{code.Name},", catalog));
+        Assert.All(Codes, code => Assert.Contains($"{code.DeclaringType!.Name}.{code.Name},", catalogs));
     }
 
     [Fact]
@@ -66,6 +70,17 @@ public partial class ConventionTests
         var offenders = Library.SelectMany(file => AwaitingLoops(file)
             .Where(loop => !HasSequentialComment(file.Lines, loop))
             .Select(loop => $"{file.Path}:{loop + 1}: {file.Lines[loop].Trim()}"));
+
+        Assert.Empty(offenders);
+    }
+
+    [Fact]
+    public void No_platform_is_named_in_the_library()
+    {
+        var offenders = Library
+            .SelectMany(file => file.Lines.Select((line, index) => (file.Path, Line: index + 1, Text: line)))
+            .Where(line => PlatformName().IsMatch(line.Text))
+            .Select(line => $"{line.Path}:{line.Line}: {line.Text.Trim()}");
 
         Assert.Empty(offenders);
     }
@@ -148,6 +163,10 @@ public partial class ConventionTests
 
     [GeneratedRegex(@"^(await\s+)?(foreach|for|while)\s*\(")]
     private static partial Regex LoopHeader();
+
+    /// <summary>Platform knowledge belongs in recipes, never in the code of the library.</summary>
+    [GeneratedRegex(@"\b(amazon|tiktok|trendyol|hepsiburada|shopify|n11|etsy|ebay|walmart|woocommerce|stripe|github)\b", RegexOptions.IgnoreCase)]
+    private static partial Regex PlatformName();
 
     [GeneratedRegex(@"\.Wait\(\)|\.GetAwaiter\(\)\.GetResult\(\)|(?<![A-Za-z])\.Result\b")]
     private static partial Regex Blocking();

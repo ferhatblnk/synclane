@@ -96,6 +96,8 @@ Dependencies point inwards and downwards. A lower row never references a higher 
 
 User code reaches SyncLane through two small interfaces and one facade: `IJobHandler`, `IOwnerSource` and `ISyncLane`.
 
+`SyncLane.Http` sits on top and uses only the engine's public API, the same way user code does. A recipe is compiled once when it is loaded (`CompiledRecipe`); building the request of a page (`RequestRenderer`) does no parsing and checks only the values that change per job. Placeholder values are escaped for where they land, and a recipe's host is fixed text, so a recipe can only call the host it names.
+
 ## Data model
 
 Two tables in the configured schema.
@@ -141,9 +143,9 @@ The point of the split: a failed result always means "the call was understood an
 
 ### Codes and the catalog
 
-Every SyncLane error has a stable code, `SL` plus four digits. The first digit is the area: 1 configuration, 2 schema and stored data, 3 calls to `ISyncLane`, 4 running jobs. Codes are listed in `SyncErrorCodes` and documented with cause and fix in [docs/errors.md](docs/errors.md).
+Every SyncLane error has a stable code, `SL` plus four digits. The first digit is the area: 1 configuration, 2 schema and stored data, 3 calls to `ISyncLane`, 4 running jobs, 5 the HTTP source. Each package lists its codes in one class (`SyncErrorCodes`, `HttpErrorCodes`), and every code is documented with cause and fix in [docs/errors.md](docs/errors.md).
 
-All messages are written in one place, `SyncLaneErrors`. One catalog means:
+All messages of a package are written in one place: `SyncLaneErrors` in the engine, `HttpErrors` in the HTTP source. One catalog means:
 
 - the same problem is always worded the same way, in exceptions, results, logs and the `error` column;
 - every message follows the same form: what went wrong, then how to fix it;
@@ -257,7 +259,7 @@ Each is a small interface the user implements; SyncLane calls it.
 | Package | Contents | Status |
 | --- | --- | --- |
 | `SyncLane` | Engine: planning, running, storage, results, errors, telemetry | This repository |
-| `SyncLane.Http` | Declarative HTTP source: recipes, pagination, auth, rate budgets | Planned |
+| `SyncLane.Http` | Declarative HTTP source: recipes, pagination, auth, rate budgets | In progress: recipe model ([docs/recipes.md](docs/recipes.md)) |
 | `SyncLane.Sinks.*` | Destinations | Planned |
 | `SyncLane.Cli` | `init --curl`, `probe`, `test` | Planned |
 | Adapters to in-house packages | For example `SyncResult` to `ApiResult` | Separate solution, never in this one |

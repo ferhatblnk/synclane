@@ -1,0 +1,27 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <RootNamespace>SyncLane.Http</RootNamespace>
+    <AssemblyName>SyncLane.Http</AssemblyName>
+    <GenerateDocumentationFile>true</GenerateDocumentationFile>
+    <PackageId>SyncLane.Http</PackageId>
+    <Authors>The SyncLane Authors</Authors>
+    <Description>Runs SyncLane jobs from a recipe instead of a hand-written handler: the request, how the job's window goes into it, where the records are in the answer, how to page and how to authenticate.</Description>
+    <PackageTags>sync;http;rest;api;integration;recipe;pagination;postgres</PackageTags>
+    <PackageLicenseExpression>Apache-2.0</PackageLicenseExpression>
+    <PackageProjectUrl>https://github.com/ferhatblnk/synclane</PackageProjectUrl>
+    <RepositoryUrl>https://github.com/ferhatblnk/synclane</RepositoryUrl>
+    <PackageReadmeFile>README.md</PackageReadmeFile>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\SyncLane\SyncLane.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <None Include="..\..\README.md" Pack="true" PackagePath="\" />
+    <None Include="..\..\NOTICE" Pack="true" PackagePath="\" />
+    <InternalsVisibleTo Include="SyncLane.Tests" />
+  </ItemGroup>
+
+</Project>

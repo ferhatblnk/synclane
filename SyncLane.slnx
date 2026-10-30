@@ -4,6 +4,7 @@
   </Folder>
   <Folder Name="/src/">
     <Project Path="src/SyncLane/SyncLane.csproj" />
+    <Project Path="src/SyncLane.Http/SyncLane.Http.csproj" />
   </Folder>
   <Folder Name="/tests/">
     <Project Path="tests/SyncLane.Tests/SyncLane.Tests.csproj" />

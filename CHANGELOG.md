@@ -2,6 +2,14 @@
 
 All notable changes to this project are recorded here. The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project uses [Semantic Versioning](https://semver.org/).
 
+## [0.2.0] - Unreleased
+
+### Added
+
+- `SyncLane.Http`, phase 1.1: the recipe model. `HttpRecipe.Parse` reads a recipe from JSON and reports every problem at once with codes `SL5001` to `SL5011`; placeholders `{{window.start}}`, `{{window.end}}` and `{{owner.key}}` are escaped for where they land; a recipe can only call the host it names. Requests are built but not sent yet. See `docs/recipes.md`.
+- A convention test that fails when a platform is named in the library's code.
+- `docs/design/phase-1.md`: the parts of phase 1, their gates and the checks against refuted ideas.
+
 ## [0.1.0] - Unreleased
 
 First version.
