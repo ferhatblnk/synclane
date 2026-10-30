@@ -122,6 +122,19 @@ internal sealed class JobSql
             WHERE {held}
             """;
 
+        Postpone =
+            $"""
+            UPDATE {table}
+            SET status = 'pending',
+                next_run_at = @next_run_at,
+                attempt_count = GREATEST(attempt_count - 1, 0),
+                error = @error,
+                leased_by = NULL,
+                lease_expires_at = NULL,
+                updated_at = @now
+            WHERE {held}
+            """;
+
         Requeue =
             $"""
             UPDATE {table}
@@ -212,6 +225,9 @@ internal sealed class JobSql
     public string Settle { get; }
 
     public string Release { get; }
+
+    /// <summary>Hands a job back to run later, without counting the attempt: it only had to wait.</summary>
+    public string Postpone { get; }
 
     public string Requeue { get; }
 

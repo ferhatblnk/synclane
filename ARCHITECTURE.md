@@ -26,6 +26,7 @@ flowchart TB
     subgraph Public["Public API"]
         client["ISyncLane<br/>(SyncLaneClient)"]
         options["SyncLaneOptions<br/>QueueOptions"]
+        budgets["RateBudgets"]
         schema["SyncLaneSchema"]
         results["SyncResult / SyncListResult<br/>SyncError / SyncErrorCodes"]
     end
@@ -56,6 +57,7 @@ flowchart TB
     worker --> runner
     runner --> user
     runner --> telemetry
+    user --> budgets
     planner --> store
     init --> store
     store --> sql
@@ -74,6 +76,7 @@ flowchart TB
 | `JobWorker` | Runs `Concurrency` slots per queue; each slot leases and runs jobs. | Slot scheduling changes. |
 | `JobRunner` | Runs one leased job: pages, checkpoints, heartbeat, outcome. | The page loop changes. |
 | `FailurePolicy` | Pure function: failed attempt to next status and delay. | Retry behaviour changes. |
+| `RateBudgets`, `TokenBucket` | One token bucket per budget and key: requests wait for tokens, a `429` pauses the bucket. In memory for now. | Budgets are shared across instances (part 2.2), or learn (2.4). |
 | `JobSql` | Every SQL statement, built once for the configured schema. | A query changes. |
 | `JobStore` | Executes statements; every write to a held job is conditional on still holding it. | Table access changes. |
 | `Migrations` | The schema as an append-only list of idempotent steps. | The table changes. |
@@ -239,7 +242,7 @@ Trust boundaries and what crosses them:
 | `SyncLane.Http` to an API | Requests carrying credentials | Only to the recipe's host and its token URL, both fixed text. No redirects; next-page URLs on another host are refused; a signer cannot move a request. |
 | API answers to the table | Error messages and cursors | Messages never quote a body, a URL or a network exception's text. A query-string key is taken out of next-page URLs before they become cursors. |
 | Handler exceptions to the table | Exception type and message | Capped at 2,000 characters. Handlers must not put secrets in exception messages ([SECURITY.md](SECURITY.md)). |
-| SyncLane to observability | Metrics, spans, logs | Queue and type only. Never owner, lane, cursor, headers or bodies. |
+| SyncLane to observability | Metrics, spans, logs | Queue, type and budget name only. Never owner, lane, budget key, cursor, headers or bodies. |
 | SyncLane to the internet | Nothing of its own | No telemetry home, no license check, no update check. `SyncLane.Http` calls only the hosts your recipes name. |
 
 Anyone who can write to the `jobs` table can make workers run a handler for any owner. Treat write access to it like access to the application.
@@ -288,3 +291,6 @@ Each is a small interface the user implements; SyncLane calls it.
 | D15 | Credentials never in a recipe or the jobs table; an `ICredentialStore` gives them per owner, once per page | A recipe is meant to be shared and committed, and the jobs table is read by dashboards and support staff. Asking per page makes a rotated or revoked credential count at once; a store that is slow to ask can cache. | Accepted |
 | D16 | OAuth 2.0 access tokens live in memory only | Writing them down would add a table of live secrets to protect. A restart costs one token request per owner. | Accepted |
 | D17 | A network error keeps its kind, not its message | The engine stores every message of an exception chain, and the messages of `HttpClient` and proxies can hold the URL, with a key in its query, or a proxy's password. The kind (DNS, connection, TLS, proxy) is enough to act on. | Accepted |
+| D18 | Rate budgets use a token bucket of our own, not `System.Threading.RateLimiting` | The library's bucket cannot be paused or drained from outside and does not run on `TimeProvider`, and sharing it across instances needs its state in a row anyway. Under a hundred lines, tested on a manual clock. | Accepted |
+| D19 | A `429` pauses the whole budget, not only the job that got it | Limits belong to accounts. Other jobs on the account would only collect their own `429`s from the same empty bucket; ShipStation's documentation asks for exactly this. | Accepted |
+| D20 | A job that only has to wait gives its slot back without using an attempt (`JobPostponedException`) | Waiting for a token is not a failure. Counting it would abandon jobs during a long pause; holding the slot would starve other work. | Accepted |

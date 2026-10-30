@@ -147,4 +147,4 @@ Since then a lane is closed as long as it has a row in `running`, whatever its l
 - **Write idempotently.** A page can run twice: after a crash between your write and the cursor save, and in the overlap between two windows. Upsert by the other side's identifier.
 - **Return a cursor you can resume from.** If the other side's page tokens expire, keep a slice small enough to finish well inside their lifetime. A slice is the largest unit of work that cannot be split.
 - **Respect the cancellation token.** That is how a stopping worker gets its job back to the table quickly.
-- **Say what kind of failure it was** when you know: `JobThrottledException` for "slow down", `JobAbandonedException` for "this will never work".
+- **Say what kind of failure it was** when you know: `JobThrottledException` for "slow down", `JobAbandonedException` for "this will never work", `JobPostponedException` for "not a failure, only wait".

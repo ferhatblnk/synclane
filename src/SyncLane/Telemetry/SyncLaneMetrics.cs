@@ -12,6 +12,7 @@ internal sealed class SyncLaneMetrics : IDisposable
     public const string QueueTag = "synclane.queue";
     public const string TypeTag = "synclane.job.type";
     public const string OutcomeTag = "synclane.job.outcome";
+    public const string BudgetTag = "synclane.budget";
 
     private readonly bool _ownsMeter;
     private readonly Counter<long> _taken;
@@ -24,6 +25,8 @@ internal sealed class SyncLaneMetrics : IDisposable
     private readonly Counter<long> _throttled;
     private readonly Counter<long> _planned;
     private readonly Counter<long> _planFailures;
+    private readonly Histogram<double> _budgetWait;
+    private readonly Counter<long> _budgetPaused;
 
     public SyncLaneMetrics(IMeterFactory? factory = null)
     {
@@ -41,6 +44,8 @@ internal sealed class SyncLaneMetrics : IDisposable
         _throttled = Meter.CreateCounter<long>("synclane.job.throttled", "{job}", "Runs that ended because the other side asked to slow down.");
         _planned = Meter.CreateCounter<long>("synclane.planner.planned", "{job}", "Jobs the planner added.");
         _planFailures = Meter.CreateCounter<long>("synclane.planner.failed", "{run}", "Planner runs that failed.");
+        _budgetWait = Meter.CreateHistogram<double>("synclane.budget.wait", "s", "Time a request waited for a token of a rate budget.");
+        _budgetPaused = Meter.CreateCounter<long>("synclane.budget.paused", "{pause}", "Times a rate budget was paused because the API asked to slow down.");
     }
 
     public Meter Meter { get; }
@@ -73,6 +78,12 @@ internal sealed class SyncLaneMetrics : IDisposable
     public void Planned(string queue, int jobs) => _planned.Add(jobs, new KeyValuePair<string, object?>(QueueTag, queue));
 
     public void PlanFailed(string queue) => _planFailures.Add(1, new KeyValuePair<string, object?>(QueueTag, queue));
+
+    /// <summary>Tagged with the budget's name only: its key is an owner, which never goes into a tag.</summary>
+    public void BudgetWaited(string budget, TimeSpan wait) =>
+        _budgetWait.Record(wait.TotalSeconds, new KeyValuePair<string, object?>(BudgetTag, budget));
+
+    public void BudgetPaused(string budget) => _budgetPaused.Add(1, new KeyValuePair<string, object?>(BudgetTag, budget));
 
     public void Dispose()
     {

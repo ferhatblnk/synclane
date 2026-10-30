@@ -32,6 +32,11 @@ public static class ServiceCollectionExtensions
             return new JobStore(NpgsqlDataSource.Create(settings.ConnectionString), new JobSql(settings.Schema));
         });
         services.AddSingleton(static provider => new SyncLaneMetrics(provider.GetService<IMeterFactory>()));
+        services.AddSingleton(static provider => new RateBudgets(
+            provider.GetRequiredService<SyncLaneOptions>(),
+            provider.GetRequiredService<TimeProvider>(),
+            provider.GetRequiredService<SyncLaneMetrics>(),
+            provider.GetRequiredService<Microsoft.Extensions.Logging.ILogger<RateBudgets>>()));
         services.AddSingleton<QueuePlanner>();
         services.AddSingleton<JobRunner>();
         services.AddSingleton<ISyncLane, SyncLaneClient>();

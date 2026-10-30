@@ -37,6 +37,14 @@ internal static class SyncLaneErrors
         SyncErrorCodes.JobTypeSettingInvalid, SyncErrorKind.Configuration,
         $"Queue '{queue}', job type '{type}': {rule}.");
 
+    public static SyncError BudgetDeclaredTwice(string budget) => new(
+        SyncErrorCodes.BudgetDeclaredTwice, SyncErrorKind.Configuration,
+        $"Budget '{budget}' is declared twice. Declare each budget once in AddSyncLane; every queue can draw from it.");
+
+    public static SyncError BudgetSettingInvalid(string budget, string rule) => new(
+        SyncErrorCodes.BudgetSettingInvalid, SyncErrorKind.Configuration,
+        $"Budget '{budget}': {rule}.");
+
     // 2xxx: schema and stored data.
 
     public static SyncError MigrationMissing(string schema, IEnumerable<int> versions) => new(
@@ -77,6 +85,10 @@ internal static class SyncLaneErrors
         SyncErrorCodes.JobAlreadyExists, SyncErrorKind.Conflict,
         $"A '{type}' job of owner '{owner}' with dedup key '{dedupKey}' already exists on queue '{queue}'. Requeue it, or use another key.");
 
+    public static SyncError BudgetNotDeclared(string budget) => new(
+        SyncErrorCodes.BudgetNotDeclared, SyncErrorKind.Configuration,
+        $"Budget '{budget}' is not declared. Declare it with lane.AddBudget(\"{budget}\", ...) in AddSyncLane, or correct the name.");
+
     // 4xxx: running jobs. Written to the error column of the job.
 
     public static SyncError HandlerMissing(string queue, string type) => new(
@@ -88,4 +100,10 @@ internal static class SyncLaneErrors
         SyncErrorCodes.TooManyPickups, SyncErrorKind.Internal,
         "The job was picked up more often than its attempts allow without ever reporting a result. Its worker probably " +
         "stops while running it: look for crashes or out-of-memory kills during this job, then requeue it.");
+
+    public static SyncError BudgetWaitTooLong(string budget, TimeSpan wait, TimeSpan maxWait) => new(
+        SyncErrorCodes.BudgetWaitTooLong, SyncErrorKind.Throttled,
+        $"Budget '{budget}' has no token for {wait.TotalSeconds:0.#} s, longer than MaxBudgetWait ({maxWait.TotalSeconds:0.#} s). " +
+        "The job gave its slot back without using an attempt and runs again when the token is due. If this happens " +
+        "often, the budget is smaller than the work: raise its limit if the API allows, or plan fewer jobs.");
 }

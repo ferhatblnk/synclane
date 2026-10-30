@@ -25,6 +25,8 @@ The first digit is the area:
 | `SL1005` | Configuration | Two job types of one queue have the same name. | Give each type of a queue its own name. |
 | `SL1006` | Configuration | A queue setting cannot work, such as `Concurrency = 0` or a `RetryMaxDelay` below `RetryBaseDelay`. The message names the setting and the rule. | Change the setting as the message says. |
 | `SL1007` | Configuration | A job type setting cannot work, such as a zero `slice` or an `offset` longer than `every`. | Change the setting as the message says. |
+| `SL1008` | Configuration | A rate budget is declared twice with `AddBudget`. | Declare each budget once; every queue can draw from it. |
+| `SL1009` | Configuration | A rate budget's setting is out of range: the name, `limit` or `burst` below 1, or `per` not longer than zero. | Change the setting the message names. |
 
 ## Schema and stored data
 
@@ -42,6 +44,7 @@ The first digit is the area:
 | `SL3002` | NotFound | `EnqueueAsync` names a job type that is not declared on the queue. | Declare the type with `Snapshot`, `Windowed` or `Handle`. |
 | `SL3003` | Validation | `JobQuery.Limit` is below 1 or above `JobQuery.MaxLimit`. | Ask for a smaller page and follow `NextCursor`. |
 | `SL3004` | Validation | `JobQuery.Cursor` was not produced by SyncLane. | Pass the previous page's `NextCursor` unchanged. |
+| `SL3005` | Configuration | `RateBudgets.WaitAsync` or `Throttled` was called with a budget that is not declared. | Declare it with `lane.AddBudget(...)`, or correct the name. |
 | `SL3101` | Conflict | `EnqueueAsync` found a job with the same owner, type and dedup key. | Requeue the existing job, or use another key. |
 
 ## Running jobs
@@ -52,6 +55,7 @@ These are written to the `error` column of the job, which ends `abandoned`.
 | --- | --- | --- | --- |
 | `SL4001` | Configuration | A worker took a job whose type has no handler in that process, usually because instances run different versions or configurations. | Declare the type on every instance that runs workers, then requeue. |
 | `SL4002` | Internal | The job was taken more often than its attempts allow without ever reporting a result. Its worker most likely dies while running it. | Look for crashes or out-of-memory kills during this job, fix them, then requeue. |
+| `SL4003` | Throttled | A request would have waited for a rate budget's token longer than `MaxBudgetWait`, so the job gave its slot back. The attempt does not count, the job keeps its cursor and runs again when the token is due. Written to the `error` column while the job waits. | Nothing, if it is rare. If it is common, the budget is smaller than the work: raise its limit if the API allows, or plan fewer jobs. |
 
 ## The HTTP source
 
@@ -80,6 +84,8 @@ Recipes are checked when they are loaded, and every problem is reported at once.
 | `SL5019` | Validation | `request.headers` sets `Authorization` or `Proxy-Authorization`. A recipe is meant to be shared and committed, so it never holds a credential. | Remove the header and use `auth`; the credential store gives the value for each owner. |
 | `SL5020` | Configuration | A recipe uses `auth` and no credential store is registered. | Add `http.Credentials<TStore>()` with a class that implements `ICredentialStore`. |
 | `SL5021` | Configuration | A recipe has `auth.type` `signed` and names a signer that is not registered. | Add `http.Signer<TSigner>("name")` with a class that implements `IRequestSigner`, or correct `auth.signer`. |
+| `SL5022` | Validation | The recipe's `rate` cannot work as written: `budget` is not a valid name, or `key` is malformed or uses a placeholder other than `{{owner.key}}`. | Change the field as the message says; see [Rate budgets](recipes.md#rate-budgets). |
+| `SL5023` | Configuration | A recipe draws from a budget that is not declared. Found at start-up. | Add `lane.AddBudget("name", ...)` in `AddSyncLane`, or correct `rate.budget`. |
 | `SL5101` | Configuration | The recipe uses `{{window.start}}` or `{{window.end}}`, and the job has no window. | Declare the job type with `Windowed`, or remove the window placeholders. |
 | `SL5102` | Validation | A header would contain a line break once its placeholders were filled, usually from an owner key. The request is not sent. | Remove line breaks from the owner key. |
 | `SL5103` | Configuration | The response has nothing at the `records` path. | Compare the path with a real response. |

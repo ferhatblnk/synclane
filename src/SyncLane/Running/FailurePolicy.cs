@@ -33,6 +33,9 @@ internal static class FailurePolicy
 
     public static bool IsThrottle(Exception exception) => Find<JobThrottledException>(exception) is not null;
 
+    /// <summary>The wait, when the job only has to wait and the attempt does not count.</summary>
+    public static TimeSpan? Postponement(Exception exception) => Find<JobPostponedException>(exception)?.Delay;
+
     private static TException? Find<TException>(Exception exception) where TException : Exception
     {
         for (var current = exception; current is not null; current = current.InnerException)

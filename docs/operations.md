@@ -135,7 +135,7 @@ All metrics belong to the meter `SyncLane` (`SyncLaneTelemetry.MeterName`). Ever
 | --- | --- | --- |
 | `synclane.job.taken` | `{job}` | Jobs a worker took. |
 | `synclane.job.wait` | `s` | Time between a job becoming due and a worker taking it. Rising wait with idle CPU means too few worker slots, or lanes that are always busy. |
-| `synclane.job.finished` | `{job}` | Runs that ended, with `synclane.job.outcome`: `completed`, `failed`, `deferred`, `abandoned`, `released` (worker stopping) or `lease_lost`. |
+| `synclane.job.finished` | `{job}` | Runs that ended, with `synclane.job.outcome`: `completed`, `failed`, `deferred`, `abandoned`, `released` (worker stopping), `postponed` (waiting, attempt not counted) or `lease_lost`. |
 | `synclane.job.duration` | `s` | Time from taking a job to the end of the run, with the same outcome tag. |
 | `synclane.page.completed` | `{page}` | Pages a handler returned. |
 | `synclane.page.duration` | `s` | Time a handler took for a page it returned. |
@@ -143,20 +143,25 @@ All metrics belong to the meter `SyncLane` (`SyncLaneTelemetry.MeterName`). Ever
 | `synclane.job.throttled` | `{job}` | Runs that ended with a `JobThrottledException`. They are also counted as `failed`, `deferred` or `abandoned`. |
 | `synclane.planner.planned` | `{job}` | Jobs the planner added. |
 | `synclane.planner.failed` | `{run}` | Planner runs that failed. |
+| `synclane.budget.wait` | `s` | Time a request waited for a token of a rate budget. Tagged `synclane.budget` only; the key is an owner and never a tag. |
+| `synclane.budget.paused` | `{pause}` | Times a rate budget was paused because the API answered `429`. Tagged `synclane.budget` only. |
 
 Traces come from the activity source `SyncLane` (`SyncLaneTelemetry.ActivitySourceName`). A `synclane.job` span covers one run of a job and carries `synclane.job.id`, `synclane.job.mode`, `synclane.job.attempt` and, at the end, `synclane.job.outcome`; a failed run records the exception and sets the span status to error. Each page is a `synclane.page` span inside it with `synclane.page.processed`. The cursor is not recorded, because some APIs put tokens in it.
 
-Three signals worth an alert:
+Four signals worth an alert:
 
 - `synclane.job.finished{outcome="abandoned"}` above zero. Something waits for a person.
 - `synclane.job.throttled` growing faster than `synclane.job.taken`. The pace is too high for the other side.
 - `synclane.job.finished{outcome="lease_lost"}` above zero. A worker stalled longer than `LeaseDuration`, or clocks disagree.
+- `synclane.budget.paused` growing steadily. The declared budget is above what the API allows now: lower it. Another app on the same account can cause this too.
 
 ## Several instances
 
 Run as many instances as you like against the same table. Planning is safe to do from all of them, and so is taking jobs.
 
 If your web instances should not do background work, set `RunWorkers = false` and `RunPlanner = false` there. `ISyncLane` works the same either way.
+
+Rate budgets are kept in each instance's memory for now. With several instances, divide each budget's limit by the number of instances, or run the workers that call one account on one instance.
 
 Keep the clocks of your instances in sync. Leases and due times are compared with the clock of the instance that asks.
 

@@ -69,6 +69,12 @@ public static class HttpErrorCodes
     /// <summary>A recipe names a request signer that is not registered.</summary>
     public const string SignerMissing = "SL5021";
 
+    /// <summary>The rate section of a recipe cannot work as written.</summary>
+    public const string RateInvalid = "SL5022";
+
+    /// <summary>A recipe draws from a rate budget that is not declared.</summary>
+    public const string BudgetMissing = "SL5023";
+
     /// <summary>The recipe uses the job's window, and the job has none.</summary>
     public const string WindowMissing = "SL5101";
 

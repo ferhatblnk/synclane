@@ -28,6 +28,7 @@ Run the PostgreSQL tests before calling any change to storage, running or the pu
 | `src/SyncLane/Planning` | What jobs should exist. Pure functions plus one read and one insert. |
 | `src/SyncLane/Storage` | Every SQL statement (`JobSql`), table access (`JobStore`), migrations. |
 | `src/SyncLane/Running` | Workers, the page loop, the failure policy. |
+| `src/SyncLane/Budgets` | The token bucket behind `RateBudgets`. |
 | `src/SyncLane/Telemetry` | Metrics instruments and outcome names. |
 | `src/SyncLane.Http` | The declarative HTTP source: recipes, request building, record paths, paging, authentication, its own codes (`HttpErrorCodes`) and catalog (`HttpErrors`). Uses only the engine's public API. |
 | `tests/SyncLane.Tests` | Unit tests, PostgreSQL tests (`[PostgresFact]`) and `ConventionTests`. |

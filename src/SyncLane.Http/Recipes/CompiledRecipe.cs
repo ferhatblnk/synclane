@@ -33,7 +33,8 @@ internal sealed partial class CompiledRecipe
         RecordPath records,
         bool usesWindow,
         IPaginator paginator,
-        RecipeAuth? auth)
+        RecipeAuth? auth,
+        CompiledRate? rate)
     {
         Recipe = recipe;
         Method = method;
@@ -45,6 +46,7 @@ internal sealed partial class CompiledRecipe
         UsesWindow = usesWindow;
         Paginator = paginator;
         Auth = auth;
+        Rate = rate;
     }
 
     public HttpRecipe Recipe { get; }
@@ -72,6 +74,9 @@ internal sealed partial class CompiledRecipe
 
     /// <summary>How requests are authenticated, or <c>null</c> for an open API.</summary>
     public RecipeAuth? Auth { get; }
+
+    /// <summary>The rate budget the requests draw from, or <c>null</c> for none.</summary>
+    public CompiledRate? Rate { get; }
 
     /// <summary>Checks <paramref name="recipe"/> and returns every problem found, or the compiled recipe.</summary>
     public static SyncResult<CompiledRecipe> Compile(HttpRecipe recipe)
@@ -148,6 +153,7 @@ internal sealed partial class CompiledRecipe
             errors.Add(HttpErrors.WindowFormatUnknown(name, window.Format.ToString()));
 
         var auth = AuthCompiler.Compile(name, recipe, ReservedHeaders, errors);
+        var rate = CompiledRate.Compile(name, recipe.Rate, errors);
 
         // Paging is checked only against a valid URL, because a next-page URL is compared with the recipe's host.
         var paginator = origin is null
@@ -159,7 +165,7 @@ internal sealed partial class CompiledRecipe
 
         var usesWindow = placeholders.Any(found => Placeholders.IsWindow(found.Placeholder));
         return SyncResult<CompiledRecipe>.Success(
-            new CompiledRecipe(recipe, method!, url!, query, headers, bodyStrings, records!, usesWindow, paginator!, auth));
+            new CompiledRecipe(recipe, method!, url!, query, headers, bodyStrings, records!, usesWindow, paginator!, auth, rate));
     }
 
     private static HttpMethod? ParseMethod(string? method) => method?.ToUpperInvariant() switch

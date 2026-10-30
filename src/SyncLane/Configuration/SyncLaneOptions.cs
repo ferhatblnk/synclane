@@ -1,9 +1,12 @@
+using System.Text.RegularExpressions;
+
 namespace SyncLane;
 
 /// <summary>Settings shared by every queue.</summary>
-public sealed class SyncLaneOptions
+public sealed partial class SyncLaneOptions
 {
     private readonly List<QueueOptions> _queues = [];
+    private readonly List<BudgetDescription> _budgets = [];
 
     /// <summary>The PostgreSQL database that holds the jobs table.</summary>
     public string ConnectionString { get; set; } = "";
@@ -29,6 +32,12 @@ public sealed class SyncLaneOptions
     /// <summary>How long an idle worker waits before it looks for work again.</summary>
     public TimeSpan PollInterval { get; set; } = TimeSpan.FromSeconds(5);
 
+    /// <summary>
+    /// The longest a request waits for a token of a rate budget inside a running job. A longer wait gives the job's slot
+    /// back, without using an attempt, and the job runs again when the token is due. Default 30 seconds.
+    /// </summary>
+    public TimeSpan MaxBudgetWait { get; set; } = TimeSpan.FromSeconds(30);
+
     internal IReadOnlyList<QueueOptions> Queues => _queues;
 
     /// <summary>
@@ -41,6 +50,30 @@ public sealed class SyncLaneOptions
                 queue.Name,
                 queue.Types.Select(type => new JobTypeDescription(type.Name, type.Handler)).ToList()))
             .ToList();
+
+    /// <summary>The declared rate budgets. A copy, so reading it can never change a setting.</summary>
+    public IReadOnlyList<BudgetDescription> DescribeBudgets() => _budgets.ToList();
+
+    /// <summary>
+    /// Declares a rate budget: how fast requests to one account may go, shared by every job and queue that draws from it
+    /// with <see cref="RateBudgets"/>. Each key, usually an owner, gets a bucket of its own.
+    /// </summary>
+    /// <param name="name">The budget's name, used by recipes and handlers and in metrics.</param>
+    /// <param name="limit">How many requests per <paramref name="per"/>, at a steady pace.</param>
+    /// <param name="per">The period of <paramref name="limit"/>, for example one second or one minute.</param>
+    /// <param name="burst">
+    /// How many requests may go at once after a quiet spell. Default 1, which spaces requests evenly: the safe choice
+    /// when the API's algorithm is not known, and for a window that resets on the clock.
+    /// </param>
+    public SyncLaneOptions AddBudget(string name, int limit, TimeSpan per, int burst = 1)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(name);
+        if (_budgets.Any(budget => budget.Name == name))
+            throw new SyncLaneException(SyncLaneErrors.BudgetDeclaredTwice(name));
+
+        _budgets.Add(new BudgetDescription(name, limit, per, burst));
+        return this;
+    }
 
     /// <summary>Declares a queue: its job types, its owners and how its workers behave.</summary>
     public SyncLaneOptions AddQueue(string name, Action<QueueOptions> configure)
@@ -76,7 +109,28 @@ public sealed class SyncLaneOptions
         if (PollInterval <= TimeSpan.Zero)
             throw new SyncLaneException(SyncLaneErrors.IntervalNotPositive(nameof(PollInterval)));
 
+        if (MaxBudgetWait <= TimeSpan.Zero)
+            throw new SyncLaneException(SyncLaneErrors.IntervalNotPositive(nameof(MaxBudgetWait)));
+
+        foreach (var budget in _budgets)
+        {
+            if (!BudgetName().IsMatch(budget.Name))
+                throw new SyncLaneException(SyncLaneErrors.BudgetSettingInvalid(budget.Name, "the name must be 1 to 100 letters, digits, dots, underscores, colons, slashes or hyphens"));
+
+            if (budget.Limit < 1)
+                throw new SyncLaneException(SyncLaneErrors.BudgetSettingInvalid(budget.Name, "limit must be at least 1"));
+
+            if (budget.Per <= TimeSpan.Zero)
+                throw new SyncLaneException(SyncLaneErrors.BudgetSettingInvalid(budget.Name, "per must be longer than zero"));
+
+            if (budget.Burst < 1)
+                throw new SyncLaneException(SyncLaneErrors.BudgetSettingInvalid(budget.Name, "burst must be at least 1"));
+        }
+
         foreach (var queue in _queues)
             queue.Validate();
     }
+
+    [GeneratedRegex("^[A-Za-z0-9._:/-]{1,100}$")]
+    private static partial Regex BudgetName();
 }
