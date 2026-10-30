@@ -11,3 +11,6 @@ TestResults/
 .env
 appsettings.Development.json
 appsettings.*.local.json
+
+# Private working notes, not published
+ROADMAP.md
