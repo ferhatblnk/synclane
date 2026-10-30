@@ -76,6 +76,10 @@ Recipes are checked when they are loaded, and every problem is reported at once.
 | `SL5015` | Configuration | A recipe is registered for a job type that no queue declares with `HttpRecipeHandler`, usually a typo. | Correct the type name on one side. |
 | `SL5016` | Configuration | Two recipes are registered for one job type. | Keep one. |
 | `SL5017` | Validation | The pagination cannot work as written: a required field is missing, a field does not apply to the type, a size or start is out of range, a path is not supported, or the paging parameter is also set in `request.query`. The message names the field. | Change the field as the message says; see the pagination types in [recipes.md](recipes.md#pagination). |
+| `SL5018` | Validation | The authentication cannot work as written: a required field is missing, a field does not apply to the type, the token URL is not an absolute https URL or has a placeholder, or the API key's name clashes with a header, query or paging parameter. The message names the field. | Change the field as the message says; see [Authentication](recipes.md#authentication). |
+| `SL5019` | Validation | `request.headers` sets `Authorization` or `Proxy-Authorization`. A recipe is meant to be shared and committed, so it never holds a credential. | Remove the header and use `auth`; the credential store gives the value for each owner. |
+| `SL5020` | Configuration | A recipe uses `auth` and no credential store is registered. | Add `http.Credentials<TStore>()` with a class that implements `ICredentialStore`. |
+| `SL5021` | Configuration | A recipe has `auth.type` `signed` and names a signer that is not registered. | Add `http.Signer<TSigner>("name")` with a class that implements `IRequestSigner`, or correct `auth.signer`. |
 | `SL5101` | Configuration | The recipe uses `{{window.start}}` or `{{window.end}}`, and the job has no window. | Declare the job type with `Windowed`, or remove the window placeholders. |
 | `SL5102` | Validation | A header would contain a line break once its placeholders were filled, usually from an owner key. The request is not sent. | Remove line breaks from the owner key. |
 | `SL5103` | Configuration | The response has nothing at the `records` path. | Compare the path with a real response. |
@@ -84,7 +88,7 @@ Recipes are checked when they are loaded, and every problem is reported at once.
 | `SL5106` | Unauthorized | The API answered 401 or 403. The job is abandoned at once: the same credentials will not work on the next try. | Fix the owner's credentials, then requeue. |
 | `SL5107` | Unavailable | The API answered 408 or a 5xx status. The job is retried with the queue's growing delay. | Nothing, unless it keeps happening. |
 | `SL5108` | Unavailable | The API did not answer within `Timeout`. The job is retried. | Ask for smaller pages, or raise `Timeout`. |
-| `SL5109` | Unavailable | The API could not be reached: DNS, connection or TLS failed. The inner exception says which. The job is retried. | Check the host name and the network. |
+| `SL5109` | Unavailable | The API could not be reached. The message says what failed: the host name, the connection, TLS, the proxy, or the HTTP exchange. The exception's own message is not kept, because it may hold the URL or a proxy's password. The job is retried. | Check the host name, the network and the proxy. |
 | `SL5110` | Configuration | The API answered another 4xx, such as 400, 404 or 422. Retrying would get the same answer, so the job is abandoned. | Compare the recipe with the API's documentation, then requeue. |
 | `SL5111` | Configuration | The API answered with a redirect. SyncLane follows none, so a recipe only calls the host it names and headers never reach another host. | Put the final URL in the recipe. |
 | `SL5112` | Configuration | The response is larger than `MaxResponseBytes`. The job is abandoned. | Ask for smaller pages, or raise `MaxResponseBytes`. |
@@ -94,6 +98,12 @@ Recipes are checked when they are loaded, and every problem is reported at once.
 | `SL5116` | Configuration | The cursor, next URL or has-more flag in the answer has the wrong JSON type. | Compare the pagination paths with a real response. |
 | `SL5117` | Configuration | The answer points to the page that was just read. Following it would loop forever. | Check that the recipe sends the cursor in the parameter the API reads. |
 | `SL5118` | Configuration | A job reached `MaxPagesPerJob` pages with page or offset paging. The API may ignore the page parameter. | Check the parameter, cut smaller slices, or raise `MaxPagesPerJob`. |
+| `SL5119` | Unauthorized | The credential store returned no credential for the job's owner and the recipe's `auth.credential`. The job is abandoned. | Connect the owner's account, then requeue the job. |
+| `SL5120` | Configuration | The owner's credential lacks a value the auth type needs, such as `Token` for `bearer` or `ClientSecret` for client credentials, or holds one a header cannot carry, such as a line break. The message names the value, never shows it. The job is abandoned. | Fix the credential in the store, then requeue the job. |
+| `SL5121` | Unauthorized | The OAuth 2.0 token endpoint refused to issue a token (400, 401, 403 or another 4xx). The message adds the RFC 6749 error code, such as `invalid_grant`, when the endpoint gave one; nothing else from its answer. The job is abandoned. | Fix the client id, secret or refresh token, or the scope; for a revoked refresh token, have the owner connect again. Then requeue the job. |
+| `SL5122` | Unavailable | The OAuth 2.0 token endpoint answered 408, 429 or 5xx, did not answer within `Timeout`, or could not be reached. The job is retried; after 429 it waits as `Retry-After` asks. | Usually nothing; it passes. If it keeps happening, check `auth.tokenUrl` and the network. |
+| `SL5123` | Configuration | The token endpoint answered 2xx, but not with a usable bearer token: no `access_token`, a `token_type` other than bearer, a token a header cannot carry, an answer larger than 64 KiB or not JSON. The job is abandoned. | Check `auth.tokenUrl` and `auth.grant` against the API's documentation. |
+| `SL5124` | Configuration | An `IRequestSigner` changed the method, scheme, host or port of the request. The request was not sent and the job is abandoned. | Change the signer to add headers or query parameters only. |
 
 ## Errors that are not on this page
 

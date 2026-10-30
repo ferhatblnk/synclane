@@ -13,7 +13,7 @@ A new package, `SyncLane.Http`, that runs a job from a **recipe** instead of a h
 | Item | State |
 | --- | --- |
 | Phase 0 code (license, migrations, telemetry, results and errors, rules) | Merged, CI green |
-| Phase 0 gate: 30 days in production | **Not started.** See below. |
+| Phase 0 gate: 30 days in production | Treated as started on 2026-10-30, on the owner's decision. No results yet. See below. |
 | Design partners | None yet |
 
 We are starting phase 1 before the phase 0 gate has passed, which the roadmap says not to do. The exception is allowed because:
@@ -23,6 +23,8 @@ We are starting phase 1 before the phase 0 gate has passed, which the roadmap sa
 - any bug the trial finds in the engine goes ahead of phase 1 work.
 
 If the trial has not started by the time part 1.3 is merged, phase 1 pauses until it has.
+
+**2026-10-30, part 1.3 merged.** The owner decided to go on and treat the trial as started. That is a decision, not evidence: the trial's checklist ([production-trial.md](../production-trial.md)) still has to be filled with real numbers before phase 0 counts as passed. The owner also offered samples from many real integrations; they feed part 1.5 as described there.
 
 ## Parts
 
@@ -44,14 +46,14 @@ Gate: unit tests for every validation rule, every placeholder position and every
 
 Gate: tests against an in-process fake server; a job runs end to end through the real engine.
 
-### 1.3 Pagination (in review)
+### 1.3 Pagination (merged)
 
 - Four paginators behind one small interface: page or offset number, a cursor in the body, a next URL in the body, the `Link` header.
 - The paginator's state is the job's cursor, so a crash continues from the page it stopped at.
 
 Gate: each paginator against the fake server, including a crash between pages.
 
-### 1.4 Authentication
+### 1.4 Authentication (in review)
 
 - Static header, API key, Basic, Bearer; OAuth2 client credentials and refresh token.
 - `ICredentialStore` (credentials per owner, never in the jobs table) and `IRequestSigner` for platforms that sign requests.
@@ -61,6 +63,7 @@ Gate: tests for each scheme; a test that no credential reaches a log, a span, an
 ### 1.5 Live check and preview
 
 - Four public APIs, one per pagination style, synced with recipes by a sample program run by hand. Not in CI: live APIs are slow, rate limited and change.
+- The owner's integrations, as a second check: for each, whether a recipe can describe it, and if not, what is missing. Their samples stay outside the repository; only the verdicts and made-up examples of the shapes go in. This is a better test of the stop rule than public APIs alone, because these are the APIs the library is for.
 - Package `SyncLane.Http` 0.2.0-preview, if the gate passes.
 
 Gate: the phase gate above.

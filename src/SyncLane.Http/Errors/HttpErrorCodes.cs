@@ -57,6 +57,18 @@ public static class HttpErrorCodes
     /// <summary>The pagination of a recipe cannot work as written.</summary>
     public const string PaginationInvalid = "SL5017";
 
+    /// <summary>The authentication of a recipe cannot work as written.</summary>
+    public const string AuthInvalid = "SL5018";
+
+    /// <summary>A recipe sets a header that carries credentials, which never belong in a recipe.</summary>
+    public const string CredentialInRecipe = "SL5019";
+
+    /// <summary>A recipe uses authentication and no credential store is registered.</summary>
+    public const string CredentialStoreMissing = "SL5020";
+
+    /// <summary>A recipe names a request signer that is not registered.</summary>
+    public const string SignerMissing = "SL5021";
+
     /// <summary>The recipe uses the job's window, and the job has none.</summary>
     public const string WindowMissing = "SL5101";
 
@@ -110,4 +122,22 @@ public static class HttpErrorCodes
 
     /// <summary>A job reached the most pages one job may read.</summary>
     public const string TooManyPages = "SL5118";
+
+    /// <summary>The credential store has no credential for the job's owner.</summary>
+    public const string CredentialMissing = "SL5119";
+
+    /// <summary>The owner's credential lacks a value the recipe's auth type needs, or holds one it cannot send.</summary>
+    public const string CredentialInvalid = "SL5120";
+
+    /// <summary>The OAuth 2.0 token endpoint refused to issue a token.</summary>
+    public const string TokenRefused = "SL5121";
+
+    /// <summary>The OAuth 2.0 token endpoint failed, timed out or could not be reached.</summary>
+    public const string TokenUnavailable = "SL5122";
+
+    /// <summary>The OAuth 2.0 token endpoint answered, but not with a usable bearer token.</summary>
+    public const string TokenAnswerInvalid = "SL5123";
+
+    /// <summary>A request signer changed the method, scheme, host or port of the request.</summary>
+    public const string SignerMovedRequest = "SL5124";
 }

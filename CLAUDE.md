@@ -29,7 +29,7 @@ Run the PostgreSQL tests before calling any change to storage, running or the pu
 | `src/SyncLane/Storage` | Every SQL statement (`JobSql`), table access (`JobStore`), migrations. |
 | `src/SyncLane/Running` | Workers, the page loop, the failure policy. |
 | `src/SyncLane/Telemetry` | Metrics instruments and outcome names. |
-| `src/SyncLane.Http` | The declarative HTTP source: recipes, request building, record paths, its own codes (`HttpErrorCodes`) and catalog (`HttpErrors`). Uses only the engine's public API. |
+| `src/SyncLane.Http` | The declarative HTTP source: recipes, request building, record paths, paging, authentication, its own codes (`HttpErrorCodes`) and catalog (`HttpErrors`). Uses only the engine's public API. |
 | `tests/SyncLane.Tests` | Unit tests, PostgreSQL tests (`[PostgresFact]`) and `ConventionTests`. |
 | `docs` | User documentation, `errors.md`, design proposals in `docs/design`. |
 
@@ -82,7 +82,7 @@ Every failure falls into exactly one category. Pick the mechanism from the categ
   - a timer or polling loop;
   - steps that must share one connection or transaction in order.
 - Never block on a task: no `.Result`, `.Wait()` or `.GetAwaiter().GetResult()`. **(checked)**
-- Every async method takes a `CancellationToken` and passes it on. Use `CancellationToken.None` only for the write that records how a job ended (handed back, failed, abandoned), so a stopping worker still leaves the row correct.
+- Every async method takes a `CancellationToken` and passes it on. Use `CancellationToken.None` only for the write that records how a job ended (handed back, failed, abandoned), so a stopping worker still leaves the row correct, and for saving a rotated refresh token, whose predecessor the provider may already have retired.
 - Time comes from `TimeProvider`, never `DateTime.UtcNow`, so tests can move the clock.
 
 ### 5. Performance
@@ -97,7 +97,8 @@ Every failure falls into exactly one category. Pick the mechanism from the categ
 ### 6. Security
 
 - SQL values are always parameters. The only thing ever interpolated into SQL is the schema name, and only after `SchemaName.IsValid`.
-- Never log, trace, tag or store credentials, headers, request or response bodies, or cursors (cursors often contain tokens).
+- Never log, trace, tag or store credentials, headers, request or response bodies, or cursors (cursors often contain tokens). A recipe never holds a credential, and a key in a query string is taken out of a URL before it becomes a cursor.
+- Never keep the message of a network exception (`HttpRequestException` and the like): it can hold the URL or a proxy's password. Keep its kind. **(checked by `CredentialLeakTests`, which also searches logs, spans, metrics and every stored row for each auth type)**
 - Metric tags carry the queue and job type only, never the owner or lane: they identify customers and have unbounded cardinality. **(checked by `TelemetryTests`)**
 - The `error` column is capped at 2,000 characters. Keep it that way.
 - SyncLane opens no port and calls no host on its own. No telemetry home, no license check, no update check. Ever.

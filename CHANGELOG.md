@@ -10,10 +10,15 @@ All notable changes to this project are recorded here. The format follows [Keep 
 - `SyncLane.Http`, phase 1.2: recipes run. `HttpRecipeHandler` sends the request, maps answers to outcomes (429 waits, 401/403 and other 4xx abandon, 408/5xx/timeouts/network errors retry), reads at most `MaxResponseBytes`, and hands the records to an `IRecordSink`. `AddSyncLaneHttp` throws every problem at once; a start-up check stops the host when recipes and declared job types do not match. Codes `SL5012` to `SL5016` and `SL5105` to `SL5113`.
 - The HTTP client follows no redirects, accepts gzip, deflate and brotli, and logs no URLs.
 - `SyncLane.Http`, phase 1.3: pagination by page number, offset, cursor (from the answer or the last record, with an optional has-more flag), next URL in the body, and `Link` header. The job's cursor holds the paging state, so a job continues from the page it reached. Next URLs must keep the recipe's scheme, host and port; a page pointing to itself and more than `MaxPagesPerJob` numbered pages stop the job. Codes `SL5017` and `SL5114` to `SL5118`.
+- `SyncLane.Http`, phase 1.4: authentication. A recipe's `auth` names a credential and never holds one; `ICredentialStore` gives each owner's values page by page. Types `bearer`, `basic`, `apiKey` (header or query) and `oauth2` (client credentials and refresh token: tokens kept in memory, renewed before they expire, shared by pages that need one at once, renewed once after a 401, rotated refresh tokens saved), and `signed` with an `IRequestSigner` that may not move the request. An API key the API copies into its next-page URLs is taken out before the URL becomes the cursor. `Authorization` in `request.headers` is refused. Codes `SL5018` to `SL5021` and `SL5119` to `SL5124`. A test runs every type through the engine against an API that echoes every secret, and finds none in logs, spans, metrics or the database.
 - `SyncLaneOptions.Describe()`: a read-only list of the declared queues and job types with their handlers.
 - `SyncLaneException.Errors`: an exception can carry several errors; `ThrowIfFailed()` throws all of them.
 - A convention test that fails when a platform is named in the library's code.
 - `docs/design/phase-1.md`: the parts of phase 1, their gates and the checks against refuted ideas.
+
+### Changed
+
+- `SL5109` (API unreachable) no longer keeps the `HttpRequestException` as its inner exception. Its message, which the engine stores in the `error` column, can hold the URL or a proxy's password; the error now says which kind of failure it was (host name, connection, TLS, proxy, protocol) instead.
 
 ## [0.1.0] - Unreleased
 
