@@ -54,6 +54,9 @@ public static class HttpErrorCodes
     /// <summary>Two recipes were registered for one job type.</summary>
     public const string RecipeDeclaredTwice = "SL5016";
 
+    /// <summary>The pagination of a recipe cannot work as written.</summary>
+    public const string PaginationInvalid = "SL5017";
+
     /// <summary>The recipe uses the job's window, and the job has none.</summary>
     public const string WindowMissing = "SL5101";
 
@@ -92,4 +95,19 @@ public static class HttpErrorCodes
 
     /// <summary>The response is not valid JSON.</summary>
     public const string ResponseNotJson = "SL5113";
+
+    /// <summary>The next page's URL points to another scheme, host or port than the recipe's.</summary>
+    public const string NextUrlForeignHost = "SL5114";
+
+    /// <summary>The job's cursor cannot be read by the recipe's pagination.</summary>
+    public const string CursorUnreadable = "SL5115";
+
+    /// <summary>The answer holds a cursor or a has-more flag of the wrong JSON type.</summary>
+    public const string CursorValueInvalid = "SL5116";
+
+    /// <summary>The answer points to the page that was just read, which would loop forever.</summary>
+    public const string PageRepeated = "SL5117";
+
+    /// <summary>A job reached the most pages one job may read.</summary>
+    public const string TooManyPages = "SL5118";
 }

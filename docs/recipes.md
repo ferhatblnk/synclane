@@ -2,7 +2,7 @@
 
 A recipe tells `SyncLane.Http` how to fetch one job type over HTTP: the request, how the job's window is written into it, and where the records are in the answer. It replaces a hand-written `IJobHandler` for APIs that fit it.
 
-> **Preview.** As of phase 1.2 a recipe fetches one page per job: there is no paging and no authentication beyond fixed headers yet. Both arrive in the next parts; see [design/phase-1.md](design/phase-1.md).
+> **Preview.** As of phase 1.3 recipes run and page. Authentication beyond fixed headers arrives in the next part; see [design/phase-1.md](design/phase-1.md).
 
 ## A recipe
 
@@ -106,9 +106,47 @@ An abandoned job waits for you: fix the cause, then `RequeueAsync`. It continues
 | `Timeout` | 100 seconds | How long one request may take, to the last byte of the answer. |
 | `MaxResponseBytes` | 16 MiB | The largest answer read. |
 | `MaxRetryAfter` | 1 hour | The longest wait taken from a `Retry-After` header. |
+| `MaxPagesPerJob` | 1,000 | The most pages one job reads with `page` or `offset` paging. |
 | `UserAgent` | `SyncLane.Http/<version>` | Sent when a recipe sets no `User-Agent`. |
 
 The requests go through the named `HttpClient` `HttpSource.ClientName`. Add handlers to it with `services.AddHttpClient(HttpSource.ClientName)`, for a proxy for example. Do not add retry handlers: the engine already retries the job from its cursor.
+
+## Pagination
+
+Add `pagination` when one request does not return everything. The job's cursor holds where paging stands, so a job that stops for any reason continues from the page it reached, not from the first.
+
+| Type | For APIs that | Fields | Last page |
+| --- | --- | --- | --- |
+| `page` | take a page number: `?page=3` | `param` (required), `start` (default 1), `size`, `sizeParam` | With `size`: the first page shorter than it. Without: the first empty page. |
+| `offset` | take a record offset: `?offset=200` | `param` (required), `size` (required), `start` (default 0), `sizeParam` | The first page shorter than `size`. |
+| `cursor` | return a token to send back: `?cursor=abc` | `param` (required); `from` (a path in the answer) or `fromLastRecord` (a property of the last record); `hasMore`, `size`, `sizeParam` | No token, or `hasMore` is `false`. |
+| `nextUrl` | return the next page's full URL in the body | `from` (required) | No URL. |
+| `linkHeader` | return it in a `Link` header with `rel="next"` | none | No `next` link. |
+
+```jsonc
+// A page number and a page size:
+"pagination": { "type": "page", "param": "page", "size": 100, "sizeParam": "per_page" }
+
+// A cursor taken from the last record, stopping on a has-more flag:
+"pagination": { "type": "cursor", "param": "starting_after", "fromLastRecord": "id", "hasMore": "$.has_more" }
+
+// The next page's URL in the body:
+"pagination": { "type": "nextUrl", "from": "$.links.next" }
+```
+
+A field that does not apply to the type is an error (`SL5017`), as is a paging parameter that is also set in `request.query`.
+
+Paging is guarded against the usual ways it goes wrong:
+
+- **A host the recipe does not name.** A next URL, from the body, the `Link` header or a cursor someone edited in the table, must have the recipe's scheme, host and port. Otherwise it is not called and the job is abandoned (`SL5114`). Relative URLs are read against the request that returned them.
+- **A loop.** An answer that points to the page just read stops the job (`SL5117`). With `page` and `offset`, a job stops after `MaxPagesPerJob` pages (default 1,000; `SL5118`), which catches an API that ignores the page parameter.
+- **A change of recipe halfway.** A cursor the pagination cannot read abandons the job instead of guessing (`SL5115`).
+
+The next cursor is worked out before the sink runs, so a page whose next step cannot be followed is not written.
+
+With `nextUrl` and `linkHeader`, pages after the first are called exactly as the API wrote the URL; the recipe's `query` is not added again. Headers and body are sent with every page.
+
+Not supported yet: a page number, offset or cursor that the API expects in the body or in a header rather than in the query, as GraphQL APIs often do. Such APIs need a hand-written handler for now.
 
 ## Fields
 
@@ -123,6 +161,7 @@ The requests go through the named `HttpClient` `HttpSource.ClientName`. Add hand
 | `request.allowHttp` | no | Allow a plain `http` URL. For local test servers only. |
 | `records` | no | Where the array of records is in the answer: `$` (default) for the root, or `$.data.items`. Property names only. |
 | `window.format` | no | How `{{window.start}}` and `{{window.end}}` are written. Default `iso8601`. |
+| `pagination` | no | How to get the next page. See [Pagination](#pagination). |
 
 ## Placeholders
 

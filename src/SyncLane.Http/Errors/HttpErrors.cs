@@ -77,6 +77,10 @@ internal static class HttpErrors
         HttpErrorCodes.RecipeDeclaredTwice, SyncErrorKind.Configuration,
         $"Two recipes are registered for job type '{type}'. Register one recipe per job type.");
 
+    public static SyncError PaginationInvalid(string recipe, string field, string rule) => new(
+        HttpErrorCodes.PaginationInvalid, SyncErrorKind.Validation,
+        $"Recipe '{recipe}': pagination.{field} {rule}. See the pagination types in docs/recipes.md.");
+
     // 51xx: the recipe met a job or a response it does not fit. Found while running.
 
     public static SyncError WindowMissing(string recipe) => new(
@@ -134,6 +138,32 @@ internal static class HttpErrors
     public static SyncError ResponseNotJson(string recipe) => new(
         HttpErrorCodes.ResponseNotJson, SyncErrorKind.Unavailable,
         $"Recipe '{recipe}': the response is not valid JSON. It may have been cut off; the job is retried.");
+
+    public static SyncError NextUrlForeignHost(string recipe) => new(
+        HttpErrorCodes.NextUrlForeignHost, SyncErrorKind.Configuration,
+        $"Recipe '{recipe}': the next page's URL points to another scheme, host or port than the recipe's URL. It was " +
+        "not called, so the recipe's headers never reach another host. If the API really moves between hosts, write a " +
+        "recipe per host.");
+
+    public static SyncError CursorUnreadable(string recipe, string type) => new(
+        HttpErrorCodes.CursorUnreadable, SyncErrorKind.Configuration,
+        $"Recipe '{recipe}': the job's cursor is not a valid {type} cursor. The recipe's pagination may have changed " +
+        "while the job was halfway. Requeue the job after clearing its cursor, so it starts from the first page.");
+
+    public static SyncError CursorValueInvalid(string recipe, string field, string expected) => new(
+        HttpErrorCodes.CursorValueInvalid, SyncErrorKind.Configuration,
+        $"Recipe '{recipe}': pagination.{field} leads to a value that is not {expected}. Compare the path with a real response.");
+
+    public static SyncError PageRepeated(string recipe) => new(
+        HttpErrorCodes.PageRepeated, SyncErrorKind.Configuration,
+        $"Recipe '{recipe}': the answer points to the page that was just read. Following it would loop forever, so the " +
+        "job stopped. Check that the recipe sends the cursor in the parameter the API reads.");
+
+    public static SyncError TooManyPages(string recipe, int limit) => new(
+        HttpErrorCodes.TooManyPages, SyncErrorKind.Configuration,
+        $"Recipe '{recipe}': the job reached {limit:N0} pages. Either the API ignores the page parameter and returns the " +
+        "same page again, or a window holds more than expected: check the parameter, cut smaller slices, or raise " +
+        "MaxPagesPerJob in AddSyncLaneHttp.");
 
     public static SyncError RecordsNotArray(string recipe, string path, string kind) => new(
         HttpErrorCodes.RecordsNotArray, SyncErrorKind.Configuration,

@@ -18,6 +18,12 @@ public sealed class HttpSourceOptions
     /// </summary>
     public TimeSpan MaxRetryAfter { get; set; } = TimeSpan.FromHours(1);
 
+    /// <summary>
+    /// The most pages one job reads with page or offset paging. Reaching it abandons the job, which stops an API that
+    /// ignores the page parameter from being read forever. Default 1,000.
+    /// </summary>
+    public int MaxPagesPerJob { get; set; } = 1000;
+
     /// <summary>The <c>User-Agent</c> sent when a recipe sets none. Some APIs refuse requests without one.</summary>
     public string UserAgent { get; set; } = $"SyncLane.Http/{typeof(HttpSourceOptions).Assembly.GetName().Version?.ToString(3)}";
 
@@ -66,6 +72,9 @@ public sealed class HttpSourceOptions
 
         if (MaxResponseBytes < 1024)
             errors.Add(HttpErrors.OptionInvalid(nameof(MaxResponseBytes), "must be at least 1024"));
+
+        if (MaxPagesPerJob < 1)
+            errors.Add(HttpErrors.OptionInvalid(nameof(MaxPagesPerJob), "must be at least 1"));
 
         if (MaxRetryAfter <= TimeSpan.Zero)
             errors.Add(HttpErrors.OptionInvalid(nameof(MaxRetryAfter), "must be longer than zero"));

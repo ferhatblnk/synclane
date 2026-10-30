@@ -259,7 +259,7 @@ Each is a small interface the user implements; SyncLane calls it.
 | Package | Contents | Status |
 | --- | --- | --- |
 | `SyncLane` | Engine: planning, running, storage, results, errors, telemetry | This repository |
-| `SyncLane.Http` | Declarative HTTP source: recipes, pagination, auth, rate budgets | In progress: recipes run one page per job ([docs/recipes.md](docs/recipes.md)) |
+| `SyncLane.Http` | Declarative HTTP source: recipes, pagination, auth, rate budgets | In progress: recipes run and page ([docs/recipes.md](docs/recipes.md)); authentication next |
 | `SyncLane.Sinks.*` | Destinations | Planned |
 | `SyncLane.Cli` | `init --curl`, `probe`, `test` | Planned |
 | Adapters to in-house packages | For example `SyncResult` to `ApiResult` | Separate solution, never in this one |
