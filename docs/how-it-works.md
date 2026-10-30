@@ -4,7 +4,7 @@ SyncLane is four pieces around one table: a planner that inserts rows, worker sl
 
 ## The table
 
-Everything is in `synclane.jobs`. The full definition is in [schema.sql](schema.sql).
+Everything is in `synclane.jobs`. The full definition is in [schema.sql](schema.sql); `synclane.migrations` beside it only records which schema version the database has.
 
 | Column | Meaning |
 | --- | --- |

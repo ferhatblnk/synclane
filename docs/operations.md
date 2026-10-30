@@ -127,6 +127,31 @@ The system this design comes from once tripled its slice from 30 to 90 days to "
 
 **`every` and `overlap`**: a recurring window starts `overlap` before the previous one ended. Use the overlap to cover records that show up late on the other side, and rely on upserts to make the double read harmless.
 
+## Metrics and traces
+
+All metrics belong to the meter `SyncLane` (`SyncLaneTelemetry.MeterName`). Every one carries `synclane.queue` and, except the planner metrics, `synclane.job.type`. Owners and lanes are never tags: there can be thousands of them and they often identify customers. Use the table for questions about one owner.
+
+| Metric | Unit | What it counts |
+| --- | --- | --- |
+| `synclane.job.taken` | `{job}` | Jobs a worker took. |
+| `synclane.job.wait` | `s` | Time between a job becoming due and a worker taking it. Rising wait with idle CPU means too few worker slots, or lanes that are always busy. |
+| `synclane.job.finished` | `{job}` | Runs that ended, with `synclane.job.outcome`: `completed`, `failed`, `deferred`, `abandoned`, `released` (worker stopping) or `lease_lost`. |
+| `synclane.job.duration` | `s` | Time from taking a job to the end of the run, with the same outcome tag. |
+| `synclane.page.completed` | `{page}` | Pages a handler returned. |
+| `synclane.page.duration` | `s` | Time a handler took for a page it returned. |
+| `synclane.record.processed` | `{record}` | Records the handlers reported. |
+| `synclane.job.throttled` | `{job}` | Runs that ended with a `JobThrottledException`. They are also counted as `failed`, `deferred` or `abandoned`. |
+| `synclane.planner.planned` | `{job}` | Jobs the planner added. |
+| `synclane.planner.failed` | `{run}` | Planner runs that failed. |
+
+Traces come from the activity source `SyncLane` (`SyncLaneTelemetry.ActivitySourceName`). A `synclane.job` span covers one run of a job and carries `synclane.job.id`, `synclane.job.mode`, `synclane.job.attempt` and, at the end, `synclane.job.outcome`; a failed run records the exception and sets the span status to error. Each page is a `synclane.page` span inside it with `synclane.page.processed`. The cursor is not recorded, because some APIs put tokens in it.
+
+Three signals worth an alert:
+
+- `synclane.job.finished{outcome="abandoned"}` above zero. Something waits for a person.
+- `synclane.job.throttled` growing faster than `synclane.job.taken`. The pace is too high for the other side.
+- `synclane.job.finished{outcome="lease_lost"}` above zero. A worker stalled longer than `LeaseDuration`, or clocks disagree.
+
 ## Several instances
 
 Run as many instances as you like against the same table. Planning is safe to do from all of them, and so is taking jobs.
@@ -135,6 +160,24 @@ If your web instances should not do background work, set `RunWorkers = false` an
 
 Keep the clocks of your instances in sync. Leases and due times are compared with the clock of the instance that asks.
 
+## Upgrading the schema
+
+The schema is a numbered list of migrations. `synclane.migrations` records which ones a database has. With `CreateSchema` on, each instance applies what is missing at start-up, in one transaction, behind a lock; instances that start together wait for each other, and the second one finds nothing to do.
+
+Migrations are only ever added, and each one only adds. An instance still running the previous version keeps working against the upgraded table, so you can roll a deploy one instance at a time.
+
+A table created by SyncLane 0.1, before the migrations table existed, is adopted as it is: migration 1 finds the table and indexes in place and only records itself.
+
 ## Running the schema yourself
 
-Set `CreateSchema = false` and apply [schema.sql](schema.sql) through your own migrations. The file is checked against the library by a test, so it is always the statement the library would have run. For a schema other than `synclane`, replace the name in the file and set `Schema` to match.
+Set `CreateSchema = false` and put the script into your own migrations. `SyncLaneSchema.Script()` returns it for any schema name; with EF Core that is one line:
+
+```csharp
+migrationBuilder.Sql(SyncLaneSchema.Script("synclane"));
+```
+
+When a SyncLane upgrade brings a new migration, add a new migration of your own with the same line. The script is safe to run on a database that already has some or all of it.
+
+[schema.sql](schema.sql) is the same script for the default schema, checked against the library by a test.
+
+With `CreateSchema` off SyncLane never changes the database. It checks at start-up that every migration it knows is recorded, and if one is missing it stops the host with a message that names the migration and the call that produces it.

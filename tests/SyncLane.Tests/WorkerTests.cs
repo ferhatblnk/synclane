@@ -38,8 +38,8 @@ public class WorkerTests : PostgresTest
         Assert.Equal(1, probe.MostPerLane);
         Assert.InRange(probe.MostOverall, 2, 4);
         Assert.All(jobs, job => Assert.Equal((10L, 1), (job.ProcessedCount, job.AttemptCount)));
-        Assert.Equal(new OwnerProgress(4, 4, 0, 0), progress);
-        Assert.True(progress.IsComplete);
+        Assert.Equal(new OwnerProgress(4, 4, 0, 0), progress.Value);
+        Assert.True(progress.GetValueOrThrow().IsComplete);
     }
 
     [PostgresFact]
@@ -58,7 +58,8 @@ public class WorkerTests : PostgresTest
         await host.StopAsync();
 
         var job = Assert.Single(await JobsAsync());
-        Assert.True(enqueued);
+        Assert.True(enqueued.Succeeded);
+        Assert.Equal(job.Id, enqueued.Value);
         Assert.Equal((JobMode.Manual, JobStatus.Pending, BlockingHandler.SecondPage, 0), (job.Mode, job.Status, job.Cursor, job.AttemptCount));
     }
 

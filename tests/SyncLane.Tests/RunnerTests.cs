@@ -1,6 +1,7 @@
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging.Abstractions;
 using SyncLane.Running;
+using SyncLane.Telemetry;
 using SyncLane.Tests.Support;
 
 namespace SyncLane.Tests;
@@ -180,7 +181,7 @@ public class RunnerTests : PostgresTest
     {
         var log = new ScopeLog();
         var services = new ServiceCollection().AddSingleton(log).AddScoped<ScopedHandler>().BuildServiceProvider();
-        var runner = new JobRunner(Store, services.GetRequiredService<IServiceScopeFactory>(), _clock, NullLogger<JobRunner>.Instance);
+        var runner = new JobRunner(Store, services.GetRequiredService<IServiceScopeFactory>(), _clock, new SyncLaneMetrics(), NullLogger<JobRunner>.Instance);
         await EnqueueAsync(Noon, Planned("a", key: "1"));
         var leased = await LeaseAsync(Worker, Noon);
 
@@ -205,7 +206,7 @@ public class RunnerTests : PostgresTest
     private JobRunner Runner<THandler>(THandler handler, TimeProvider? time = null) where THandler : class, IJobHandler
     {
         var services = new ServiceCollection().AddSingleton(handler).BuildServiceProvider();
-        return new JobRunner(Store, services.GetRequiredService<IServiceScopeFactory>(), time ?? _clock, NullLogger<JobRunner>.Instance);
+        return new JobRunner(Store, services.GetRequiredService<IServiceScopeFactory>(), time ?? _clock, new SyncLaneMetrics(), NullLogger<JobRunner>.Instance);
     }
 
     private static QueueOptions Options<THandler>(Action<QueueOptions>? tune = null) where THandler : class, IJobHandler =>

@@ -92,7 +92,7 @@ public sealed class QueueOptions
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(type);
         if (Find(type) is not null)
-            throw new InvalidOperationException($"Job type '{type}' is declared twice on queue '{Name}'.");
+            throw new SyncLaneException(SyncLaneErrors.JobTypeDeclaredTwice(Name, type));
 
         _types.Add(new JobType(type, _types.Count, typeof(THandler), rule));
         return this;
@@ -101,6 +101,6 @@ public sealed class QueueOptions
     private void Require(bool condition, string setting, string rule)
     {
         if (!condition)
-            throw new InvalidOperationException($"Queue '{Name}': {setting} {rule}.");
+            throw new SyncLaneException(SyncLaneErrors.QueueSettingInvalid(Name, setting, rule));
     }
 }

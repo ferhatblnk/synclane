@@ -41,7 +41,7 @@ internal static class JobText
         Failed => JobStatus.Failed,
         Deferred => JobStatus.Deferred,
         Abandoned => JobStatus.Abandoned,
-        _ => throw new InvalidOperationException($"The jobs table holds an unknown status '{text}'.")
+        _ => throw new SyncLaneException(SyncLaneErrors.UnknownStatus(text))
     };
 
     public static JobMode Mode(string text) => text switch
@@ -49,6 +49,6 @@ internal static class JobText
         Initial => JobMode.Initial,
         Recurring => JobMode.Recurring,
         Manual => JobMode.Manual,
-        _ => throw new InvalidOperationException($"The jobs table holds an unknown mode '{text}'.")
+        _ => throw new SyncLaneException(SyncLaneErrors.UnknownMode(text))
     };
 }

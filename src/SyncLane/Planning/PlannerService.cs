@@ -1,21 +1,27 @@
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
+using SyncLane.Telemetry;
 
 namespace SyncLane.Planning;
 
 /// <summary>Plans every queue that has an owner source, at start-up and then on every interval.</summary>
 internal sealed partial class PlannerService(
-    SyncLaneOptions options, QueuePlanner planner, IServiceScopeFactory scopes, TimeProvider time, ILogger<PlannerService> logger) : BackgroundService
+    SyncLaneOptions options,
+    QueuePlanner planner,
+    IServiceScopeFactory scopes,
+    TimeProvider time,
+    SyncLaneMetrics metrics,
+    ILogger<PlannerService> logger) : BackgroundService
 {
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
         using var timer = new PeriodicTimer(options.PlanInterval, time);
 
+        // Sequential: a timer loop; one planning round per interval. Queues are planned side by side within a round.
         do
         {
-            foreach (var queue in options.Queues)
-                await PlanAsync(queue, stoppingToken);
+            await Task.WhenAll(options.Queues.Select(queue => PlanAsync(queue, stoppingToken)));
         }
         while (await timer.WaitForNextTickAsync(stoppingToken));
     }
@@ -33,10 +39,14 @@ internal sealed partial class PlannerService(
             var owners = await source.GetOwnersAsync(queue.Name, stoppingToken);
             var planned = await planner.PlanAsync(queue, owners, stoppingToken);
             if (planned > 0)
+            {
+                metrics.Planned(queue.Name, planned);
                 LogPlanned(queue.Name, planned, owners.Count);
+            }
         }
         catch (Exception exception) when (!stoppingToken.IsCancellationRequested)
         {
+            metrics.PlanFailed(queue.Name);
             LogFailed(exception, queue.Name);
         }
     }

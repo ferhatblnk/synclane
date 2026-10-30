@@ -1,9 +1,7 @@
-using System.Text.RegularExpressions;
-
 namespace SyncLane;
 
 /// <summary>Settings shared by every queue.</summary>
-public sealed partial class SyncLaneOptions
+public sealed class SyncLaneOptions
 {
     private readonly List<QueueOptions> _queues = [];
 
@@ -13,7 +11,10 @@ public sealed partial class SyncLaneOptions
     /// <summary>The schema the jobs table lives in. Lower-case letters, digits and underscores.</summary>
     public string Schema { get; set; } = "synclane";
 
-    /// <summary>Create the schema, table and indexes at start-up when they are missing. Turn it off if you run <c>docs/schema.sql</c> yourself.</summary>
+    /// <summary>
+    /// Create the schema and apply missing migrations at start-up. Turn it off if you apply migrations yourself with
+    /// <see cref="SyncLaneSchema.Script"/>; SyncLane then only checks at start-up that they are applied.
+    /// </summary>
     public bool CreateSchema { get; set; } = true;
 
     /// <summary>Run the planner in this process.</summary>
@@ -36,7 +37,7 @@ public sealed partial class SyncLaneOptions
         ArgumentException.ThrowIfNullOrWhiteSpace(name);
         ArgumentNullException.ThrowIfNull(configure);
         if (_queues.Any(queue => queue.Name == name))
-            throw new InvalidOperationException($"Queue '{name}' is declared twice.");
+            throw new SyncLaneException(SyncLaneErrors.QueueDeclaredTwice(name));
 
         var queue = new QueueOptions(name);
         configure(queue);
@@ -44,28 +45,27 @@ public sealed partial class SyncLaneOptions
         return this;
     }
 
-    internal QueueOptions Queue(string name) =>
-        _queues.FirstOrDefault(queue => queue.Name == name)
-        ?? throw new ArgumentException($"Queue '{name}' is not declared.", nameof(name));
+    /// <summary>The declared queue called <paramref name="name"/>, or <c>null</c>.</summary>
+    internal QueueOptions? Find(string name) => _queues.FirstOrDefault(queue => queue.Name == name);
+
+    /// <summary>The declared queue called <paramref name="name"/>; for code that has already checked it exists.</summary>
+    internal QueueOptions Queue(string name) => Find(name) ?? throw new SyncLaneException(SyncLaneErrors.QueueNotDeclared(name));
 
     internal void Validate()
     {
         if (string.IsNullOrWhiteSpace(ConnectionString))
-            throw new InvalidOperationException("SyncLane needs a ConnectionString.");
+            throw new SyncLaneException(SyncLaneErrors.ConnectionStringMissing());
 
-        if (!SchemaName().IsMatch(Schema))
-            throw new InvalidOperationException("Schema must start with a lower-case letter or underscore and contain only lower-case letters, digits and underscores.");
+        if (!SchemaName.IsValid(Schema))
+            throw new SyncLaneException(SyncLaneErrors.SchemaNameInvalid(Schema));
 
         if (PlanInterval <= TimeSpan.Zero)
-            throw new InvalidOperationException("PlanInterval must be positive.");
+            throw new SyncLaneException(SyncLaneErrors.IntervalNotPositive(nameof(PlanInterval)));
 
         if (PollInterval <= TimeSpan.Zero)
-            throw new InvalidOperationException("PollInterval must be positive.");
+            throw new SyncLaneException(SyncLaneErrors.IntervalNotPositive(nameof(PollInterval)));
 
         foreach (var queue in _queues)
             queue.Validate();
     }
-
-    [GeneratedRegex("^[a-z_][a-z0-9_]{0,62}$")]
-    private static partial Regex SchemaName();
 }

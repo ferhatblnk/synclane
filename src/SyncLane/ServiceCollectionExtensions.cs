@@ -1,9 +1,11 @@
+using System.Diagnostics.Metrics;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
 using Npgsql;
 using SyncLane.Planning;
 using SyncLane.Running;
 using SyncLane.Storage;
+using SyncLane.Telemetry;
 
 namespace SyncLane;
 
@@ -29,6 +31,7 @@ public static class ServiceCollectionExtensions
             var settings = provider.GetRequiredService<SyncLaneOptions>();
             return new JobStore(NpgsqlDataSource.Create(settings.ConnectionString), new JobSql(settings.Schema));
         });
+        services.AddSingleton(static provider => new SyncLaneMetrics(provider.GetService<IMeterFactory>()));
         services.AddSingleton<QueuePlanner>();
         services.AddSingleton<JobRunner>();
         services.AddSingleton<ISyncLane, SyncLaneClient>();
@@ -44,6 +47,8 @@ public static class ServiceCollectionExtensions
 
         if (options.CreateSchema)
             services.AddHostedService<SchemaInitializer>();
+        else
+            services.AddHostedService<SchemaCheck>();
 
         if (options.RunPlanner)
             services.AddHostedService<PlannerService>();
