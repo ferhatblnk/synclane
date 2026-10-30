@@ -70,10 +70,24 @@ Recipes are checked when they are loaded, and every problem is reported at once.
 | `SL5009` | Validation | A header name is not an HTTP token, is one SyncLane sets itself (`Host`, `Content-Length`, `Transfer-Encoding`, `Connection`), or a value has a line break. | Correct or remove the header. |
 | `SL5010` | Validation | `request.body` is set on a GET. | Use POST, or remove the body. |
 | `SL5011` | Validation | A placeholder is unclosed or empty, such as `{{window.start` or `{{}}`. | Close it: `{{window.start}}`. |
+| `SL5012` | Configuration | A setting of `AddSyncLaneHttp` cannot work, such as a zero `Timeout`. | Change the setting as the message says. |
+| `SL5013` | Configuration | A recipe was registered without a sink. | Add `.WriteTo<TSink>()` or `.WriteTo((page, cancellationToken) => ...)` after `Recipe(...)`. |
+| `SL5014` | Configuration | A job type runs with `HttpRecipeHandler` and has no recipe. Found at start-up, or by the handler if it runs outside a host. | Register a recipe for the type in `AddSyncLaneHttp`. |
+| `SL5015` | Configuration | A recipe is registered for a job type that no queue declares with `HttpRecipeHandler`, usually a typo. | Correct the type name on one side. |
+| `SL5016` | Configuration | Two recipes are registered for one job type. | Keep one. |
 | `SL5101` | Configuration | The recipe uses `{{window.start}}` or `{{window.end}}`, and the job has no window. | Declare the job type with `Windowed`, or remove the window placeholders. |
 | `SL5102` | Validation | A header would contain a line break once its placeholders were filled, usually from an owner key. The request is not sent. | Remove line breaks from the owner key. |
 | `SL5103` | Configuration | The response has nothing at the `records` path. | Compare the path with a real response. |
 | `SL5104` | Configuration | The `records` path leads to an object or a value, not an array. | Point the path at the list itself. |
+| `SL5105` | Throttled | The API answered 429. The job waits for `Retry-After`, cut to `MaxRetryAfter`, or for the queue's throttle delay. | Nothing, unless it keeps happening: then lower `Concurrency` or widen `every`. |
+| `SL5106` | Unauthorized | The API answered 401 or 403. The job is abandoned at once: the same credentials will not work on the next try. | Fix the owner's credentials, then requeue. |
+| `SL5107` | Unavailable | The API answered 408 or a 5xx status. The job is retried with the queue's growing delay. | Nothing, unless it keeps happening. |
+| `SL5108` | Unavailable | The API did not answer within `Timeout`. The job is retried. | Ask for smaller pages, or raise `Timeout`. |
+| `SL5109` | Unavailable | The API could not be reached: DNS, connection or TLS failed. The inner exception says which. The job is retried. | Check the host name and the network. |
+| `SL5110` | Configuration | The API answered another 4xx, such as 400, 404 or 422. Retrying would get the same answer, so the job is abandoned. | Compare the recipe with the API's documentation, then requeue. |
+| `SL5111` | Configuration | The API answered with a redirect. SyncLane follows none, so a recipe only calls the host it names and headers never reach another host. | Put the final URL in the recipe. |
+| `SL5112` | Configuration | The response is larger than `MaxResponseBytes`. The job is abandoned. | Ask for smaller pages, or raise `MaxResponseBytes`. |
+| `SL5113` | Unavailable | The response is not valid JSON, often because it was cut off. The job is retried. The body is not quoted in the message. | Nothing, unless it keeps happening: then check what the API returns. |
 
 ## Errors that are not on this page
 

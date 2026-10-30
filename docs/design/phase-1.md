@@ -26,7 +26,7 @@ If the trial has not started by the time part 1.3 is merged, phase 1 pauses unti
 
 ## Parts
 
-### 1.1 Recipe model
+### 1.1 Recipe model (merged)
 
 - The recipe as C# records and as JSON, loaded with `System.Text.Json`, no new dependency.
 - Validation that returns **all** problems at once as one failed `SyncResult`, each with a code in a new range, `SL5xxx`.
@@ -35,7 +35,7 @@ If the trial has not started by the time part 1.3 is merged, phase 1 pauses unti
 
 Gate: unit tests for every validation rule, every placeholder position and every window format.
 
-### 1.2 Running a recipe
+### 1.2 Running a recipe (in review)
 
 - `HttpRecipeHandler`: an `IJobHandler` that builds the request, sends it, finds the records and hands them to a sink.
 - A minimal `ISink` (write one page of records) with a delegate implementation. Real sinks are phase 3.

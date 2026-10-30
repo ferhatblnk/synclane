@@ -249,7 +249,7 @@ Each is a small interface the user implements; SyncLane calls it.
 | --- | --- | --- |
 | `IJobHandler` | Available | Run one page of a job and return the next cursor. |
 | `IOwnerSource` | Available | List the accounts a queue should plan for. |
-| `ISink` | Planned, phase 3 | Write the records of a page somewhere: PostgreSQL `jsonb`, HTTP POST, user code. |
+| `IRecordSink` | Available in `SyncLane.Http` | Write the records of a page. Ready-made sinks (PostgreSQL `jsonb`, HTTP POST) are phase 3. |
 | `IRequestSigner` | Planned, phase 1 | Sign an outgoing request for platforms that require it. |
 | `ICredentialStore` | Planned, phase 1 | Keep credentials encrypted, outside the jobs table. |
 | Rate budgets | Proposed, phase 2 | See [docs/design/rate-budgets.md](docs/design/rate-budgets.md). |
@@ -259,7 +259,7 @@ Each is a small interface the user implements; SyncLane calls it.
 | Package | Contents | Status |
 | --- | --- | --- |
 | `SyncLane` | Engine: planning, running, storage, results, errors, telemetry | This repository |
-| `SyncLane.Http` | Declarative HTTP source: recipes, pagination, auth, rate budgets | In progress: recipe model ([docs/recipes.md](docs/recipes.md)) |
+| `SyncLane.Http` | Declarative HTTP source: recipes, pagination, auth, rate budgets | In progress: recipes run one page per job ([docs/recipes.md](docs/recipes.md)) |
 | `SyncLane.Sinks.*` | Destinations | Planned |
 | `SyncLane.Cli` | `init --curl`, `probe`, `test` | Planned |
 | Adapters to in-house packages | For example `SyncResult` to `ApiResult` | Separate solution, never in this one |
@@ -280,3 +280,5 @@ Each is a small interface the user implements; SyncLane calls it.
 | D10 | One message catalog with stable codes | Consistent wording, searchable docs, localization by code. | Accepted |
 | D11 | Interfaces only at extension points | Testing against real PostgreSQL makes internal interfaces cost without benefit. | Accepted |
 | D12 | Rate budgets separate from lanes | Lanes serialise; shared limits should not. | Proposed |
+| D13 | `SyncLane.Http` depends on `Microsoft.Extensions.Http` | `IHttpClientFactory` manages connection lifetimes and lets users add handlers to a named client; writing that ourselves would be worse. Maintained by Microsoft, MIT licensed. The engine does not take the dependency. | Accepted |
+| D14 | The HTTP source follows no redirects | A redirect could carry a recipe's headers to another host, and would break the rule that a recipe only calls the host it names. | Accepted |

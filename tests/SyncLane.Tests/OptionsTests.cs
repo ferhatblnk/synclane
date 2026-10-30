@@ -66,6 +66,21 @@ public class OptionsTests
     }
 
     [Fact]
+    public void The_description_lists_queues_and_job_types_with_their_handlers_and_is_a_copy()
+    {
+        var options = new SyncLaneOptions().AddQueue("stores", queue => queue.Snapshot<ProductHandler>("products").Handle<OrderHandler>("resync"));
+
+        var description = options.Describe();
+        options.AddQueue("later", _ => { });
+
+        var stores = Assert.Single(description);
+        Assert.Equal("stores", stores.Name);
+        Assert.Equal(
+            [new JobTypeDescription("products", typeof(ProductHandler)), new JobTypeDescription("resync", typeof(OrderHandler))],
+            stores.JobTypes);
+    }
+
+    [Fact]
     public void Configuration_errors_carry_their_code()
     {
         var failure = Assert.Throws<SyncLaneException>(() => new ServiceCollection().AddSyncLane(options =>
