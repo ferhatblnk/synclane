@@ -28,6 +28,12 @@ public static class SyncErrorCodes
     /// <summary>A job type setting cannot work.</summary>
     public const string JobTypeSettingInvalid = "SL1007";
 
+    /// <summary>A rate budget is declared twice.</summary>
+    public const string BudgetDeclaredTwice = "SL1008";
+
+    /// <summary>A setting of a rate budget is out of range.</summary>
+    public const string BudgetSettingInvalid = "SL1009";
+
     /// <summary>The database lacks a migration and <c>CreateSchema</c> is off.</summary>
     public const string MigrationMissing = "SL2001";
 
@@ -49,6 +55,9 @@ public static class SyncErrorCodes
     /// <summary>The cursor of a query was not produced by SyncLane.</summary>
     public const string CursorInvalid = "SL3004";
 
+    /// <summary>A rate budget is used that was never declared.</summary>
+    public const string BudgetNotDeclared = "SL3005";
+
     /// <summary>A job with the same owner, type and dedup key already exists.</summary>
     public const string JobAlreadyExists = "SL3101";
 
@@ -57,4 +66,7 @@ public static class SyncErrorCodes
 
     /// <summary>A job was taken more often than its attempts allow without reporting a result.</summary>
     public const string TooManyPickups = "SL4002";
+
+    /// <summary>A rate budget had no token within <c>MaxBudgetWait</c>, so the job gave its slot back.</summary>
+    public const string BudgetWaitTooLong = "SL4003";
 }

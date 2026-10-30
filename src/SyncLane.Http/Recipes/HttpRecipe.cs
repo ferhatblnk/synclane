@@ -36,6 +36,12 @@ public sealed record HttpRecipe
     public HttpRecipeAuth? Auth { get; init; }
 
     /// <summary>
+    /// The rate budget the recipe's requests draw from. Leave it out to send as fast as the queue's concurrency allows,
+    /// which is fine for an API without a limit and rarely anywhere else.
+    /// </summary>
+    public HttpRecipeRate? Rate { get; init; }
+
+    /// <summary>
     /// Reads a recipe from JSON and validates it. Every problem found is returned at once, each with its code.
     /// </summary>
     public static SyncResult<HttpRecipe> Parse(string json)
@@ -192,6 +198,20 @@ public sealed record HttpRecipeAuth
 
     /// <summary>For <see cref="AuthType.Signed"/>: the name the <see cref="IRequestSigner"/> was registered under.</summary>
     public string? Signer { get; init; }
+}
+
+/// <summary>Which rate budget a recipe draws from, and whose bucket.</summary>
+[JsonUnmappedMemberHandling(JsonUnmappedMemberHandling.Disallow)]
+public sealed record HttpRecipeRate
+{
+    /// <summary>The budget's name, as declared with <c>lane.AddBudget</c> in <c>AddSyncLane</c>.</summary>
+    public required string Budget { get; init; }
+
+    /// <summary>
+    /// Whose bucket. Defaults to <c>{{owner.key}}</c>, one bucket per owner. Write a fixed text, such as
+    /// <c>shared-account</c>, for owners that share one set of credentials and so one limit.
+    /// </summary>
+    public string? Key { get; init; }
 }
 
 /// <summary>How requests are authenticated.</summary>

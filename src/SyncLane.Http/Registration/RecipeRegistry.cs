@@ -10,6 +10,8 @@ internal sealed class RecipeRegistry(IEnumerable<HttpRecipeBinding> bindings)
 
     public IEnumerable<string> JobTypes => _byType.Keys;
 
+    public IEnumerable<CompiledRecipe> Recipes => _byType.Values.Select(binding => binding.Recipe);
+
     public bool TryGet(string jobType, [NotNullWhen(true)] out HttpRecipeBinding? binding) =>
         _byType.TryGetValue(jobType, out binding);
 }

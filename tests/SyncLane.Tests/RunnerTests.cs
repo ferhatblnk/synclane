@@ -31,6 +31,29 @@ public class RunnerTests : PostgresTest
     }
 
     [PostgresFact]
+    public async Task A_postponed_job_gives_its_slot_back_without_using_an_attempt_and_continues_from_its_cursor()
+    {
+        var postponements = 1;
+        var handler = new ScriptedHandler((job, _) => job.Cursor switch
+        {
+            null => Task.FromResult(new JobPage("2", 100)),
+            "2" when postponements-- > 0 => throw new JobPostponedException("Waiting for a budget.", TimeSpan.FromMinutes(10)),
+            _ => Task.FromResult(new JobPage(null, 40))
+        });
+
+        var postponed = await RunAsync(handler);
+        var tooEarly = await LeaseAsync(Worker, _clock.GetUtcNow().AddMinutes(9));
+        _clock.Advance(TimeSpan.FromMinutes(10));
+        var completed = await RunAsync(handler, enqueue: false);
+
+        Assert.Equal((JobStatus.Pending, "2", 100L, 0), (postponed.Status, postponed.Cursor, postponed.ProcessedCount, postponed.AttemptCount));
+        Assert.Equal(Noon.AddMinutes(10), postponed.NextRunAt);
+        Assert.Equal("JobPostponedException: Waiting for a budget.", postponed.Error);
+        Assert.Null(tooEarly);
+        Assert.Equal((JobStatus.Completed, 140L, 1), (completed.Status, completed.ProcessedCount, completed.AttemptCount));
+    }
+
+    [PostgresFact]
     public async Task A_failed_job_runs_again_from_the_page_it_stopped_at()
     {
         var failures = 1;

@@ -19,7 +19,8 @@ SyncLane keeps that state where you can read and change it:
 
 - **A window on every job.** History is cut into slices; each slice is a job with a start and an end. What is new gets a window that starts where the last one ended.
 - **A cursor on every job.** It is saved after each page. A job that fails, is redeployed or loses its worker continues from its last page.
-- **Lanes.** Jobs of one account run one after the other; accounts run side by side. Accounts that share a rate limit can share a lane.
+- **Lanes.** Jobs of one account run one after the other; accounts run side by side.
+- **Rate budgets.** Requests to one account go out at the pace you declare, shared by every job and queue that calls it. When the API says "slow down", every job on that account waits, not only the one that heard it.
 - **Planning that can be repeated.** The planner compares what should exist with what exists and adds the difference. Calling it a thousand times changes nothing. Raising the history from 60 days to two years fills only the gap.
 - **A row you can act on.** `status`, `attempt_count`, `error`, `next_run_at`, `leased_by`. If something is stuck, `SELECT` tells you why and `UPDATE` fixes it.
 
@@ -259,10 +260,39 @@ return Results.Ok(result.Value);
 
 A failed result always means the call was understood and the answer is no: an undeclared queue, a duplicate job, a page size out of range. It never hides an outage; a database that cannot be reached still throws. Every error has a stable code such as `SL3101`, listed with its cause and fix in [docs/errors.md](docs/errors.md). Call `ThrowIfFailed()` or `GetValueOrThrow()` when you would rather have an exception.
 
-Two exceptions let a handler say more than "it failed":
+Three exceptions let a handler say more than "it failed":
 
 - `JobThrottledException` when the other side asks you to slow down, optionally with the wait it named.
 - `JobAbandonedException` when a retry cannot help, for example when the account's access was revoked.
+- `JobPostponedException` when the job only has to wait: it gives its slot back without using an attempt and continues from its cursor later. A rate budget throws it for you when a token is far away.
+
+## Rate budgets
+
+An API's limit belongs to an account, not to a job. Declare it once, and every job that calls the account draws from it:
+
+```csharp
+builder.Services.AddSyncLane(lane =>
+{
+    lane.AddBudget("example-shop", limit: 2, per: TimeSpan.FromSeconds(1), burst: 40);
+    lane.AddQueue("shops", queue => { /* ... */ });
+});
+```
+
+A recipe draws from it with `"rate": { "budget": "example-shop" }`. A hand-written handler calls `RateBudgets` before each request, and tells it when the API answered `429`:
+
+```csharp
+await budgets.WaitAsync("example-shop", job.Owner, cancellationToken);
+// ... send the request ...
+if (response.StatusCode == HttpStatusCode.TooManyRequests)
+    budgets.Throttled("example-shop", job.Owner, response.Headers.RetryAfter?.Delta);
+```
+
+- **One bucket per budget and key**, usually the owner. Owners that share one set of credentials pass one key.
+- **A `429` pauses the whole bucket** for `Retry-After`. Without one, the pause is a backoff that doubles while `429`s continue. Every job on the key waits, then the bucket restarts at the steady rate.
+- **A wait longer than `MaxBudgetWait`** (30 seconds) gives the job's slot back without using an attempt, so a paused budget never holds workers.
+- **For now each instance keeps its own buckets.** With several instances, give each a share of the limit. Sharing through the database comes next.
+
+How the design follows from the limits of large APIs: [docs/design/phase-2.md](docs/design/phase-2.md).
 
 ## Watching it run
 
@@ -286,6 +316,8 @@ Every run of a job is a `synclane.job` span and every page a `synclane.page` spa
 | `RunPlanner`, `RunWorkers` | `true` | Turn them off in instances that should only enqueue and read. |
 | `PlanInterval` | 1 minute | How often the planner looks for missing jobs. |
 | `PollInterval` | 5 seconds | How long an idle worker slot waits before it looks again. |
+| `AddBudget(name, limit, per, burst)` | none | A rate budget: `limit` requests per `per`, at most `burst` at once (default 1, evenly spaced). |
+| `MaxBudgetWait` | 30 seconds | The longest a request waits for a budget's token inside a job; a longer wait postpones the job. |
 | `queue.Concurrency` | `1` | Jobs of the queue one process runs at once. `1` makes the queue strictly sequential. |
 | `queue.MaxAttempts` | `5` | Regular attempts before a job is deferred. |
 | `queue.LeaseDuration` | 5 minutes | How long a silent worker keeps its job. |
@@ -301,6 +333,7 @@ Every run of a job is a `synclane.job` span and every page a `synclane.page` spa
 
 ## Limitations
 
+- **Rate budgets are per process.** Each instance keeps its own buckets until they are shared through the database (phase 2.2).
 - **PostgreSQL only.** The lease is a single statement that relies on `FOR UPDATE SKIP LOCKED` and partial unique indexes.
 - **Workers poll.** An idle slot asks once per `PollInterval`. There is no `LISTEN`/`NOTIFY` yet.
 - **No job arguments.** A job knows its owner, type and window. Anything else the handler needs it looks up from the owner.

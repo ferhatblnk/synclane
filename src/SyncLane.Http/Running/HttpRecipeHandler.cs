@@ -11,7 +11,8 @@ namespace SyncLane.Http;
 /// and register their recipes with <c>AddSyncLaneHttp</c>.
 /// </summary>
 /// <remarks>
-/// How answers become job outcomes: 2xx is a page; 429 waits, honouring <c>Retry-After</c>; 401 renews an OAuth 2.0
+/// With a rate budget, every request first waits for a token. How answers become job outcomes: 2xx is a page; 429
+/// pauses the recipe's budget for everyone on the key and waits, honouring <c>Retry-After</c>; 401 renews an OAuth 2.0
 /// token once, and otherwise abandons the job, as 403 does, because retrying with the same credentials cannot help;
 /// 408, 5xx, timeouts, network errors and broken JSON retry with the queue's growing delay; redirects and other 4xx
 /// abandon. No message ever contains a response body, a header value, a credential or a URL.
@@ -47,7 +48,8 @@ public sealed class HttpRecipeHandler : IJobHandler
             throw new JobAbandonedException(string.Join("; ", pageRequest.Errors));
 
         var auth = recipe.Auth is { } scheme ? await AuthenticateAsync(recipe, scheme, job, cancellationToken) : null;
-        using var answer = await FetchAsync(recipe, job, pageRequest.Value, auth, cancellationToken);
+        var budget = recipe.Rate is { } rate ? new Budget(_services.GetRequiredService<RateBudgets>(), rate.Budget, rate.KeyOf(job)) : null;
+        using var answer = await FetchAsync(recipe, job, pageRequest.Value, auth, budget, cancellationToken);
 
         var records = recipe.Records.Find(answer.Document.RootElement, recipe.Name);
         if (!records.Succeeded)
@@ -79,19 +81,20 @@ public sealed class HttpRecipeHandler : IJobHandler
     /// Sends the page's request and returns its answer, or throws the exception that gives the right outcome. A token
     /// the API rejects with 401 is renewed and the request sent once more, unless the token was fetched just now.
     /// </summary>
-    private async Task<Answer> FetchAsync(CompiledRecipe recipe, Job job, PageRequest page, AuthContext? auth, CancellationToken cancellationToken)
+    private async Task<Answer> FetchAsync(
+        CompiledRecipe recipe, Job job, PageRequest page, AuthContext? auth, Budget? budget, CancellationToken cancellationToken)
     {
         var (first, stamp) = await PrepareAsync(recipe, job, page, auth, rejected: null, cancellationToken);
         using (first)
         {
             var renewable = recipe.Auth is { Renews: true } && !stamp.Fresh;
-            if (await SendAsync(recipe, first, renewable, cancellationToken) is { } answer)
+            if (await SendAsync(recipe, first, renewable, budget, cancellationToken) is { } answer)
                 return answer;
         }
 
         var (second, _) = await PrepareAsync(recipe, job, page, auth, stamp.Token, cancellationToken);
         using (second)
-            return await SendAsync(recipe, second, renewable: false, cancellationToken) ?? throw new UnreachableException();
+            return await SendAsync(recipe, second, renewable: false, budget, cancellationToken) ?? throw new UnreachableException();
     }
 
     /// <summary>The request for the page, with its credential.</summary>
@@ -120,9 +123,16 @@ public sealed class HttpRecipeHandler : IJobHandler
         }
     }
 
-    /// <summary>Sends one request. <c>null</c> means a 401 that <paramref name="renewable"/> allows to try again.</summary>
-    private async Task<Answer?> SendAsync(CompiledRecipe recipe, HttpRequestMessage request, bool renewable, CancellationToken cancellationToken)
+    /// <summary>
+    /// Sends one request, after its budget gives a token. <c>null</c> means a 401 that <paramref name="renewable"/>
+    /// allows to try again.
+    /// </summary>
+    private async Task<Answer?> SendAsync(
+        CompiledRecipe recipe, HttpRequestMessage request, bool renewable, Budget? budget, CancellationToken cancellationToken)
     {
+        if (budget is not null)
+            await budget.Budgets.WaitAsync(budget.Name, budget.Key, cancellationToken);
+
         using var timeout = new CancellationTokenSource(_options.Timeout, _time);
         using var linked = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, timeout.Token);
 
@@ -132,7 +142,7 @@ public sealed class HttpRecipeHandler : IJobHandler
             if (renewable && response.StatusCode == HttpStatusCode.Unauthorized)
                 return null;
 
-            ThrowUnlessSuccess(response, recipe.Name);
+            ThrowUnlessSuccess(response, recipe.Name, budget);
 
             var links = response.Headers.TryGetValues("Link", out var values) ? values.ToArray() : [];
             var (document, tooLarge) = await JsonBody.ReadAsync(response.Content, _options.MaxResponseBytes, linked.Token);
@@ -155,7 +165,7 @@ public sealed class HttpRecipeHandler : IJobHandler
         }
     }
 
-    private void ThrowUnlessSuccess(HttpResponseMessage response, string recipe)
+    private void ThrowUnlessSuccess(HttpResponseMessage response, string recipe, Budget? budget)
     {
         var status = (int)response.StatusCode;
         if (status is >= 200 and < 300)
@@ -163,14 +173,26 @@ public sealed class HttpRecipeHandler : IJobHandler
 
         throw status switch
         {
-            429 => new JobThrottledException(
-                HttpErrors.Throttled(recipe).ToString(), RetryAfter.From(response, _time.GetUtcNow(), _options.MaxRetryAfter)),
+            429 => new JobThrottledException(HttpErrors.Throttled(recipe).ToString(), Pause(response, budget)),
             401 or 403 => new JobAbandonedException(HttpErrors.Unauthorized(recipe, status).ToString()),
             408 or >= 500 => new SyncLaneException(HttpErrors.ServerError(recipe, status)),
             >= 300 and < 400 => new JobAbandonedException(HttpErrors.Redirected(recipe, status).ToString()),
             _ => (Exception)new JobAbandonedException(HttpErrors.RequestRejected(recipe, status).ToString())
         };
     }
+
+    /// <summary>
+    /// How long the job that got a 429 waits. With a budget, the whole budget pauses for everyone on the key, and the job
+    /// waits as long as the pause.
+    /// </summary>
+    private TimeSpan? Pause(HttpResponseMessage response, Budget? budget)
+    {
+        var asked = RetryAfter.From(response, _time.GetUtcNow(), _options.MaxRetryAfter);
+        return budget is null ? asked : budget.Budgets.Throttled(budget.Name, budget.Key, asked);
+    }
+
+    /// <summary>The rate budget a page's requests draw from, and whose bucket.</summary>
+    private sealed record Budget(RateBudgets Budgets, string Name, string Key);
 
     /// <summary>A parsed answer and what paging needs from its headers.</summary>
     private sealed record Answer(JsonDocument Document, IReadOnlyList<string> Links, Uri Url) : IDisposable

@@ -100,6 +100,15 @@ internal static class HttpErrors
         $"Recipe '{recipe}' is signed by '{signer}', which is not registered. Add http.Signer<TSigner>(\"{signer}\") in " +
         "AddSyncLaneHttp, with a class that implements IRequestSigner.");
 
+    public static SyncError RateInvalid(string recipe, string field, string rule) => new(
+        HttpErrorCodes.RateInvalid, SyncErrorKind.Validation,
+        $"Recipe '{recipe}': rate.{field} {rule}. See rate budgets in docs/recipes.md.");
+
+    public static SyncError BudgetMissing(string recipe, string budget) => new(
+        HttpErrorCodes.BudgetMissing, SyncErrorKind.Configuration,
+        $"Recipe '{recipe}' draws from budget '{budget}', which is not declared. Add lane.AddBudget(\"{budget}\", limit: ..., " +
+        "per: ...) in AddSyncLane, or correct rate.budget.");
+
     // 51xx: the recipe met a job or a response it does not fit. Found while running.
 
     public static SyncError WindowMissing(string recipe) => new(

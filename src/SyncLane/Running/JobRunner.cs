@@ -152,6 +152,9 @@ internal sealed partial class JobRunner(
     private async Task<string> FailAsync(QueueOptions queue, Job job, string worker, Exception exception, Activity? activity)
     {
         var now = time.GetUtcNow();
+        if (FailurePolicy.Postponement(exception) is { } delay)
+            return await PostponeAsync(job, worker, ErrorText.Describe(exception), now + delay, now);
+
         var outcome = FailurePolicy.Decide(queue, job.AttemptCount, exception, now);
         var error = ErrorText.Describe(exception);
         activity?.SetStatus(ActivityStatusCode.Error, error);
@@ -181,6 +184,18 @@ internal sealed partial class JobRunner(
         return JobOutcome.Abandoned;
     }
 
+    private async Task<string> PostponeAsync(Job job, string worker, string reason, DateTimeOffset nextRunAt, DateTimeOffset now)
+    {
+        if (!await store.PostponeAsync(job.Id, worker, reason, nextRunAt, now, CancellationToken.None))
+        {
+            LogLeaseLost(job.Id, job.Type, worker);
+            return JobOutcome.LeaseLost;
+        }
+
+        LogPostponed(job.Id, job.Type, nextRunAt - now);
+        return JobOutcome.Postponed;
+    }
+
     private async Task<string> AbandonAsync(Job job, string worker, SyncError error, Activity? activity)
     {
         var reason = error.ToString();
@@ -199,6 +214,9 @@ internal sealed partial class JobRunner(
 
     [LoggerMessage(Level = LogLevel.Information, Message = "Job {JobId} ({JobType}) was handed back because the worker is stopping. It continues from its cursor.")]
     private partial void LogReleased(long jobId, string jobType);
+
+    [LoggerMessage(Level = LogLevel.Information, Message = "Job {JobId} ({JobType}) gave its slot back and runs again in {Delay}, from its cursor. The attempt does not count.")]
+    private partial void LogPostponed(long jobId, string jobType, TimeSpan delay);
 
     [LoggerMessage(Level = LogLevel.Warning, Message = "Job {JobId} ({JobType}) is no longer held by {Worker}. Another worker took it over and this one stops.")]
     private partial void LogLeaseLost(long jobId, string jobType, string worker);

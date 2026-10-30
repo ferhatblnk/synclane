@@ -2,7 +2,7 @@
 
 A recipe tells `SyncLane.Http` how to fetch one job type over HTTP: the request, how the job's window is written into it, and where the records are in the answer. It replaces a hand-written `IJobHandler` for APIs that fit it.
 
-> **Preview.** Recipes run, page and authenticate, and have synced five public APIs, one per paging style ([samples/LiveCheck](../samples/LiveCheck)). They have not yet met the APIs of a production integration; see [design/phase-1.md](design/phase-1.md).
+> **Preview.** Recipes run, page, authenticate and keep to a rate budget, and have synced five public APIs, one per paging style ([samples/LiveCheck](../samples/LiveCheck)). They have not yet met the APIs of a production integration; see [design/phase-1.md](design/phase-1.md).
 
 ## A recipe
 
@@ -86,7 +86,8 @@ Every problem is reported before anything runs. `AddSyncLaneHttp` throws one `Sy
 | Answer | Outcome | Code |
 | --- | --- | --- |
 | 2xx | Records go to the sink; the job completes. | |
-| 429 | The job waits for `Retry-After` (at most `MaxRetryAfter`), or the queue's throttle delay, and continues. | `SL5105` |
+| 429 | The job waits for `Retry-After` (at most `MaxRetryAfter`), or the queue's throttle delay, and continues. With a [rate budget](#rate-budgets), the whole budget pauses for everyone on the key, and the job waits as long as the pause. | `SL5105` |
+| A budget's token is further away than `MaxBudgetWait` | The job gives its slot back without using an attempt and runs again when the token is due. Nothing is sent. | `SL4003` |
 | 401 to an OAuth 2.0 token kept from an earlier page | The token is renewed once and the page sent again. | |
 | 401, 403 | The job is abandoned at once. The same credentials will not work on the next try. | `SL5106` |
 | 408, 5xx | Retried with the queue's growing delay. | `SL5107` |
@@ -255,6 +256,32 @@ The recipe says `"auth": { "type": "signed", "credential": "example-shop", "sign
 
 A test holds this: every type runs through the engine against an API and a token endpoint that echo every secret they receive in bodies and exception messages, and the test searches every log line, span, metric and database row for them. What it cannot cover is tracing of `HttpClient` itself, if you turn it on: a key in a query string is part of the URL there. One more thing SyncLane does not pretend: .NET cannot wipe a string from memory, so a credential lives in memory as long as the page that uses it.
 
+## Rate budgets
+
+An API's limit belongs to an account. Declare it once in `AddSyncLane`, and name it in every recipe that calls the account:
+
+```csharp
+lane.AddBudget("example-shop", limit: 2, per: TimeSpan.FromSeconds(1), burst: 40);
+```
+
+```jsonc
+"rate": { "budget": "example-shop" }
+```
+
+| Field | Required | What it is |
+| --- | --- | --- |
+| `budget` | yes | The budget's name, as declared with `AddBudget`. A recipe naming an undeclared budget stops the application at start-up (`SL5023`). |
+| `key` | no | Whose bucket. Default `{{owner.key}}`: one bucket per owner. Write a fixed text, such as `"shared-account"`, for owners that share one set of credentials and so one limit. `{{owner.key}}` is the only placeholder allowed. |
+
+- Every request to the API waits for a token: the first request of a page, and the one sent again after an OAuth 2.0 token is renewed. Requests to a token endpoint do not draw from the budget.
+- A `429` pauses the budget for everyone on the key: for `Retry-After` when the API sent it, otherwise for a backoff that starts at one token's time (at least a second) and doubles while `429`s continue, up to five minutes. After the pause the bucket refills from empty, so requests restart at the steady rate.
+- A token further away than `MaxBudgetWait` (30 seconds) postpones the job: it gives its slot back without using an attempt.
+- Several recipes can name one budget: an account's limit is usually shared by all its endpoints. An API that limits each operation separately gets one budget per operation.
+- **Choosing the numbers.** Read the API's documentation for its algorithm and scope.
+  - For a token or leaky bucket, set `limit` per `per` to its rate and `burst` to its bucket size.
+  - For a window that resets on the clock, or when nothing is documented, keep `burst` at 1 and the limit a little under the published one: other apps on the same account draw from it too.
+- With several instances, each keeps its own buckets for now: give each a share of the limit.
+
 ## Fields
 
 | Field | Required | What it is |
@@ -270,6 +297,7 @@ A test holds this: every type runs through the engine against an API and a token
 | `window.format` | no | How `{{window.start}}` and `{{window.end}}` are written. Default `iso8601`. |
 | `pagination` | no | How to get the next page. See [Pagination](#pagination). |
 | `auth` | no | How requests are authenticated. See [Authentication](#authentication). |
+| `rate` | no | The rate budget the requests draw from. See [Rate budgets](#rate-budgets). |
 
 ## Placeholders
 

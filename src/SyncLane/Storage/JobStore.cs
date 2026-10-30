@@ -158,6 +158,16 @@ internal sealed class JobStore(NpgsqlDataSource dataSource, JobSql sql) : IAsync
         return await command.ExecuteNonQueryAsync(cancellationToken) == 1;
     }
 
+    /// <summary>Hands a job back to run at <paramref name="nextRunAt"/>, because it has to wait. The attempt is not counted.</summary>
+    public async Task<bool> PostponeAsync(
+        long id, string worker, string reason, DateTimeOffset nextRunAt, DateTimeOffset now, CancellationToken cancellationToken)
+    {
+        await using var command = Held(sql.Postpone, id, worker, now);
+        command.Parameters.AddWithValue("error", reason);
+        command.Parameters.AddWithValue("next_run_at", nextRunAt.ToUniversalTime());
+        return await command.ExecuteNonQueryAsync(cancellationToken) == 1;
+    }
+
     public async Task<int> RequeueAsync(string queue, string? owner, DateTimeOffset now, CancellationToken cancellationToken)
     {
         await using var command = dataSource.CreateCommand(sql.Requeue);

@@ -3,8 +3,8 @@ using Microsoft.Extensions.Hosting;
 namespace SyncLane.Http;
 
 /// <summary>
-/// Compares the recipes with the declared job types before any hosted service starts, so a missing or misspelt recipe
-/// stops the application at start-up instead of abandoning jobs later.
+/// Compares the recipes with the declared job types and rate budgets before any hosted service starts, so a missing or
+/// misspelt recipe or budget stops the application at start-up instead of failing jobs later.
 /// </summary>
 internal sealed class RecipeCheck(IEnumerable<SyncLaneOptions> engine, RecipeRegistry recipes) : IHostedLifecycleService
 {
@@ -25,9 +25,18 @@ internal sealed class RecipeCheck(IEnumerable<SyncLaneOptions> engine, RecipeReg
             .Concat(recipes.JobTypes
                 .Where(type => declared.TrueForAll(found => found.Type != type))
                 .Select(HttpErrors.RecipeUnused))
+            .Concat(BudgetsMissing(options))
             .ToList();
 
         return errors.Count == 0 ? Task.CompletedTask : throw new SyncLaneException(errors);
+    }
+
+    private IEnumerable<SyncError> BudgetsMissing(SyncLaneOptions options)
+    {
+        var budgets = options.DescribeBudgets().Select(budget => budget.Name).ToHashSet(StringComparer.Ordinal);
+        return recipes.Recipes
+            .Where(recipe => recipe.Rate is { } rate && !budgets.Contains(rate.Budget))
+            .Select(recipe => HttpErrors.BudgetMissing(recipe.Name, recipe.Rate!.Budget));
     }
 
     public Task StartAsync(CancellationToken cancellationToken) => Task.CompletedTask;
