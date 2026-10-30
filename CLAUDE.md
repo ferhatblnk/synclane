@@ -21,14 +21,13 @@ Run the PostgreSQL tests before calling any change to storage, running or the pu
 
 | Path | What lives there |
 | --- | --- |
-| `src/SyncLane/*.cs` | Public API: `ISyncLane`, options, `Job`, `JobQuery`, `SyncLaneSchema`, `SyncLaneTelemetry`. |
+| `src/SyncLane/*.cs` | Public API: `ISyncLane`, options, `Job`, `JobQuery`, `RateBudgets`, `SyncLaneSchema`, `SyncLaneTelemetry`. |
 | `src/SyncLane/Errors` | `SyncError`, `SyncErrorKind`, `SyncErrorCodes`, `SyncLaneException` and the message catalog `SyncLaneErrors`. |
 | `src/SyncLane/Results` | `SyncResult`, `SyncResult<T>`, `SyncListResult<T>`. |
 | `src/SyncLane/Configuration` | Options and their validation. |
 | `src/SyncLane/Planning` | What jobs should exist. Pure functions plus one read and one insert. |
-| `src/SyncLane/Storage` | Every SQL statement (`JobSql`), table access (`JobStore`), migrations. |
+| `src/SyncLane/Storage` | Every SQL statement (`JobSql`, `BudgetSql`), table access (`JobStore`, `BudgetStore`), migrations. |
 | `src/SyncLane/Running` | Workers, the page loop, the failure policy. |
-| `src/SyncLane/Budgets` | The token bucket behind `RateBudgets`. |
 | `src/SyncLane/Telemetry` | Metrics instruments and outcome names. |
 | `src/SyncLane.Http` | The declarative HTTP source: recipes, request building, record paths, paging, authentication, its own codes (`HttpErrorCodes`) and catalog (`HttpErrors`). Uses only the engine's public API. |
 | `tests/SyncLane.Tests` | Unit tests, PostgreSQL tests (`[PostgresFact]`) and `ConventionTests`. |
@@ -107,7 +106,7 @@ Every failure falls into exactly one category. Pick the mechanism from the categ
 
 ### 7. Design (SOLID, applied with judgement)
 
-- **Single responsibility.** One class, one reason to change: `JobSql` owns SQL text, `JobStore` executes it, `JobPlanner` decides, `QueuePlanner` reads and writes, `JobRunner` runs one job, `JobWorker` schedules slots. Keep it so.
+- **Single responsibility.** One class, one reason to change: `JobSql` and `BudgetSql` own SQL text, `JobStore` and `BudgetStore` execute it, `JobPlanner` decides, `QueuePlanner` reads and writes, `JobRunner` runs one job, `JobWorker` schedules slots. Keep it so.
 - **Open/closed.** New behaviour arrives as a new handler, owner source, sink or migration, not as a `switch` on a type name.
 - **Liskov.** Every `SyncResult` subtype keeps the base contract: `Succeeded` exactly when `Errors` is empty.
 - **Interface segregation.** Extension points are small: `IJobHandler` and `IOwnerSource` have one method each. Future ones (`ISink`, `IRequestSigner`, `ICredentialStore`) follow the same rule.

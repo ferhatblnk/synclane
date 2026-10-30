@@ -35,6 +35,7 @@ The first digit is the area:
 | `SL2001` | Configuration | `CreateSchema` is off and the database lacks a migration this version needs. | Run `SyncLaneSchema.Script()` in your own migration, or turn `CreateSchema` on. |
 | `SL2002` | Internal | A row holds a status this version does not know. It was written by a newer version or by hand. | Run the same version on every instance, or correct the row. |
 | `SL2003` | Internal | A row holds a mode this version does not know. | The same as `SL2002`. |
+| `SL2004` | Internal | The row of a rate bucket was deleted while an instance was using it. | Do not delete rows from `rate_buckets` while instances run. A deleted row is created again, full, on next use; the job is retried. |
 
 ## Calls to ISyncLane
 

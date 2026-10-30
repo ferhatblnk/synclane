@@ -76,9 +76,10 @@ flowchart TB
 | `JobWorker` | Runs `Concurrency` slots per queue; each slot leases and runs jobs. | Slot scheduling changes. |
 | `JobRunner` | Runs one leased job: pages, checkpoints, heartbeat, outcome. | The page loop changes. |
 | `FailurePolicy` | Pure function: failed attempt to next status and delay. | Retry behaviour changes. |
-| `RateBudgets`, `TokenBucket` | One token bucket per budget and key: requests wait for tokens, a `429` pauses the bucket. In memory for now. | Budgets are shared across instances (part 2.2), or learn (2.4). |
-| `JobSql` | Every SQL statement, built once for the configured schema. | A query changes. |
-| `JobStore` | Executes statements; every write to a held job is conditional on still holding it. | Table access changes. |
+| `RateBudgets` | One token bucket per budget and key, shared by every instance: requests wait for tokens, a `429` pauses the bucket. | Budgets read limits from headers (part 2.3), or learn them (2.4). |
+| `JobSql`, `BudgetSql` | Every SQL statement, built once for the configured schema. | A query changes. |
+| `JobStore` | Executes job statements; every write to a held job is conditional on still holding it. Owns the connection pool. | Table access changes. |
+| `BudgetStore` | Executes bucket statements, each one round trip that locks the bucket's row. | Bucket access changes. |
 | `Migrations` | The schema as an append-only list of idempotent steps. | The table changes. |
 | `SyncLaneErrors` | Every error message, with its code and kind. | An error is added or reworded. |
 | `SyncLaneMetrics`, `SyncLaneTelemetry` | Metrics and spans through `System.Diagnostics`. | A signal is added. |
@@ -103,11 +104,13 @@ User code reaches SyncLane through two small interfaces and one facade: `IJobHan
 
 ## Data model
 
-Two tables in the configured schema.
+Three tables in the configured schema.
 
 `jobs` holds one row per job: what it covers (`queue`, `owner`, `lane`, `type`, `mode`, `window_start`, `window_end`, `dedup_key`), where it is (`status`, `cursor`, `processed_count`, `attempt_count`, `error`, `next_run_at`) and who holds it (`leased_by`, `lease_expires_at`, `heartbeat_at`). The full definition is in [docs/schema.sql](docs/schema.sql).
 
 `migrations` records which schema steps the database has.
+
+`rate_buckets` holds one row per rate budget and key: the tokens left, when they were last refilled (in the future while the bucket is paused), and how many pauses it has had (`generation`). Its primary key `(budget, key)` serves every statement on it.
 
 The guarantees are indexes, not code:
 
@@ -222,6 +225,8 @@ Round trips per operation:
 | `GetJobsAsync` | 1, with the optional count in the same batch | Primary key, scanned backwards |
 | `RequeueAsync`, `CancelAsync`, `GetProgressAsync` | 1 | `jobs_dedup` prefix |
 | Start-up migration | 3, in one transaction | |
+| Take a budget's token | 1, plus 1 read after a wait to check for a pause | `rate_buckets` primary key |
+| Pause a budget after a `429` | 1 | `rate_buckets` primary key |
 
 Known limits:
 
@@ -258,7 +263,7 @@ Each is a small interface the user implements; SyncLane calls it.
 | `IRecordSink` | Available in `SyncLane.Http` | Write the records of a page. Ready-made sinks (PostgreSQL `jsonb`, HTTP POST) are phase 3. |
 | `ICredentialStore` | Available in `SyncLane.Http` | Give an owner's credential for a page, and save a rotated refresh token. Credentials stay in the user's storage, outside the jobs table. |
 | `IRequestSigner` | Available in `SyncLane.Http` | Sign an outgoing request for APIs that require it. May add headers and query parameters, never move the request. |
-| Rate budgets | Proposed, phase 2 | See [docs/design/rate-budgets.md](docs/design/rate-budgets.md). |
+| Rate budgets | Available | `RateBudgets` for hand-written handlers, `rate` in recipes. See [docs/design/rate-budgets.md](docs/design/rate-budgets.md). |
 
 ## Packages
 
@@ -285,12 +290,14 @@ Each is a small interface the user implements; SyncLane calls it.
 | D9 | Append-only, idempotent migrations | Safe rolling deploys and safe hand-applied scripts. | Accepted |
 | D10 | One message catalog with stable codes | Consistent wording, searchable docs, localization by code. | Accepted |
 | D11 | Interfaces only at extension points | Testing against real PostgreSQL makes internal interfaces cost without benefit. | Accepted |
-| D12 | Rate budgets separate from lanes | Lanes serialise; shared limits should not. | Proposed |
+| D12 | Rate budgets separate from lanes | Lanes serialise; shared limits should not. | Accepted |
 | D13 | `SyncLane.Http` depends on `Microsoft.Extensions.Http` | `IHttpClientFactory` manages connection lifetimes and lets users add handlers to a named client; writing that ourselves would be worse. Maintained by Microsoft, MIT licensed. The engine does not take the dependency. | Accepted |
 | D14 | The HTTP source follows no redirects | A redirect could carry a recipe's headers to another host, and would break the rule that a recipe only calls the host it names. | Accepted |
 | D15 | Credentials never in a recipe or the jobs table; an `ICredentialStore` gives them per owner, once per page | A recipe is meant to be shared and committed, and the jobs table is read by dashboards and support staff. Asking per page makes a rotated or revoked credential count at once; a store that is slow to ask can cache. | Accepted |
 | D16 | OAuth 2.0 access tokens live in memory only | Writing them down would add a table of live secrets to protect. A restart costs one token request per owner. | Accepted |
 | D17 | A network error keeps its kind, not its message | The engine stores every message of an exception chain, and the messages of `HttpClient` and proxies can hold the URL, with a key in its query, or a proxy's password. The kind (DNS, connection, TLS, proxy) is enough to act on. | Accepted |
-| D18 | Rate budgets use a token bucket of our own, not `System.Threading.RateLimiting` | The library's bucket cannot be paused or drained from outside and does not run on `TimeProvider`, and sharing it across instances needs its state in a row anyway. Under a hundred lines, tested on a manual clock. | Accepted |
+| D18 | Rate budgets use a token bucket of our own, not `System.Threading.RateLimiting` | The library's bucket cannot be paused or drained from outside and does not run on `TimeProvider`, and sharing it across instances needs its state in a row anyway. Since D21 the bucket is three SQL statements, tested with explicit times. | Accepted |
 | D19 | A `429` pauses the whole budget, not only the job that got it | Limits belong to accounts. Other jobs on the account would only collect their own `429`s from the same empty bucket; ShipStation's documentation asks for exactly this. | Accepted |
 | D20 | A job that only has to wait gives its slot back without using an attempt (`JobPostponedException`) | Waiting for a token is not a failure. Counting it would abandon jobs during a long pause; holding the slot would starve other work. | Accepted |
+| D21 | Rate buckets live in PostgreSQL, one statement per token, no batches and no in-memory mode | A budget kept per process lets two instances send twice the limit, and asks users to divide limits by hand. One locked row per bucket is exact. Measured on a local PostgreSQL 18: about 0.16 ms per token, and about 12,000 tokens a second on one key with eight callers, against APIs that allow a few to a few dozen requests a second and answer in 50 ms or more. Reserving tokens in batches would save little and hold tokens other instances could use. | Accepted |
+| D22 | A `429` for a request sent before the latest pause does not start another pause | Requests in flight together come back together. Counting each one doubled the backoff once per request: eight `429`s without `Retry-After` paused an account for over two minutes instead of one second. A permit carries the bucket's pause count, so a late `429` is recognised. It may still lengthen the pause if its `Retry-After` asks for longer. | Accepted |

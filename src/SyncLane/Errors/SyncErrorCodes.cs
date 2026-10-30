@@ -43,6 +43,9 @@ public static class SyncErrorCodes
     /// <summary>The jobs table holds a mode this version does not know.</summary>
     public const string UnknownMode = "SL2003";
 
+    /// <summary>The row of a rate bucket disappeared while SyncLane used it.</summary>
+    public const string BucketRowMissing = "SL2004";
+
     /// <summary>The call names a queue that was not declared.</summary>
     public const string QueueNotDeclared = "SL3001";
 

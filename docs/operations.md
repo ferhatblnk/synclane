@@ -55,6 +55,15 @@ WHERE lane = 'globex' AND status IN ('pending', 'running', 'failed', 'deferred')
 ORDER BY priority, window_start DESC NULLS LAST;
 ```
 
+Which rate budgets are paused, and until when. `generation` counts the pauses of a bucket; `last_pause` is the most recent one's length:
+
+```sql
+SELECT budget, key, refilled_at AS paused_until, generation, throttled_at, last_pause
+FROM synclane.rate_buckets
+WHERE refilled_at > now()
+ORDER BY refilled_at DESC;
+```
+
 ## Changing
 
 Everything `ISyncLane` does is a plain update, so you can do the same from `psql` when you need something it does not offer.
@@ -111,6 +120,8 @@ WHERE old.mode = 'recurring'
         AND newer.mode = 'recurring' AND newer.id > old.id);
 ```
 
+`rate_buckets` holds one small row per budget and key, updated in place. Rows of keys you no longer use can be deleted; a key that is used again starts with a full bucket.
+
 When an account is removed for good, delete all its rows. When it only disconnects, call `CancelAsync` and stop returning it from your `IOwnerSource`. If it connects again, call `RequeueAsync` for it: its abandoned slices are still planned and come back with their cursors.
 
 ## Choosing the numbers
@@ -161,9 +172,9 @@ Run as many instances as you like against the same table. Planning is safe to do
 
 If your web instances should not do background work, set `RunWorkers = false` and `RunPlanner = false` there. `ISyncLane` works the same either way.
 
-Rate budgets are kept in each instance's memory for now. With several instances, divide each budget's limit by the number of instances, or run the workers that call one account on one instance.
+Rate budgets are shared through `rate_buckets`: every instance takes its tokens from the same row, and a `429` heard by one instance pauses the key on all of them. Declare the same budgets on every instance that runs workers. Taking a token is one statement that locks the bucket's row for a moment; measured against a local PostgreSQL 18, one key served about 12,000 tokens a second to eight callers, far more than any API we know allows.
 
-Keep the clocks of your instances in sync. Leases and due times are compared with the clock of the instance that asks.
+Keep the clocks of your instances in sync. Leases, due times and token refills are computed with the clock of the instance that asks. For leases a skew of seconds does not matter; for a budget, an instance whose clock runs one second ahead can let one second's worth of extra tokens through.
 
 ## Upgrading the schema
 

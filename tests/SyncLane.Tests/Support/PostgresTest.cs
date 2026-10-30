@@ -29,7 +29,7 @@ public abstract class PostgresTest : IAsyncLifetime
         await Store.MigrateAsync(CancellationToken.None);
     }
 
-    public async Task DisposeAsync()
+    public virtual async Task DisposeAsync()
     {
         await Store.DisposeAsync();
         await ExecuteAsync($"DROP SCHEMA IF EXISTS {Schema} CASCADE");
@@ -66,7 +66,8 @@ public abstract class PostgresTest : IAsyncLifetime
     {
         await using var command = _admin!.CreateCommand(
             $"SELECT coalesce(string_agg(row_to_json(j)::text, E'\\n'), '') FROM {Schema}.jobs j " +
-            $"UNION ALL SELECT coalesce(string_agg(row_to_json(m)::text, E'\\n'), '') FROM {Schema}.migrations m");
+            $"UNION ALL SELECT coalesce(string_agg(row_to_json(m)::text, E'\\n'), '') FROM {Schema}.migrations m " +
+            $"UNION ALL SELECT coalesce(string_agg(row_to_json(b)::text, E'\\n'), '') FROM {Schema}.rate_buckets b");
 
         var rows = new List<string>();
         await using var reader = await command.ExecuteReaderAsync();
