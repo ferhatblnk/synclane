@@ -14,33 +14,78 @@ internal sealed class JobStore(NpgsqlDataSource dataSource, JobSql sql) : IAsync
 
     public ValueTask DisposeAsync() => dataSource.DisposeAsync();
 
-    public async Task EnsureSchemaAsync(CancellationToken cancellationToken)
+    public string Schema => sql.Schema;
+
+    /// <summary>
+    /// Applies the steps this database is missing, in one transaction, under a lock that makes instances starting at
+    /// the same time wait for each other. Returns the number of steps applied.
+    /// </summary>
+    public async Task<int> MigrateAsync(CancellationToken cancellationToken)
     {
-        await using var command = dataSource.CreateCommand(sql.CreateSchema);
-        await command.ExecuteNonQueryAsync(cancellationToken);
+        await using var connection = await dataSource.OpenConnectionAsync(cancellationToken);
+        await using var transaction = await connection.BeginTransactionAsync(cancellationToken);
+
+        await RunAsync($"{sql.LockSchema};\n{Migrations.HistoryTable(sql.Schema)}");
+        var applied = await AppliedAsync(connection, transaction, cancellationToken);
+
+        var missing = Migrations.All.Where(migration => !applied.Contains(migration.Version)).ToList();
+        if (missing.Count > 0)
+            await RunAsync(string.Join('\n', missing.Select(migration => $"{migration.Sql(sql.Schema)}\n{Migrations.Record(sql.Schema, migration)}")));
+
+        await transaction.CommitAsync(cancellationToken);
+        return missing.Count;
+
+        async Task RunAsync(string statement)
+        {
+            await using var command = new NpgsqlCommand(statement, connection, transaction);
+            await command.ExecuteNonQueryAsync(cancellationToken);
+        }
     }
 
+    /// <summary>The versions this SyncLane knows that the database has not recorded, oldest first.</summary>
+    public async Task<IReadOnlyList<int>> MissingMigrationsAsync(CancellationToken cancellationToken)
+    {
+        await using var connection = await dataSource.OpenConnectionAsync(cancellationToken);
+
+        await using (var exists = new NpgsqlCommand(sql.HasMigrationTable, connection))
+        {
+            exists.Parameters.AddWithValue("name", $"{sql.Schema}.{Migrations.TableName}");
+            if (await exists.ExecuteScalarAsync(cancellationToken) is not true)
+                return Migrations.All.Select(migration => migration.Version).ToList();
+        }
+
+        var applied = await AppliedAsync(connection, null, cancellationToken);
+        return Migrations.All.Select(migration => migration.Version).Where(version => !applied.Contains(version)).ToList();
+    }
+
+    private async Task<HashSet<int>> AppliedAsync(NpgsqlConnection connection, NpgsqlTransaction? transaction, CancellationToken cancellationToken)
+    {
+        await using var command = new NpgsqlCommand(sql.AppliedMigrations, connection, transaction);
+        await using var reader = await command.ExecuteReaderAsync(cancellationToken);
+
+        var versions = new HashSet<int>();
+        // Sequential: reading rows of one data reader.
+        while (await reader.ReadAsync(cancellationToken))
+            versions.Add(reader.GetInt32(0));
+
+        return versions;
+    }
+
+    /// <summary>Inserts the jobs that do not exist yet, in one statement. Returns how many were created.</summary>
     public async Task<int> EnqueueAsync(string queue, IReadOnlyList<PlannedJob> jobs, DateTimeOffset now, CancellationToken cancellationToken)
     {
         if (jobs.Count == 0)
             return 0;
 
-        await using var command = dataSource.CreateCommand(sql.Enqueue);
-        command.Parameters.AddWithValue("queue", queue);
-        command.Parameters.AddWithValue("now", now.ToUniversalTime());
-        command.Parameters.AddWithValue("owners", jobs.Select(job => job.Owner).ToArray());
-        command.Parameters.AddWithValue("lanes", jobs.Select(job => job.Lane).ToArray());
-        command.Parameters.AddWithValue("types", jobs.Select(job => job.Type).ToArray());
-        command.Parameters.AddWithValue("modes", jobs.Select(job => JobText.Of(job.Mode)).ToArray());
-        command.Parameters.AddWithValue("priorities", jobs.Select(job => job.Priority).ToArray());
-        command.Parameters.Add(Moments("window_starts", jobs.Select(job => job.WindowStart)));
-        command.Parameters.Add(Moments("window_ends", jobs.Select(job => job.WindowEnd)));
-        command.Parameters.Add(new NpgsqlParameter("dedup_keys", NpgsqlDbType.Array | NpgsqlDbType.Text)
-        {
-            Value = jobs.Select(job => job.DedupKey).ToArray()
-        });
-
+        await using var command = EnqueueCommand(queue, jobs, now);
         return await command.ExecuteNonQueryAsync(cancellationToken);
+    }
+
+    /// <summary>Inserts one job. Returns its id, or <c>null</c> when a job with the same dedup key exists.</summary>
+    public async Task<long?> EnqueueOneAsync(string queue, PlannedJob job, DateTimeOffset now, CancellationToken cancellationToken)
+    {
+        await using var command = EnqueueCommand(queue, [job], now);
+        return await command.ExecuteScalarAsync(cancellationToken) is long id ? id : null;
     }
 
     /// <summary>
@@ -50,6 +95,7 @@ internal sealed class JobStore(NpgsqlDataSource dataSource, JobSql sql) : IAsync
     /// </summary>
     public async Task<Job?> LeaseAsync(string queue, string worker, DateTimeOffset now, DateTimeOffset leaseExpiresAt, CancellationToken cancellationToken)
     {
+        // Sequential: a retry; the next try only happens when this one lost the race for a lane.
         for (var race = 0; race < LeaseRaceRetries; race++)
         {
             try
@@ -142,6 +188,7 @@ internal sealed class JobStore(NpgsqlDataSource dataSource, JobSql sql) : IAsync
         command.Parameters.AddWithValue("owners", owners.ToArray());
 
         await using var reader = await command.ExecuteReaderAsync(cancellationToken);
+        // Sequential: reading rows of one data reader.
         while (await reader.ReadAsync(cancellationToken))
         {
             coverage[new CoverageKey(reader.GetString(0), reader.GetString(1))] = new TypeCoverage(
@@ -168,20 +215,47 @@ internal sealed class JobStore(NpgsqlDataSource dataSource, JobSql sql) : IAsync
         return new OwnerProgress(reader.GetInt32(0), reader.GetInt32(1), reader.GetInt32(2), reader.GetInt32(3));
     }
 
-    public async Task<IReadOnlyList<Job>> GetJobsAsync(JobQuery query, CancellationToken cancellationToken)
+    /// <summary>
+    /// Reads up to <paramref name="limit"/> jobs older than <paramref name="before"/>, newest first, and the number of
+    /// matching jobs when <paramref name="countTotal"/> is set. Both statements go to the database in one round trip.
+    /// </summary>
+    public async Task<(List<Job> Jobs, long? Total)> GetJobsAsync(
+        JobQuery query, long? before, int limit, bool countTotal, CancellationToken cancellationToken)
     {
-        await using var command = dataSource.CreateCommand(sql.List);
-        command.Parameters.Add(Text("queue", query.Queue));
-        command.Parameters.Add(Text("owner", query.Owner));
-        command.Parameters.Add(Text("status", query.Status is { } status ? JobText.Of(status) : null));
-        command.Parameters.AddWithValue("limit", Math.Clamp(query.Limit, 1, JobQuery.MaxLimit));
+        await using var batch = dataSource.CreateBatch();
 
-        var jobs = new List<Job>();
-        await using var reader = await command.ExecuteReaderAsync(cancellationToken);
+        var list = new NpgsqlBatchCommand(sql.List);
+        AddFilters(list.Parameters, query);
+        list.Parameters.Add(new NpgsqlParameter("before", NpgsqlDbType.Bigint) { Value = (object?)before ?? DBNull.Value });
+        list.Parameters.AddWithValue("limit", limit);
+        batch.BatchCommands.Add(list);
+
+        if (countTotal)
+        {
+            var count = new NpgsqlBatchCommand(sql.Count);
+            AddFilters(count.Parameters, query);
+            batch.BatchCommands.Add(count);
+        }
+
+        await using var reader = await batch.ExecuteReaderAsync(cancellationToken);
+
+        var jobs = new List<Job>(limit);
+        // Sequential: reading rows of one data reader.
         while (await reader.ReadAsync(cancellationToken))
             jobs.Add(Read(reader));
 
-        return jobs;
+        long? total = null;
+        if (countTotal && await reader.NextResultAsync(cancellationToken) && await reader.ReadAsync(cancellationToken))
+            total = reader.GetInt64(0);
+
+        return (jobs, total);
+
+        static void AddFilters(NpgsqlParameterCollection parameters, JobQuery query)
+        {
+            parameters.Add(Text("queue", query.Queue));
+            parameters.Add(Text("owner", query.Owner));
+            parameters.Add(Text("status", query.Status is { } status ? JobText.Of(status) : null));
+        }
     }
 
     public async Task<Job?> FindAsync(long id, CancellationToken cancellationToken)
@@ -199,6 +273,26 @@ internal sealed class JobStore(NpgsqlDataSource dataSource, JobSql sql) : IAsync
         command.Parameters.AddWithValue("id", id);
         command.Parameters.AddWithValue("worker", worker);
         command.Parameters.AddWithValue("now", now.ToUniversalTime());
+        return command;
+    }
+
+    private NpgsqlCommand EnqueueCommand(string queue, IReadOnlyList<PlannedJob> jobs, DateTimeOffset now)
+    {
+        var command = dataSource.CreateCommand(sql.Enqueue);
+        command.Parameters.AddWithValue("queue", queue);
+        command.Parameters.AddWithValue("now", now.ToUniversalTime());
+        command.Parameters.AddWithValue("owners", jobs.Select(job => job.Owner).ToArray());
+        command.Parameters.AddWithValue("lanes", jobs.Select(job => job.Lane).ToArray());
+        command.Parameters.AddWithValue("types", jobs.Select(job => job.Type).ToArray());
+        command.Parameters.AddWithValue("modes", jobs.Select(job => JobText.Of(job.Mode)).ToArray());
+        command.Parameters.AddWithValue("priorities", jobs.Select(job => job.Priority).ToArray());
+        command.Parameters.Add(Moments("window_starts", jobs.Select(job => job.WindowStart)));
+        command.Parameters.Add(Moments("window_ends", jobs.Select(job => job.WindowEnd)));
+        command.Parameters.Add(new NpgsqlParameter("dedup_keys", NpgsqlDbType.Array | NpgsqlDbType.Text)
+        {
+            Value = jobs.Select(job => job.DedupKey).ToArray()
+        });
+
         return command;
     }
 

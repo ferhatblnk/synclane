@@ -188,21 +188,46 @@ ConnectionStrings__Postgres="Host=localhost;Username=postgres;Database=synclane"
 
 ## Working with jobs from your code
 
-`ISyncLane` is the only service you inject:
+`ISyncLane` is the only service you inject. Every call returns a result instead of throwing for problems you can expect:
 
-| Call | What it is for |
-| --- | --- |
-| `PlanAsync(queue, owner)` | Plan one owner now, for example right after an account connects. |
-| `EnqueueAsync(newJob)` | Put one job in by hand, outside the plan. |
-| `RequeueAsync(queue, owner?)` | Give failed, deferred and abandoned jobs fresh attempts. Cursors are kept. |
-| `CancelAsync(queue, owner, reason)` | Abandon what has not started, for example when an account disconnects. |
-| `GetJobsAsync(query)` | List jobs by queue, owner or status. |
-| `GetProgressAsync(queue, owner)` | How far the first load of an owner is. Use it to show "connecting" without storing a status of your own. |
+| Call | Returns | What it is for |
+| --- | --- | --- |
+| `PlanAsync(queue, owner)` | `SyncResult<int>` | Plan one owner now, for example right after an account connects. |
+| `EnqueueAsync(newJob)` | `SyncResult<long>` | Put one job in by hand, outside the plan. The value is the new job's id. |
+| `RequeueAsync(queue, owner?)` | `SyncResult<int>` | Give failed, deferred and abandoned jobs fresh attempts. Cursors are kept. |
+| `CancelAsync(queue, owner, reason)` | `SyncResult<int>` | Abandon what has not started, for example when an account disconnects. |
+| `GetJobsAsync(query)` | `SyncListResult<Job>` | One page of jobs by queue, owner or status, newest first. Follow `NextCursor` for the next page; set `IncludeTotal` for a count. |
+| `GetProgressAsync(queue, owner)` | `SyncResult<OwnerProgress>` | How far the first load of an owner is. Use it to show "connecting" without storing a status of your own. |
+
+```csharp
+var result = await syncLane.EnqueueAsync(new NewJob { Queue = "shops", Owner = owner, Type = "orders", DedupKey = "resync-2026-10" });
+
+if (!result.Succeeded)
+    return result.Error!.Code == SyncErrorCodes.JobAlreadyExists
+        ? Results.Ok("Already queued")
+        : Results.Problem(result.Error.Message, statusCode: result.Error.Kind.ToHttpStatusCode());
+
+return Results.Ok(result.Value);
+```
+
+A failed result always means the call was understood and the answer is no: an undeclared queue, a duplicate job, a page size out of range. It never hides an outage; a database that cannot be reached still throws. Every error has a stable code such as `SL3101`, listed with its cause and fix in [docs/errors.md](docs/errors.md). Call `ThrowIfFailed()` or `GetValueOrThrow()` when you would rather have an exception.
 
 Two exceptions let a handler say more than "it failed":
 
 - `JobThrottledException` when the other side asks you to slow down, optionally with the wait it named.
 - `JobAbandonedException` when a retry cannot help, for example when the account's access was revoked.
+
+## Watching it run
+
+SyncLane reports metrics and traces through the APIs built into .NET, so it adds no dependency and costs nothing when nobody listens. With OpenTelemetry:
+
+```csharp
+builder.Services.AddOpenTelemetry()
+    .WithMetrics(metrics => metrics.AddMeter(SyncLaneTelemetry.MeterName))
+    .WithTracing(tracing => tracing.AddSource(SyncLaneTelemetry.ActivitySourceName));
+```
+
+Every run of a job is a `synclane.job` span and every page a `synclane.page` span inside it, so the HTTP calls your handler makes show up under the page that made them. The metrics count jobs taken and finished by outcome, pages, records, throttles and planner runs, and time how long jobs wait and run. Tags name the queue and the job type, never the owner or the lane. Without OpenTelemetry, `dotnet-counters monitor --counters SyncLane` shows them live. The full list is in [docs/operations.md](docs/operations.md#metrics-and-traces).
 
 ## Configuration
 
@@ -210,7 +235,7 @@ Two exceptions let a handler say more than "it failed":
 | --- | --- | --- |
 | `ConnectionString` | required | The database that holds the table. |
 | `Schema` | `synclane` | The schema of the `jobs` table. |
-| `CreateSchema` | `true` | Create the table and indexes at start-up. Turn it off and run [docs/schema.sql](docs/schema.sql) yourself if you manage migrations. |
+| `CreateSchema` | `true` | Create the schema and apply missing migrations at start-up. Turn it off if you manage migrations: put `SyncLaneSchema.Script()` into one of yours, and SyncLane only checks at start-up that it has been applied. See [docs/operations.md](docs/operations.md#running-the-schema-yourself). |
 | `RunPlanner`, `RunWorkers` | `true` | Turn them off in instances that should only enqueue and read. |
 | `PlanInterval` | 1 minute | How often the planner looks for missing jobs. |
 | `PollInterval` | 5 seconds | How long an idle worker slot waits before it looks again. |
@@ -239,7 +264,7 @@ Two exceptions let a handler say more than "it failed":
 
 ## Project status
 
-Version 0.1, early. The design comes from a job system that has been syncing external APIs for many accounts in production, and the rules in [docs/planning.md](docs/planning.md) were learned there the hard way. This repository is a clean, general rewrite of that design. It has its own tests, including ones that run many workers against a real PostgreSQL, but this code has not run in production itself. Try it on something that is allowed to fail first.
+Version 0.1, early. The design comes from a job system that has been syncing external APIs for many accounts in production, and the rules in [docs/planning.md](docs/planning.md) were learned there the hard way. This repository is a clean, general rewrite of that design. It has its own tests, including ones that run many workers against a real PostgreSQL, but this code has not run in production itself. Try it on something that is allowed to fail first; [docs/production-trial.md](docs/production-trial.md) is the checklist we use for that.
 
 ## Development
 
@@ -259,12 +284,26 @@ SYNCLANE_TEST_DB="Host=localhost;Username=postgres;Database=synclane_test" dotne
 | `src/SyncLane` | The library: planner, table access, runner and workers. |
 | `tests/SyncLane.Tests` | Unit tests and the tests that run against PostgreSQL. |
 | `samples/Demo` | The demo: a pretend shop, two handlers and one page. |
-| `docs` | How it works, the planning rule, operations and the schema. |
+| `docs` | How it works, the planning rule, operations, the schema, the production trial checklist and design proposals. |
 
 Contributions are welcome; see [CONTRIBUTING.md](CONTRIBUTING.md). To report a vulnerability, see [SECURITY.md](SECURITY.md).
 
+## Your responsibility
+
+SyncLane is a library. It runs inside your process, with the credentials you give it, against the database and the destinations you choose. It sends nothing to the SyncLane authors: there is no telemetry, no license check that calls home and no hosted service in between. Your data never passes through anyone but you.
+
+That also means the decisions are yours. When you use SyncLane, you are responsible for:
+
+- **Your right to call the API.** Having an account or app registration with the provider, accepting its terms, and staying within the limits and uses it allows.
+- **The pace you choose.** Concurrency, windows, retries and delays are settings. SyncLane applies them; it does not know what a provider tolerates. Start slow on an account that matters.
+- **Your credentials.** Where they are stored, who can read them and when they are rotated.
+- **The data you pull and where you write it.** Including personal data and the laws that apply to it where you and your users are, such as the GDPR or Turkey's KVKK: what you keep, for how long and who may see it.
+- **What your handlers do.** SyncLane calls your code; it does not review it.
+
+Anything in this repository that describes a third-party API, including the demo and any example, is an illustration written by contributors. It is not a statement by the provider and may be out of date. Check the provider's own documentation before you rely on it.
+
 ## License
 
-[MIT](LICENSE). The software is provided as is, without warranty of any kind.
+[Apache License 2.0](LICENSE). The software is provided on an "AS IS" basis, without warranties or conditions of any kind, and no contributor is liable for damages arising from its use; sections 7 and 8 of the license state this in full.
 
 SyncLane is an independent open-source project. It is not affiliated with, endorsed by or supported by the PostgreSQL project or any API provider.

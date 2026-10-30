@@ -25,7 +25,7 @@ public class OptionsTests
     [Fact]
     public void A_connection_string_is_required()
     {
-        var failure = Assert.Throws<InvalidOperationException>(() => new ServiceCollection().AddSyncLane(_ => { }));
+        var failure = Assert.Throws<SyncLaneException>(() => new ServiceCollection().AddSyncLane(_ => { }));
 
         Assert.Contains("ConnectionString", failure.Message);
     }
@@ -38,7 +38,7 @@ public class OptionsTests
     [InlineData("")]
     public void A_schema_name_that_is_not_a_plain_identifier_is_refused(string schema)
     {
-        Assert.Throws<InvalidOperationException>(() => new ServiceCollection().AddSyncLane(options =>
+        Assert.Throws<SyncLaneException>(() => new ServiceCollection().AddSyncLane(options =>
         {
             options.ConnectionString = AnyConnection;
             options.Schema = schema;
@@ -50,25 +50,33 @@ public class OptionsTests
     {
         var options = new SyncLaneOptions().AddQueue("stores", queue => queue.Snapshot<ProductHandler>("products"));
 
-        Assert.Throws<InvalidOperationException>(() => options.AddQueue("stores", _ => { }));
-        Assert.Throws<InvalidOperationException>(() => options.Queue("stores").Snapshot<ProductHandler>("products"));
+        Assert.Throws<SyncLaneException>(() => options.AddQueue("stores", _ => { }));
+        Assert.Throws<SyncLaneException>(() => options.Queue("stores").Snapshot<ProductHandler>("products"));
     }
 
     [Fact]
     public void Settings_that_cannot_work_are_refused_at_start_up()
     {
-        Assert.Throws<InvalidOperationException>(() => Configure(queue => queue.Concurrency = 0));
-        Assert.Throws<InvalidOperationException>(() => Configure(queue => queue.MaxAttempts = 0));
-        Assert.Throws<InvalidOperationException>(() => Configure(queue => queue.RetryMaxDelay = TimeSpan.FromSeconds(1)));
-        Assert.Throws<InvalidOperationException>(() => Configure(queue => queue.Windowed<OrderHandler>("orders", TimeSpan.FromDays(60), TimeSpan.Zero)));
-        Assert.Throws<InvalidOperationException>(() => Configure(queue => queue.Snapshot<ProductHandler>("products", TimeSpan.Zero)));
-        Assert.Throws<InvalidOperationException>(() => Configure(queue => queue.Snapshot<ProductHandler>("products", TimeSpan.FromHours(1), TimeSpan.FromHours(2))));
+        Assert.Throws<SyncLaneException>(() => Configure(queue => queue.Concurrency = 0));
+        Assert.Throws<SyncLaneException>(() => Configure(queue => queue.MaxAttempts = 0));
+        Assert.Throws<SyncLaneException>(() => Configure(queue => queue.RetryMaxDelay = TimeSpan.FromSeconds(1)));
+        Assert.Throws<SyncLaneException>(() => Configure(queue => queue.Windowed<OrderHandler>("orders", TimeSpan.FromDays(60), TimeSpan.Zero)));
+        Assert.Throws<SyncLaneException>(() => Configure(queue => queue.Snapshot<ProductHandler>("products", TimeSpan.Zero)));
+        Assert.Throws<SyncLaneException>(() => Configure(queue => queue.Snapshot<ProductHandler>("products", TimeSpan.FromHours(1), TimeSpan.FromHours(2))));
     }
 
     [Fact]
-    public void An_unknown_queue_is_an_error_not_an_empty_result()
+    public void Configuration_errors_carry_their_code()
     {
-        Assert.Throws<ArgumentException>(() => new SyncLaneOptions().Queue("missing"));
+        var failure = Assert.Throws<SyncLaneException>(() => new ServiceCollection().AddSyncLane(options =>
+        {
+            options.ConnectionString = AnyConnection;
+            options.PollInterval = TimeSpan.Zero;
+        }));
+
+        Assert.Equal(SyncErrorCodes.IntervalNotPositive, failure.Error.Code);
+        Assert.Equal(SyncErrorKind.Configuration, failure.Error.Kind);
+        Assert.StartsWith("SL1003: PollInterval", failure.Message);
     }
 
     [Fact]
@@ -89,7 +97,7 @@ public class OptionsTests
     {
         var documented = File.ReadAllText(Path.Combine(AppContext.BaseDirectory, "schema.sql"));
 
-        Assert.Equal(Normalize(JobSql.Ddl("synclane")), Normalize(documented));
+        Assert.Equal(Normalize(SyncLaneSchema.Script()), Normalize(documented));
     }
 
     private static void Configure(Action<QueueOptions> configure) =>

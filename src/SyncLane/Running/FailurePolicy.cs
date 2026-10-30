@@ -31,6 +31,8 @@ internal static class FailurePolicy
         return ticks < maxDelay.Ticks ? TimeSpan.FromTicks((long)ticks) : maxDelay;
     }
 
+    public static bool IsThrottle(Exception exception) => Find<JobThrottledException>(exception) is not null;
+
     private static TException? Find<TException>(Exception exception) where TException : Exception
     {
         for (var current = exception; current is not null; current = current.InnerException)

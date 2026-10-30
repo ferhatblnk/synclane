@@ -30,6 +30,7 @@ internal sealed partial class JobWorker(
     {
         await Task.Yield();
 
+        // Sequential: one slot runs one job at a time by design; slots run side by side.
         while (!stopping.IsCancellationRequested)
         {
             var worked = false;

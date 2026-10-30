@@ -16,17 +16,11 @@ internal sealed class JobSql
 
     public JobSql(string schema)
     {
+        Schema = schema;
         var table = $"{schema}.{TableName}";
         var columns = string.Join(", ", ColumnNames);
         var leasedColumns = string.Join(", ", ColumnNames.Select(column => $"j.{column}"));
         const string held = "id = @id AND status = 'running' AND leased_by = @worker";
-
-        CreateSchema =
-            $"""
-            SELECT pg_advisory_xact_lock(hashtext('synclane.schema'));
-
-            {Ddl(schema)}
-            """;
 
         Enqueue =
             $"""
@@ -36,6 +30,7 @@ internal sealed class JobSql
             FROM unnest(@owners, @lanes, @types, @modes, @priorities, @window_starts, @window_ends, @dedup_keys)
                 AS t(owner, lane, type, mode, priority, window_start, window_end, dedup_key)
             ON CONFLICT (queue, owner, type, dedup_key) DO NOTHING
+            RETURNING id
             """;
 
         Lease =
@@ -176,21 +171,33 @@ internal sealed class JobSql
             WHERE queue = @queue AND owner = @owner AND mode = 'initial'
             """;
 
+        const string filters =
+            """
+            (@queue::text IS NULL OR queue = @queue)
+              AND (@owner::text IS NULL OR owner = @owner)
+              AND (@status::text IS NULL OR status = @status)
+            """;
+
         List =
             $"""
             SELECT {columns}
             FROM {table}
-            WHERE (@queue::text IS NULL OR queue = @queue)
-              AND (@owner::text IS NULL OR owner = @owner)
-              AND (@status::text IS NULL OR status = @status)
+            WHERE {filters}
+              AND (@before::bigint IS NULL OR id < @before)
             ORDER BY id DESC
             LIMIT @limit
             """;
 
+        Count = $"SELECT count(*) FROM {table} WHERE {filters}";
+
         Find = $"SELECT {columns} FROM {table} WHERE id = @id";
+
+        LockSchema = "SELECT pg_advisory_xact_lock(hashtext('synclane.schema'))";
+        AppliedMigrations = $"SELECT version FROM {schema}.{Migrations.TableName}";
+        HasMigrationTable = "SELECT to_regclass(@name) IS NOT NULL";
     }
 
-    public string CreateSchema { get; }
+    public string Schema { get; }
 
     public string Enqueue { get; }
 
@@ -216,48 +223,13 @@ internal sealed class JobSql
 
     public string List { get; }
 
+    public string Count { get; }
+
     public string Find { get; }
 
-    /// <summary>The table and its indexes. <c>docs/schema.sql</c> is this text for the default schema.</summary>
-    public static string Ddl(string schema) =>
-        $"""
-        CREATE SCHEMA IF NOT EXISTS {schema};
+    public string LockSchema { get; }
 
-        CREATE TABLE IF NOT EXISTS {schema}.{TableName} (
-            id               bigint GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
-            queue            text        NOT NULL,
-            owner            text        NOT NULL,
-            lane             text        NOT NULL,
-            type             text        NOT NULL,
-            mode             text        NOT NULL,
-            status           text        NOT NULL DEFAULT 'pending',
-            priority         integer     NOT NULL DEFAULT 0,
-            window_start     timestamptz,
-            window_end       timestamptz,
-            dedup_key        text,
-            cursor           text,
-            processed_count  bigint      NOT NULL DEFAULT 0,
-            attempt_count    integer     NOT NULL DEFAULT 0,
-            error            text,
-            next_run_at      timestamptz NOT NULL,
-            leased_by        text,
-            lease_expires_at timestamptz,
-            created_at       timestamptz NOT NULL,
-            started_at       timestamptz,
-            heartbeat_at     timestamptz,
-            completed_at     timestamptz,
-            updated_at       timestamptz NOT NULL,
-            CONSTRAINT jobs_mode_check CHECK (mode IN ('initial', 'recurring', 'manual')),
-            CONSTRAINT jobs_status_check CHECK (status IN ('pending', 'running', 'completed', 'failed', 'deferred', 'abandoned'))
-        );
+    public string AppliedMigrations { get; }
 
-        CREATE UNIQUE INDEX IF NOT EXISTS jobs_dedup
-            ON {schema}.{TableName} (queue, owner, type, dedup_key);
-
-        CREATE UNIQUE INDEX IF NOT EXISTS jobs_one_running_per_lane
-            ON {schema}.{TableName} (queue, lane) WHERE status = 'running';
-
-        CREATE INDEX IF NOT EXISTS jobs_due
-            ON {schema}.{TableName} (queue, next_run_at) WHERE status IN ('pending', 'running', 'failed', 'deferred');
-        """;
+    public string HasMigrationTable { get; }
 }

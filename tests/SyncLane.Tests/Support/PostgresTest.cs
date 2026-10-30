@@ -26,7 +26,7 @@ public abstract class PostgresTest : IAsyncLifetime
     {
         _admin = NpgsqlDataSource.Create(ConnectionString!);
         Store = new JobStore(NpgsqlDataSource.Create(ConnectionString!), new JobSql(Schema));
-        await Store.EnsureSchemaAsync(CancellationToken.None);
+        await Store.MigrateAsync(CancellationToken.None);
     }
 
     public async Task DisposeAsync()
@@ -54,7 +54,7 @@ public abstract class PostgresTest : IAsyncLifetime
         Store.LeaseAsync(Queue, worker, now, now + (lease ?? TimeSpan.FromMinutes(5)), CancellationToken.None);
 
     internal async Task<IReadOnlyList<Job>> JobsAsync(JobStatus? status = null) =>
-        (await Store.GetJobsAsync(new JobQuery { Queue = Queue, Status = status, Limit = JobQuery.MaxLimit }, CancellationToken.None))
+        (await Store.GetJobsAsync(new JobQuery { Queue = Queue, Status = status }, null, JobQuery.MaxLimit, false, CancellationToken.None)).Jobs
         .OrderBy(job => job.Id)
         .ToList();
 

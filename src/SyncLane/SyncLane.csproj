@@ -8,7 +8,7 @@
     <Authors>The SyncLane Authors</Authors>
     <Description>A small job scheduler for syncing data from other people's APIs. One PostgreSQL table holds every job with its window, cursor, attempts and error; jobs of one account run in order while accounts run side by side.</Description>
     <PackageTags>jobs;scheduler;queue;postgres;sync;backfill;background</PackageTags>
-    <PackageLicenseExpression>MIT</PackageLicenseExpression>
+    <PackageLicenseExpression>Apache-2.0</PackageLicenseExpression>
     <PackageProjectUrl>https://github.com/ferhatblnk/synclane</PackageProjectUrl>
     <RepositoryUrl>https://github.com/ferhatblnk/synclane</RepositoryUrl>
     <PackageReadmeFile>README.md</PackageReadmeFile>
@@ -21,6 +21,7 @@
 
   <ItemGroup>
     <None Include="..\..\README.md" Pack="true" PackagePath="\" />
+    <None Include="..\..\NOTICE" Pack="true" PackagePath="\" />
     <InternalsVisibleTo Include="SyncLane.Tests" />
   </ItemGroup>
 

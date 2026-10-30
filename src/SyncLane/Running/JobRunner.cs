@@ -1,50 +1,68 @@
+using System.Diagnostics;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 using SyncLane.Planning;
 using SyncLane.Storage;
+using SyncLane.Telemetry;
 
 namespace SyncLane.Running;
 
 /// <summary>
 /// Runs one leased job to an end: page by page, saving the cursor after each page and renewing the lease while it works.
 /// </summary>
-internal sealed partial class JobRunner(JobStore store, IServiceScopeFactory scopes, TimeProvider time, ILogger<JobRunner> logger)
+internal sealed partial class JobRunner(
+    JobStore store, IServiceScopeFactory scopes, TimeProvider time, SyncLaneMetrics metrics, ILogger<JobRunner> logger)
 {
     private const int HeartbeatsPerLease = 3;
 
     public async Task RunAsync(QueueOptions queue, Job job, string worker, CancellationToken stopping)
     {
+        using var activity = SyncLaneTelemetry.Source.StartActivity("synclane.job");
+        activity?.SetTag(SyncLaneMetrics.QueueTag, queue.Name)
+            .SetTag(SyncLaneMetrics.TypeTag, job.Type)
+            .SetTag("synclane.job.id", job.Id)
+            .SetTag("synclane.job.mode", JobText.Of(job.Mode))
+            .SetTag("synclane.job.attempt", job.AttemptCount);
+
+        var started = time.GetTimestamp();
+        metrics.Taken(queue.Name, job.Type, time.GetUtcNow() - job.NextRunAt);
+
+        var outcome = await RunToAnEndAsync(queue, job, worker, activity, stopping);
+
+        metrics.Finished(queue.Name, job.Type, outcome, time.GetElapsedTime(started));
+        activity?.SetTag(SyncLaneMetrics.OutcomeTag, outcome);
+    }
+
+    private async Task<string> RunToAnEndAsync(QueueOptions queue, Job job, string worker, Activity? activity, CancellationToken stopping)
+    {
         if (queue.Find(job.Type) is not { } type)
-        {
-            await AbandonAsync(job, worker, $"No handler is declared for job type '{job.Type}' on queue '{queue.Name}'.");
-            return;
-        }
+            return await AbandonAsync(job, worker, SyncLaneErrors.HandlerMissing(queue.Name, job.Type), activity);
 
         if (job.AttemptCount > queue.MaxAttempts + 1)
-        {
-            await AbandonAsync(job, worker, "The job was picked up more often than its attempts allow without ever reporting a result. Its worker probably stops while running it.");
-            return;
-        }
+            return await AbandonAsync(job, worker, SyncLaneErrors.TooManyPickups(), activity);
 
         using var held = CancellationTokenSource.CreateLinkedTokenSource(stopping);
         var heartbeat = KeepLeaseAsync(queue, job, worker, held);
 
         try
         {
-            await RunPagesAsync(queue, type, job, worker, held.Token);
+            return await RunPagesAsync(queue, type, job, worker, held.Token);
         }
         catch (OperationCanceledException) when (stopping.IsCancellationRequested)
         {
             await store.ReleaseAsync(job.Id, worker, time.GetUtcNow(), CancellationToken.None);
             LogReleased(job.Id, job.Type);
+            return JobOutcome.Released;
         }
         catch (OperationCanceledException) when (held.IsCancellationRequested)
         {
             LogLeaseLost(job.Id, job.Type, worker);
+            return JobOutcome.LeaseLost;
         }
         catch (Exception exception)
         {
-            await FailAsync(queue, job, worker, exception);
+            activity?.AddException(exception);
+            return await FailAsync(queue, job, worker, exception, activity);
         }
         finally
         {
@@ -53,43 +71,60 @@ internal sealed partial class JobRunner(JobStore store, IServiceScopeFactory sco
         }
     }
 
-    private async Task RunPagesAsync(QueueOptions queue, JobType type, Job job, string worker, CancellationToken cancellationToken)
+    private async Task<string> RunPagesAsync(QueueOptions queue, JobType type, Job job, string worker, CancellationToken cancellationToken)
     {
         var current = job;
 
+        // Sequential: each page starts from the cursor the previous page returned.
         do
         {
             cancellationToken.ThrowIfCancellationRequested();
 
-            var page = await RunPageAsync(type, current, cancellationToken);
+            var started = time.GetTimestamp();
+            var page = await RunPageAsync(queue, type, current, cancellationToken);
+            metrics.Page(queue.Name, type.Name, page.Processed, time.GetElapsedTime(started));
+
             var cursor = string.IsNullOrEmpty(page.NextCursor) ? null : page.NextCursor;
             var now = time.GetUtcNow();
 
             if (!await store.CheckpointAsync(current.Id, worker, cursor, page.Processed, now, now + queue.LeaseDuration, cancellationToken))
             {
                 LogLeaseLost(current.Id, current.Type, worker);
-                return;
+                return JobOutcome.LeaseLost;
             }
 
             current = current with { Cursor = cursor, ProcessedCount = current.ProcessedCount + page.Processed };
         }
         while (current.Cursor is not null);
 
-        if (await store.CompleteAsync(current.Id, worker, time.GetUtcNow(), cancellationToken))
-            LogCompleted(current.Id, current.Type, current.ProcessedCount);
+        if (!await store.CompleteAsync(current.Id, worker, time.GetUtcNow(), cancellationToken))
+            return JobOutcome.LeaseLost;
+
+        LogCompleted(current.Id, current.Type, current.ProcessedCount);
+        return JobOutcome.Completed;
     }
 
-    private async Task<JobPage> RunPageAsync(JobType type, Job job, CancellationToken cancellationToken)
+    private async Task<JobPage> RunPageAsync(QueueOptions queue, JobType type, Job job, CancellationToken cancellationToken)
     {
+        using var activity = SyncLaneTelemetry.Source.StartActivity("synclane.page");
+        activity?.SetTag(SyncLaneMetrics.QueueTag, queue.Name)
+            .SetTag(SyncLaneMetrics.TypeTag, type.Name)
+            .SetTag("synclane.job.id", job.Id);
+
         await using var scope = scopes.CreateAsyncScope();
         var handler = (IJobHandler)scope.ServiceProvider.GetRequiredService(type.Handler);
-        return await handler.RunPageAsync(job, cancellationToken);
+        var page = await handler.RunPageAsync(job, cancellationToken);
+
+        activity?.SetTag("synclane.page.processed", page.Processed)
+            .SetTag("synclane.page.last", string.IsNullOrEmpty(page.NextCursor));
+        return page;
     }
 
     private async Task KeepLeaseAsync(QueueOptions queue, Job job, string worker, CancellationTokenSource held)
     {
         var interval = queue.LeaseDuration / HeartbeatsPerLease;
 
+        // Sequential: a timer loop; one renewal per interval.
         while (true)
         {
             try
@@ -114,30 +149,49 @@ internal sealed partial class JobRunner(JobStore store, IServiceScopeFactory sco
         }
     }
 
-    private async Task FailAsync(QueueOptions queue, Job job, string worker, Exception exception)
+    private async Task<string> FailAsync(QueueOptions queue, Job job, string worker, Exception exception, Activity? activity)
     {
         var now = time.GetUtcNow();
         var outcome = FailurePolicy.Decide(queue, job.AttemptCount, exception, now);
         var error = ErrorText.Describe(exception);
+        activity?.SetStatus(ActivityStatusCode.Error, error);
+
+        if (FailurePolicy.IsThrottle(exception))
+            metrics.Throttled(queue.Name, job.Type);
 
         if (!await store.SettleAsync(job.Id, worker, outcome.Status, error, outcome.NextRunAt, now, CancellationToken.None))
         {
             LogLeaseLost(job.Id, job.Type, worker);
-            return;
+            return JobOutcome.LeaseLost;
         }
 
         if (outcome.Status == JobStatus.Failed)
+        {
             LogFailed(job.Id, job.Type, job.AttemptCount, queue.MaxAttempts, outcome.NextRunAt - now, error);
-        else if (outcome.Status == JobStatus.Deferred)
+            return JobOutcome.Failed;
+        }
+
+        if (outcome.Status == JobStatus.Deferred)
+        {
             LogDeferred(job.Id, job.Type, job.AttemptCount, error);
-        else LogAbandoned(job.Id, job.Type, job.AttemptCount, error);
+            return JobOutcome.Deferred;
+        }
+
+        LogAbandoned(job.Id, job.Type, job.AttemptCount, error);
+        return JobOutcome.Abandoned;
     }
 
-    private async Task AbandonAsync(Job job, string worker, string reason)
+    private async Task<string> AbandonAsync(Job job, string worker, SyncError error, Activity? activity)
     {
+        var reason = error.ToString();
+        activity?.SetStatus(ActivityStatusCode.Error, reason);
+
         var now = time.GetUtcNow();
-        if (await store.SettleAsync(job.Id, worker, JobStatus.Abandoned, reason, now, now, CancellationToken.None))
-            LogAbandoned(job.Id, job.Type, job.AttemptCount, reason);
+        if (!await store.SettleAsync(job.Id, worker, JobStatus.Abandoned, reason, now, now, CancellationToken.None))
+            return JobOutcome.LeaseLost;
+
+        LogAbandoned(job.Id, job.Type, job.AttemptCount, reason);
+        return JobOutcome.Abandoned;
     }
 
     [LoggerMessage(Level = LogLevel.Information, Message = "Job {JobId} ({JobType}) completed with {Processed} records.")]

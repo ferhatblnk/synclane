@@ -123,20 +123,21 @@ public class StoreTests : PostgresTest
         await EnqueueAsync(Noon, Planned("a", key: "1"), Planned("a", key: "2"), Planned("b", key: "1"));
         await StopAsync("b", JobStatus.Failed);
 
-        var ofA = await Store.GetJobsAsync(new JobQuery { Queue = Queue, Owner = "a" }, CancellationToken.None);
-        var failed = await Store.GetJobsAsync(new JobQuery { Status = JobStatus.Failed }, CancellationToken.None);
-        var one = await Store.GetJobsAsync(new JobQuery { Limit = 1 }, CancellationToken.None);
+        var (ofA, _) = await Store.GetJobsAsync(new JobQuery { Queue = Queue, Owner = "a" }, null, 100, false, CancellationToken.None);
+        var (failed, _) = await Store.GetJobsAsync(new JobQuery { Status = JobStatus.Failed }, null, 100, false, CancellationToken.None);
+        var (one, total) = await Store.GetJobsAsync(new JobQuery(), null, 1, true, CancellationToken.None);
 
         Assert.Equal(["2", "1"], ofA.Select(job => job.DedupKey));
         Assert.Equal("b", Assert.Single(failed).Owner);
         Assert.Equal("b", Assert.Single(one).Owner);
+        Assert.Equal(3, total);
     }
 
     [PostgresFact]
     public async Task Creating_the_schema_is_safe_to_repeat_and_to_race()
     {
-        await Store.EnsureSchemaAsync(CancellationToken.None);
-        await Task.WhenAll(Enumerable.Range(0, 8).Select(_ => Store.EnsureSchemaAsync(CancellationToken.None)));
+        await Store.MigrateAsync(CancellationToken.None);
+        await Task.WhenAll(Enumerable.Range(0, 8).Select(_ => Store.MigrateAsync(CancellationToken.None)));
 
         Assert.Equal(1, await EnqueueAsync(Noon, Planned("a", key: "1")));
     }

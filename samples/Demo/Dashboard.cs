@@ -23,7 +23,7 @@ internal static class Dashboard
     private static async Task<DashboardState> GetStateAsync(
         ISyncLane lane, ConnectedAccounts accounts, DemoData data, CancellationToken cancellationToken)
     {
-        var jobs = await lane.GetJobsAsync(new JobQuery { Queue = Queue, Limit = JobQuery.MaxLimit }, cancellationToken);
+        var jobs = (await lane.GetJobsAsync(new JobQuery { Queue = Queue, Limit = JobQuery.MaxLimit }, cancellationToken)).Items;
         var orders = await data.CountOrdersAsync(cancellationToken);
         var products = await data.CountProductsAsync(cancellationToken);
         var firstLoads = jobs.Where(job => job.Mode == JobMode.Initial).ToLookup(job => job.Owner);
@@ -45,7 +45,7 @@ internal static class Dashboard
     private static async Task<JobOwner> ConnectAsync(ISyncLane lane, ConnectedAccounts accounts, CancellationToken cancellationToken)
     {
         var account = accounts.Connect();
-        await lane.PlanAsync(Queue, account, cancellationToken);
+        (await lane.PlanAsync(Queue, account, cancellationToken)).ThrowIfFailed();
         return account;
     }
 }

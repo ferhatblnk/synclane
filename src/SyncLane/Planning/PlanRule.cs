@@ -12,6 +12,6 @@ internal abstract record PlanRule(TimeSpan? Every, TimeSpan Offset)
     protected static void Require(bool condition, string queue, string type, string rule)
     {
         if (!condition)
-            throw new InvalidOperationException($"Queue '{queue}', job type '{type}': {rule}.");
+            throw new SyncLaneException(SyncLaneErrors.JobTypeSettingInvalid(queue, type, rule));
     }
 }
