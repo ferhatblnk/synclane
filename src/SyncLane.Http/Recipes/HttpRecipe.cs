@@ -26,6 +26,9 @@ public sealed record HttpRecipe
     /// <summary>How the job's window is written into the request. Defaults to ISO 8601 in UTC.</summary>
     public HttpRecipeWindow? Window { get; init; }
 
+    /// <summary>How to get the next page. Leave it out when one request returns everything.</summary>
+    public HttpRecipePagination? Pagination { get; init; }
+
     /// <summary>
     /// Reads a recipe from JSON and validates it. Every problem found is returned at once, each with its code.
     /// </summary>
@@ -101,6 +104,69 @@ public sealed record HttpRecipeWindow
 {
     /// <summary>The format of <c>{{window.start}}</c> and <c>{{window.end}}</c>. Always in UTC.</summary>
     public WindowFormat Format { get; init; } = WindowFormat.Iso8601;
+}
+
+/// <summary>
+/// How to get the next page. Which fields apply depends on <see cref="Type"/>; a field that does not apply is an error,
+/// so a recipe never looks like it does something it does not. The rules per type are in docs/recipes.md.
+/// </summary>
+[JsonUnmappedMemberHandling(JsonUnmappedMemberHandling.Disallow)]
+public sealed record HttpRecipePagination
+{
+    /// <summary>How the API pages.</summary>
+    public required PaginationType Type { get; init; }
+
+    /// <summary>The query parameter that carries the page number, the offset or the cursor.</summary>
+    public string? Param { get; init; }
+
+    /// <summary>The first page number (default 1) or the first offset (default 0).</summary>
+    public int? Start { get; init; }
+
+    /// <summary>
+    /// Records per page. With <see cref="PaginationType.Page"/> a shorter page is the last one, which saves a request;
+    /// without it the last page is the first empty one. Required for <see cref="PaginationType.Offset"/>.
+    /// </summary>
+    public int? Size { get; init; }
+
+    /// <summary>A query parameter to send <see cref="Size"/> in, such as <c>limit</c> or <c>per_page</c>.</summary>
+    public string? SizeParam { get; init; }
+
+    /// <summary>
+    /// For <see cref="PaginationType.Cursor"/>: where the next cursor is in the answer, such as <c>$.meta.next</c>.
+    /// For <see cref="PaginationType.NextUrl"/>: where the next page's URL is, such as <c>$.links.next</c>.
+    /// </summary>
+    public string? From { get; init; }
+
+    /// <summary>For <see cref="PaginationType.Cursor"/>: take the cursor from this property of the page's last record instead, such as <c>id</c>.</summary>
+    public string? FromLastRecord { get; init; }
+
+    /// <summary>For <see cref="PaginationType.Cursor"/>: a boolean in the answer that is <c>false</c> on the last page, such as <c>$.has_more</c>.</summary>
+    public string? HasMore { get; init; }
+}
+
+/// <summary>How an API pages.</summary>
+[JsonConverter(typeof(JsonStringEnumConverter<PaginationType>))]
+public enum PaginationType
+{
+    /// <summary>A page number in a query parameter: 1, 2, 3.</summary>
+    [JsonStringEnumMemberName("page")]
+    Page,
+
+    /// <summary>A record offset in a query parameter: 0, 100, 200.</summary>
+    [JsonStringEnumMemberName("offset")]
+    Offset,
+
+    /// <summary>A token from the answer, sent back in a query parameter.</summary>
+    [JsonStringEnumMemberName("cursor")]
+    Cursor,
+
+    /// <summary>The full URL of the next page, in the answer.</summary>
+    [JsonStringEnumMemberName("nextUrl")]
+    NextUrl,
+
+    /// <summary>The URL of the next page in the <c>Link</c> header, with <c>rel="next"</c>.</summary>
+    [JsonStringEnumMemberName("linkHeader")]
+    LinkHeader
 }
 
 /// <summary>How a moment of the window is written. Every format is in UTC.</summary>

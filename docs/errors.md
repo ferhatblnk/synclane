@@ -75,6 +75,7 @@ Recipes are checked when they are loaded, and every problem is reported at once.
 | `SL5014` | Configuration | A job type runs with `HttpRecipeHandler` and has no recipe. Found at start-up, or by the handler if it runs outside a host. | Register a recipe for the type in `AddSyncLaneHttp`. |
 | `SL5015` | Configuration | A recipe is registered for a job type that no queue declares with `HttpRecipeHandler`, usually a typo. | Correct the type name on one side. |
 | `SL5016` | Configuration | Two recipes are registered for one job type. | Keep one. |
+| `SL5017` | Validation | The pagination cannot work as written: a required field is missing, a field does not apply to the type, a size or start is out of range, a path is not supported, or the paging parameter is also set in `request.query`. The message names the field. | Change the field as the message says; see the pagination types in [recipes.md](recipes.md#pagination). |
 | `SL5101` | Configuration | The recipe uses `{{window.start}}` or `{{window.end}}`, and the job has no window. | Declare the job type with `Windowed`, or remove the window placeholders. |
 | `SL5102` | Validation | A header would contain a line break once its placeholders were filled, usually from an owner key. The request is not sent. | Remove line breaks from the owner key. |
 | `SL5103` | Configuration | The response has nothing at the `records` path. | Compare the path with a real response. |
@@ -88,6 +89,11 @@ Recipes are checked when they are loaded, and every problem is reported at once.
 | `SL5111` | Configuration | The API answered with a redirect. SyncLane follows none, so a recipe only calls the host it names and headers never reach another host. | Put the final URL in the recipe. |
 | `SL5112` | Configuration | The response is larger than `MaxResponseBytes`. The job is abandoned. | Ask for smaller pages, or raise `MaxResponseBytes`. |
 | `SL5113` | Unavailable | The response is not valid JSON, often because it was cut off. The job is retried. The body is not quoted in the message. | Nothing, unless it keeps happening: then check what the API returns. |
+| `SL5114` | Configuration | The next page's URL, from the answer, the `Link` header or the job's cursor, points to another scheme, host or port. It is not called, so the recipe's headers never reach another host. The job is abandoned. | If the API really moves between hosts, write a recipe per host. |
+| `SL5115` | Configuration | The job's cursor is not one the recipe's pagination can read, usually because the pagination type changed while the job was halfway. | Clear the job's cursor and requeue it; it starts from the first page. |
+| `SL5116` | Configuration | The cursor, next URL or has-more flag in the answer has the wrong JSON type. | Compare the pagination paths with a real response. |
+| `SL5117` | Configuration | The answer points to the page that was just read. Following it would loop forever. | Check that the recipe sends the cursor in the parameter the API reads. |
+| `SL5118` | Configuration | A job reached `MaxPagesPerJob` pages with page or offset paging. The API may ignore the page parameter. | Check the parameter, cut smaller slices, or raise `MaxPagesPerJob`. |
 
 ## Errors that are not on this page
 

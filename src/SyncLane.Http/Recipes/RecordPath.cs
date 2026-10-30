@@ -25,15 +25,24 @@ internal sealed partial class RecordPath
         return Syntax().IsMatch(text) ? new RecordPath(text, text.Split('.')[1..]) : null;
     }
 
+    /// <summary>The value at this path, if there is one.</summary>
+    public bool TryFind(JsonElement root, out JsonElement value)
+    {
+        value = root;
+        foreach (var segment in _segments)
+        {
+            if (value.ValueKind != JsonValueKind.Object || !value.TryGetProperty(segment, out value))
+                return false;
+        }
+
+        return true;
+    }
+
     /// <summary>The array at this path, or why there is none.</summary>
     public SyncResult<JsonElement> Find(JsonElement root, string recipe)
     {
-        var current = root;
-        foreach (var segment in _segments)
-        {
-            if (current.ValueKind != JsonValueKind.Object || !current.TryGetProperty(segment, out current))
-                return SyncResult<JsonElement>.Failure(HttpErrors.RecordsNotFound(recipe, Text));
-        }
+        if (!TryFind(root, out var current))
+            return SyncResult<JsonElement>.Failure(HttpErrors.RecordsNotFound(recipe, Text));
 
         return current.ValueKind == JsonValueKind.Array
             ? SyncResult<JsonElement>.Success(current)

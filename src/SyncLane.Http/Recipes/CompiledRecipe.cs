@@ -25,7 +25,8 @@ internal sealed partial class CompiledRecipe
         IReadOnlyList<(string Name, Template Value)> headers,
         IReadOnlyDictionary<string, Template> bodyStrings,
         RecordPath records,
-        bool usesWindow)
+        bool usesWindow,
+        IPaginator paginator)
     {
         Recipe = recipe;
         Method = method;
@@ -35,6 +36,7 @@ internal sealed partial class CompiledRecipe
         BodyStrings = bodyStrings;
         Records = records;
         UsesWindow = usesWindow;
+        Paginator = paginator;
     }
 
     public HttpRecipe Recipe { get; }
@@ -58,6 +60,8 @@ internal sealed partial class CompiledRecipe
 
     public bool UsesWindow { get; }
 
+    public IPaginator Paginator { get; }
+
     /// <summary>Checks <paramref name="recipe"/> and returns every problem found, or the compiled recipe.</summary>
     public static SyncResult<CompiledRecipe> Compile(HttpRecipe recipe)
     {
@@ -80,7 +84,7 @@ internal sealed partial class CompiledRecipe
         if (method is null)
             errors.Add(HttpErrors.MethodUnsupported(name, request.Method));
 
-        var url = CheckUrl(name, request, errors);
+        var url = CheckUrl(name, request, errors, out var origin);
         if (url is not null)
             placeholders.AddRange(url.Placeholders.Select(placeholder => (placeholder, "request.url")));
 
@@ -130,12 +134,15 @@ internal sealed partial class CompiledRecipe
         if (recipe.Window is { } window && !Enum.IsDefined(window.Format))
             errors.Add(HttpErrors.WindowFormatUnknown(name, window.Format.ToString()));
 
+        // Paging is checked only against a valid URL, because a next-page URL is compared with the recipe's host.
+        var paginator = origin is null ? null : PaginationCompiler.Compile(name, recipe.Pagination, origin, request.Query, errors);
+
         if (errors.Count > 0)
             return SyncResult<CompiledRecipe>.Failure(errors);
 
         var usesWindow = placeholders.Any(found => Placeholders.IsWindow(found.Placeholder));
         return SyncResult<CompiledRecipe>.Success(
-            new CompiledRecipe(recipe, method!, url!, query, headers, bodyStrings, records!, usesWindow));
+            new CompiledRecipe(recipe, method!, url!, query, headers, bodyStrings, records!, usesWindow, paginator!));
     }
 
     private static HttpMethod? ParseMethod(string? method) => method?.ToUpperInvariant() switch
@@ -145,8 +152,9 @@ internal sealed partial class CompiledRecipe
         _ => null
     };
 
-    private static Template? CheckUrl(string name, HttpRecipeRequest request, List<SyncError> errors)
+    private static Template? CheckUrl(string name, HttpRecipeRequest request, List<SyncError> errors, out Origin? origin)
     {
+        origin = null;
         if (string.IsNullOrWhiteSpace(request.Url))
         {
             errors.Add(HttpErrors.FieldMissing(name, "request.url"));
@@ -182,7 +190,10 @@ internal sealed partial class CompiledRecipe
         else if (!string.IsNullOrEmpty(uri.UserInfo))
             errors.Add(HttpErrors.UrlInvalid(name, "must not contain a user name or password; put credentials in headers"));
         else
+        {
+            origin = Origin.Of(uri);
             return template;
+        }
 
         return null;
     }

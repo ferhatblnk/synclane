@@ -15,7 +15,13 @@ internal static class RequestRenderer
 {
     private static readonly MediaTypeHeaderValue Json = new("application/json") { CharSet = "utf-8" };
 
-    public static SyncResult<HttpRequestMessage> Render(CompiledRecipe recipe, Job job)
+    public static SyncResult<HttpRequestMessage> Render(CompiledRecipe recipe, Job job) => Render(recipe, job, PageRequest.None);
+
+    /// <summary>
+    /// The request for one page. A page URL from the pagination replaces the recipe's URL and query; it already holds
+    /// them, as the API wrote it. Headers and body are the recipe's either way.
+    /// </summary>
+    public static SyncResult<HttpRequestMessage> Render(CompiledRecipe recipe, Job job, PageRequest page)
     {
         if (recipe.UsesWindow && (job.WindowStart is null || job.WindowEnd is null))
             return SyncResult<HttpRequestMessage>.Failure(HttpErrors.WindowMissing(recipe.Name));
@@ -28,7 +34,7 @@ internal static class RequestRenderer
             _ => throw new UnreachableException()
         };
 
-        var request = new HttpRequestMessage(recipe.Method, Url(recipe, Value));
+        var request = new HttpRequestMessage(recipe.Method, page.Url ?? Url(recipe, page.Query, Value));
 
         foreach (var (header, template) in recipe.Headers)
         {
@@ -70,16 +76,22 @@ internal static class RequestRenderer
         };
     }
 
-    private static Uri Url(CompiledRecipe recipe, Func<string, string> value)
+    private static Uri Url(CompiledRecipe recipe, IReadOnlyList<KeyValuePair<string, string>> paging, Func<string, string> value)
     {
         var url = new StringBuilder(recipe.Url.Render(name => Uri.EscapeDataString(value(name))));
         var separator = url.ToString().Contains('?') ? '&' : '?';
 
-        foreach (var (name, template) in recipe.Query)
+        void Add(string name, string text)
         {
-            url.Append(separator).Append(Uri.EscapeDataString(name)).Append('=').Append(Uri.EscapeDataString(template.Render(value)));
+            url.Append(separator).Append(Uri.EscapeDataString(name)).Append('=').Append(Uri.EscapeDataString(text));
             separator = '&';
         }
+
+        foreach (var (name, template) in recipe.Query)
+            Add(name, template.Render(value));
+
+        foreach (var (name, text) in paging)
+            Add(name, text);
 
         return new Uri(url.ToString(), UriKind.Absolute);
     }

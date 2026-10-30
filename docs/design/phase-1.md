@@ -35,7 +35,7 @@ If the trial has not started by the time part 1.3 is merged, phase 1 pauses unti
 
 Gate: unit tests for every validation rule, every placeholder position and every window format.
 
-### 1.2 Running a recipe (in review)
+### 1.2 Running a recipe (merged)
 
 - `HttpRecipeHandler`: an `IJobHandler` that builds the request, sends it, finds the records and hands them to a sink.
 - A minimal `ISink` (write one page of records) with a delegate implementation. Real sinks are phase 3.
@@ -44,7 +44,7 @@ Gate: unit tests for every validation rule, every placeholder position and every
 
 Gate: tests against an in-process fake server; a job runs end to end through the real engine.
 
-### 1.3 Pagination
+### 1.3 Pagination (in review)
 
 - Four paginators behind one small interface: page or offset number, a cursor in the body, a next URL in the body, the `Link` header.
 - The paginator's state is the job's cursor, so a crash continues from the page it stopped at.

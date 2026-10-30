@@ -43,22 +43,31 @@ public sealed class HttpRecipeHandler : IJobHandler
             throw new JobAbandonedException(HttpErrors.RecipeMissing(job.Queue, job.Type).ToString());
 
         var recipe = binding.Recipe;
-        using var document = await FetchAsync(recipe, job, cancellationToken);
+        var pageRequest = recipe.Paginator.Request(job.Cursor, _options.MaxPagesPerJob);
+        if (!pageRequest.Succeeded)
+            throw new JobAbandonedException(string.Join("; ", pageRequest.Errors));
 
-        var records = recipe.Records.Find(document.RootElement, recipe.Name);
+        using var answer = await FetchAsync(recipe, job, pageRequest.Value, cancellationToken);
+
+        var records = recipe.Records.Find(answer.Document.RootElement, recipe.Name);
         if (!records.Succeeded)
             throw new SyncLaneException(records.Errors);
+
+        // The next cursor is worked out before the sink runs, so a pagination that cannot go on writes nothing.
+        var next = recipe.Paginator.Next(job.Cursor, new PageAnswer(answer.Document.RootElement, records.Value, answer.Links, answer.Url));
+        if (!next.Succeeded)
+            throw new JobAbandonedException(string.Join("; ", next.Errors));
 
         var page = new RecordPage(job, recipe.Name, records.Value);
         await WriteAsync(binding, page, cancellationToken);
 
-        return new JobPage(null, page.Count);
+        return new JobPage(next.Value, page.Count);
     }
 
-    /// <summary>Sends the page's request and returns its JSON, or throws the exception that gives the right outcome.</summary>
-    private async Task<JsonDocument> FetchAsync(CompiledRecipe recipe, Job job, CancellationToken cancellationToken)
+    /// <summary>Sends the page's request and returns its answer, or throws the exception that gives the right outcome.</summary>
+    private async Task<Answer> FetchAsync(CompiledRecipe recipe, Job job, PageRequest pageRequest, CancellationToken cancellationToken)
     {
-        var rendered = RequestRenderer.Render(recipe, job);
+        var rendered = RequestRenderer.Render(recipe, job, pageRequest);
         if (!rendered.Succeeded)
             throw new JobAbandonedException(string.Join("; ", rendered.Errors));
 
@@ -73,7 +82,10 @@ public sealed class HttpRecipeHandler : IJobHandler
         {
             using var response = await _client.SendAsync(request, HttpCompletionOption.ResponseHeadersRead, linked.Token);
             ThrowUnlessSuccess(response, recipe.Name);
-            return await ReadJsonAsync(response.Content, recipe.Name, linked.Token);
+
+            var links = response.Headers.TryGetValues("Link", out var values) ? values.ToArray() : [];
+            var document = await ReadJsonAsync(response.Content, recipe.Name, linked.Token);
+            return new Answer(document, links, request.RequestUri!);
         }
         catch (OperationCanceledException exception) when (timeout.IsCancellationRequested && !cancellationToken.IsCancellationRequested)
         {
@@ -142,6 +154,12 @@ public sealed class HttpRecipeHandler : IJobHandler
             // The parser's message quotes the text it choked on, which is part of the body, so it is not kept.
             throw new SyncLaneException(HttpErrors.ResponseNotJson(recipe));
         }
+    }
+
+    /// <summary>A parsed answer and what paging needs from its headers.</summary>
+    private sealed record Answer(JsonDocument Document, IReadOnlyList<string> Links, Uri Url) : IDisposable
+    {
+        public void Dispose() => Document.Dispose();
     }
 
     private Task WriteAsync(HttpRecipeBinding binding, RecordPage page, CancellationToken cancellationToken) =>
