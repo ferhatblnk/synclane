@@ -2,7 +2,8 @@ namespace SyncLane;
 
 /// <summary>
 /// Every error code SyncLane uses. A code is never reused or renumbered. The first digit is the area:
-/// 1 configuration, 2 schema, 3 calls to <see cref="ISyncLane"/>, 4 running jobs.
+/// 1 configuration, 2 schema, 3 calls to <see cref="ISyncLane"/>, 4 running jobs. Area 5 belongs to the HTTP source
+/// and is listed in <c>SyncLane.Http.HttpErrorCodes</c>.
 /// </summary>
 public static class SyncErrorCodes
 {
