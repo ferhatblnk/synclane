@@ -16,6 +16,9 @@ internal sealed class JobStore(NpgsqlDataSource dataSource, JobSql sql) : IAsync
 
     public string Schema => sql.Schema;
 
+    /// <summary>The connection pool. This store owns it; the budget store borrows it, so SyncLane opens one pool.</summary>
+    public NpgsqlDataSource DataSource => dataSource;
+
     /// <summary>
     /// Applies the steps this database is missing, in one transaction, under a lock that makes instances starting at
     /// the same time wait for each other. Returns the number of steps applied.

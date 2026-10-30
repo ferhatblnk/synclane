@@ -274,13 +274,13 @@ lane.AddBudget("example-shop", limit: 2, per: TimeSpan.FromSeconds(1), burst: 40
 | `key` | no | Whose bucket. Default `{{owner.key}}`: one bucket per owner. Write a fixed text, such as `"shared-account"`, for owners that share one set of credentials and so one limit. `{{owner.key}}` is the only placeholder allowed. |
 
 - Every request to the API waits for a token: the first request of a page, and the one sent again after an OAuth 2.0 token is renewed. Requests to a token endpoint do not draw from the budget.
-- A `429` pauses the budget for everyone on the key: for `Retry-After` when the API sent it, otherwise for a backoff that starts at one token's time (at least a second) and doubles while `429`s continue, up to five minutes. After the pause the bucket refills from empty, so requests restart at the steady rate.
+- A `429` pauses the budget for everyone on the key: for `Retry-After` when the API sent it, otherwise for a backoff that starts at one token's time (at least a second) and doubles while `429`s continue, up to five minutes. After the pause the bucket refills from empty, so requests restart at the steady rate. A `429` for a request sent before the pause began does not make the pause longer, unless its `Retry-After` asks for longer.
 - A token further away than `MaxBudgetWait` (30 seconds) postpones the job: it gives its slot back without using an attempt.
 - Several recipes can name one budget: an account's limit is usually shared by all its endpoints. An API that limits each operation separately gets one budget per operation.
+- Buckets live in the database, so every instance draws from the same one. A `429` heard by one instance pauses the key on all of them.
 - **Choosing the numbers.** Read the API's documentation for its algorithm and scope.
   - For a token or leaky bucket, set `limit` per `per` to its rate and `burst` to its bucket size.
   - For a window that resets on the clock, or when nothing is documented, keep `burst` at 1 and the limit a little under the published one: other apps on the same account draw from it too.
-- With several instances, each keeps its own buckets for now: give each a share of the limit.
 
 ## Fields
 

@@ -29,12 +29,27 @@ public class MigrationTests : PostgresTest
         await ExecuteAsync(Migrations.All[0].Sql(Schema));
         await EnqueueAsync(Noon, Planned("a", key: "1"));
 
-        Assert.Equal(new[] { 1 }, await Store.MissingMigrationsAsync(CancellationToken.None));
+        Assert.Equal(Enumerable.Range(1, Migrations.Latest), await Store.MissingMigrationsAsync(CancellationToken.None));
 
         await Store.MigrateAsync(CancellationToken.None);
 
         Assert.Empty(await Store.MissingMigrationsAsync(CancellationToken.None));
         Assert.Equal("a", Assert.Single(await JobsAsync()).Owner);
+    }
+
+    [PostgresFact]
+    public async Task A_database_at_version_one_gets_the_rate_buckets_and_keeps_its_jobs()
+    {
+        await DropSchemaAsync();
+        await ExecuteAsync(Migrations.HistoryTable(Schema));
+        await ExecuteAsync(Migrations.All[0].Sql(Schema) + Migrations.Record(Schema, Migrations.All[0]));
+        await EnqueueAsync(Noon, Planned("a", key: "1"));
+
+        Assert.Equal(new[] { 2 }, await Store.MissingMigrationsAsync(CancellationToken.None));
+        Assert.Equal(1, await Store.MigrateAsync(CancellationToken.None));
+
+        Assert.Equal("a", Assert.Single(await JobsAsync()).Owner);
+        Assert.Equal(0, await ExecuteAsync($"DELETE FROM {Schema}.rate_buckets"));
     }
 
     [PostgresFact]

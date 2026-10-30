@@ -130,8 +130,7 @@ public sealed class HttpRecipeHandler : IJobHandler
     private async Task<Answer?> SendAsync(
         CompiledRecipe recipe, HttpRequestMessage request, bool renewable, Budget? budget, CancellationToken cancellationToken)
     {
-        if (budget is not null)
-            await budget.Budgets.WaitAsync(budget.Name, budget.Key, cancellationToken);
+        var permit = budget is null ? null : await budget.Budgets.WaitAsync(budget.Name, budget.Key, cancellationToken);
 
         using var timeout = new CancellationTokenSource(_options.Timeout, _time);
         using var linked = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, timeout.Token);
@@ -142,7 +141,10 @@ public sealed class HttpRecipeHandler : IJobHandler
             if (renewable && response.StatusCode == HttpStatusCode.Unauthorized)
                 return null;
 
-            ThrowUnlessSuccess(response, recipe.Name, budget);
+            if (response.StatusCode == HttpStatusCode.TooManyRequests)
+                throw new JobThrottledException(HttpErrors.Throttled(recipe.Name).ToString(), await PauseAsync(response, budget, permit, cancellationToken));
+
+            ThrowUnlessSuccess(response, recipe.Name);
 
             var links = response.Headers.TryGetValues("Link", out var values) ? values.ToArray() : [];
             var (document, tooLarge) = await JsonBody.ReadAsync(response.Content, _options.MaxResponseBytes, linked.Token);
@@ -165,7 +167,7 @@ public sealed class HttpRecipeHandler : IJobHandler
         }
     }
 
-    private void ThrowUnlessSuccess(HttpResponseMessage response, string recipe, Budget? budget)
+    private static void ThrowUnlessSuccess(HttpResponseMessage response, string recipe)
     {
         var status = (int)response.StatusCode;
         if (status is >= 200 and < 300)
@@ -173,7 +175,6 @@ public sealed class HttpRecipeHandler : IJobHandler
 
         throw status switch
         {
-            429 => new JobThrottledException(HttpErrors.Throttled(recipe).ToString(), Pause(response, budget)),
             401 or 403 => new JobAbandonedException(HttpErrors.Unauthorized(recipe, status).ToString()),
             408 or >= 500 => new SyncLaneException(HttpErrors.ServerError(recipe, status)),
             >= 300 and < 400 => new JobAbandonedException(HttpErrors.Redirected(recipe, status).ToString()),
@@ -182,13 +183,13 @@ public sealed class HttpRecipeHandler : IJobHandler
     }
 
     /// <summary>
-    /// How long the job that got a 429 waits. With a budget, the whole budget pauses for everyone on the key, and the job
-    /// waits as long as the pause.
+    /// How long the job that got a 429 waits. With a budget, the whole budget pauses for everyone on the key, on every
+    /// instance, and the job waits as long as the pause.
     /// </summary>
-    private TimeSpan? Pause(HttpResponseMessage response, Budget? budget)
+    private async Task<TimeSpan?> PauseAsync(HttpResponseMessage response, Budget? budget, BudgetPermit? permit, CancellationToken cancellationToken)
     {
         var asked = RetryAfter.From(response, _time.GetUtcNow(), _options.MaxRetryAfter);
-        return budget is null ? asked : budget.Budgets.Throttled(budget.Name, budget.Key, asked);
+        return budget is null || permit is null ? asked : await budget.Budgets.ThrottledAsync(permit, asked, cancellationToken);
     }
 
     /// <summary>The rate budget a page's requests draw from, and whose bucket.</summary>

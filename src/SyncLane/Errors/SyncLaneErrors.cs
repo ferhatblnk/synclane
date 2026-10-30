@@ -63,6 +63,11 @@ internal static class SyncLaneErrors
         $"The jobs table holds the mode '{text}', which this version of SyncLane does not know. The row was written by a " +
         "newer version or by hand. Upgrade every instance to the same version, or correct the row.");
 
+    public static SyncError BucketRowMissing(string schema, string budget) => new(
+        SyncErrorCodes.BucketRowMissing, SyncErrorKind.Internal,
+        $"The row of budget '{budget}' in {schema}.rate_buckets disappeared while SyncLane was using it. Something deletes " +
+        "rows from that table while instances run: stop it, or delete rows only while every instance is stopped. The job is retried.");
+
     // 3xxx: calls to ISyncLane. Returned as failed results, never thrown.
 
     public static SyncError QueueNotDeclared(string queue) => new(

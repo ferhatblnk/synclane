@@ -8,6 +8,7 @@ internal static class Migrations
     public static IReadOnlyList<Migration> All { get; } =
     [
         new(1, "jobs table", JobsTable),
+        new(2, "rate buckets", RateBucketsTable),
     ];
 
     public static int Latest => All[^1].Version;
@@ -70,5 +71,25 @@ internal static class Migrations
 
         CREATE INDEX IF NOT EXISTS jobs_due
             ON {schema}.{JobSql.TableName} (queue, next_run_at) WHERE status IN ('pending', 'running', 'failed', 'deferred');
+        """;
+
+    /// <summary>
+    /// Version 2: one token bucket per rate budget and key, shared by every instance. <c>refilled_at</c> lies in the
+    /// future while the bucket is paused; <c>generation</c> counts pauses, so a request knows whether one came after it.
+    /// </summary>
+    private static string RateBucketsTable(string schema) =>
+        $"""
+        CREATE TABLE IF NOT EXISTS {schema}.{BudgetSql.TableName} (
+            budget       text             NOT NULL,
+            key          text             NOT NULL,
+            tokens       double precision NOT NULL,
+            refilled_at  timestamptz      NOT NULL,
+            generation   bigint           NOT NULL DEFAULT 0,
+            streak       integer          NOT NULL DEFAULT 0,
+            throttled_at timestamptz,
+            last_pause   interval         NOT NULL DEFAULT interval '0',
+            updated_at   timestamptz      NOT NULL,
+            PRIMARY KEY (budget, key)
+        );
         """;
 }

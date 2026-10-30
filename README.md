@@ -278,19 +278,19 @@ builder.Services.AddSyncLane(lane =>
 });
 ```
 
-A recipe draws from it with `"rate": { "budget": "example-shop" }`. A hand-written handler calls `RateBudgets` before each request, and tells it when the API answered `429`:
+A recipe draws from it with `"rate": { "budget": "example-shop" }`. A hand-written handler calls `RateBudgets` before each request, and hands the permit back when the API answered `429`:
 
 ```csharp
-await budgets.WaitAsync("example-shop", job.Owner, cancellationToken);
+var permit = await budgets.WaitAsync("example-shop", job.Owner, cancellationToken);
 // ... send the request ...
 if (response.StatusCode == HttpStatusCode.TooManyRequests)
-    budgets.Throttled("example-shop", job.Owner, response.Headers.RetryAfter?.Delta);
+    await budgets.ThrottledAsync(permit, response.Headers.RetryAfter?.Delta, cancellationToken);
 ```
 
 - **One bucket per budget and key**, usually the owner. Owners that share one set of credentials pass one key.
-- **A `429` pauses the whole bucket** for `Retry-After`. Without one, the pause is a backoff that doubles while `429`s continue. Every job on the key waits, then the bucket restarts at the steady rate.
+- **Shared by every instance.** Buckets live in the `rate_buckets` table, so two instances together keep to the limit you declared, not twice it. Taking a token is one short statement, about 0.2 ms against a local database.
+- **A `429` pauses the whole bucket** for `Retry-After`. Without one, the pause is a backoff that doubles while `429`s continue. Every job on the key, on every instance, waits, then the bucket restarts at the steady rate. Requests that were already on their way when the pause began do not make it longer when their own `429`s come back.
 - **A wait longer than `MaxBudgetWait`** (30 seconds) gives the job's slot back without using an attempt, so a paused budget never holds workers.
-- **For now each instance keeps its own buckets.** With several instances, give each a share of the limit. Sharing through the database comes next.
 
 How the design follows from the limits of large APIs: [docs/design/phase-2.md](docs/design/phase-2.md).
 
@@ -333,12 +333,11 @@ Every run of a job is a `synclane.job` span and every page a `synclane.page` spa
 
 ## Limitations
 
-- **Rate budgets are per process.** Each instance keeps its own buckets until they are shared through the database (phase 2.2).
 - **PostgreSQL only.** The lease is a single statement that relies on `FOR UPDATE SKIP LOCKED` and partial unique indexes.
 - **Workers poll.** An idle slot asks once per `PollInterval`. There is no `LISTEN`/`NOTIFY` yet.
 - **No job arguments.** A job knows its owner, type and window. Anything else the handler needs it looks up from the owner.
 - **Periods are aligned to the clock.** "Every day" means once per UTC day, so the first refresh after a first load can come sooner than a full period.
-- **Clocks.** Leases are compared with the clock of the instance. Keep your instances on NTP; a lease of minutes is not sensitive to a skew of seconds.
+- **Clocks.** Leases and rate budgets use the clock of the instance. Keep your instances on NTP; a lease of minutes is not sensitive to a skew of seconds, but a budget is: an instance whose clock runs a second ahead can let one second's worth of extra tokens through.
 - **The table only grows.** Deleting old rows is up to you, and initial rows are the record of what has been loaded. See [docs/operations.md](docs/operations.md).
 - **No dashboard.** The demo has a single page built on `GetJobsAsync`; the table itself is the real interface.
 

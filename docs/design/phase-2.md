@@ -54,8 +54,8 @@ Also: the IETF `RateLimit` and `RateLimit-Policy` headers are still an Internet-
 
 - `AddBudget(name, limit, per, burst)` on the engine's options, shared by every queue.
 - `RateBudgets.WaitAsync(budget, key)`: a token bucket of our own, on `TimeProvider`.
-  - A request that would wait longer than `MaxBudgetWait` gives its job's slot back instead (`JobThrottledException`), so a paused budget does not hold workers.
-- `RateBudgets.Throttled(...)`: a `429` pauses the budget and drains it, for `Retry-After`, or with a doubling backoff when there is none.
+  - A request that would wait longer than `MaxBudgetWait` gives its job's slot back instead (`JobPostponedException`), so a paused budget does not hold workers.
+- `RateBudgets.Throttled(...)` (since 2.2 `ThrottledAsync(permit, ...)`): a `429` pauses the budget and drains it, for `Retry-After`, or with a doubling backoff when there is none.
 - Recipes: `"rate": { "budget": "...", "key": "..." }`. Every request to the API waits for a token; a `429` pauses the budget.
 - Metrics: time spent waiting for a token, and pauses, tagged with the budget's name only.
 
@@ -69,11 +69,20 @@ Gate:
 
 **Added on the way:** `JobPostponedException`. Without it a job that gives its slot back would use an attempt, and a long pause would abandon jobs that never sent a request.
 
-### 2.2 Shared across instances
+### 2.2 Shared across instances (in review)
 
-- Migration 2: `rate_buckets`. Instances reserve tokens in small batches in one statement; a pause is written to the row so every instance sees it.
+- Migration 2: `rate_buckets`, one row per budget and key. It only adds a table, so an instance of the previous version keeps working during a rolling deploy.
+- Every token is one statement that locks the row. Batches were planned, then dropped after measuring: see [rate-budgets.md](rate-budgets.md#where-the-tokens-live).
+- A pause is written to the row, so every instance sees it. A request that waited reads the pause count once more before it goes.
+- `WaitAsync` returns a `BudgetPermit`; `ThrottledAsync` takes it back. A `429` for a request sent before the latest pause no longer doubles the backoff again (found while building this part: it was a bug in 2.1).
 
 Gate: two hosts sharing one budget never exceed it together.
+
+**Result:** passes (`BudgetGateTests`).
+- Two hosts with eight slots each, sixteen jobs of four pages, one key, a budget of 30 a second, against an API allowing 40 a second with bursts of 4: no `429`, both hosts sent requests, and no second held more than 32 arrivals. With a key per host instead, the same run is throttled at once.
+- A `429` with `Retry-After: 1` heard by one host: neither host sends during the pause.
+- Mutation checks turn tests red: removing the row lock (instances take more tokens than the bucket holds), removing the pause check after a wait, and counting every `429` as new.
+- Measured: about 0.16 ms per token; about 12,000 tokens a second on one key with eight callers (local PostgreSQL 18).
 
 ### 2.3 Reading what the API says
 

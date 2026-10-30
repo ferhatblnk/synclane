@@ -15,13 +15,15 @@ Packed as `0.2.0-preview.1` until the HTTP source has met the APIs of a producti
 - `SyncLane.Http`, phase 1.4: authentication. A recipe's `auth` names a credential and never holds one; `ICredentialStore` gives each owner's values page by page. Types `bearer`, `basic`, `apiKey` (header or query) and `oauth2` (client credentials and refresh token: tokens kept in memory, renewed before they expire, shared by pages that need one at once, renewed once after a 401, rotated refresh tokens saved), and `signed` with an `IRequestSigner` that may not move the request. An API key the API copies into its next-page URLs is taken out before the URL becomes the cursor. `Authorization` in `request.headers` is refused. Codes `SL5018` to `SL5021` and `SL5119` to `SL5124`. A test runs every type through the engine against an API that echoes every secret, and finds none in logs, spans, metrics or the database.
 - `samples/LiveCheck`, phase 1.5: five public APIs, one per paging style, synced through the engine with recipes only and compared with the totals the APIs report; an optional sixth checks a bearer token against a real API. Run by hand, not in CI. The first run passed 5 of 5.
 - A README section on recipes, which is also the package page of `SyncLane.Http`.
-- Rate budgets, phase 2.1, designed from the documented limits of Amazon, Walmart, ShipStation, Shopify and TikTok Shop (`docs/design/phase-2.md`):
-  - `lane.AddBudget(name, limit, per, burst)` declares a budget for the whole process.
-  - `RateBudgets.WaitAsync` takes a token per request; `RateBudgets.Throttled` pauses the budget after a `429`, for `Retry-After` or a doubling backoff, for every job on the key.
+- Rate budgets, phases 2.1 and 2.2, designed from the documented limits of Amazon, Walmart, ShipStation, Shopify and TikTok Shop (`docs/design/phase-2.md`):
+  - `lane.AddBudget(name, limit, per, burst)` declares a budget, shared by every queue of every instance.
+  - Buckets live in a new table, `rate_buckets` (migration 2). Taking a token is one statement that locks the bucket's row.
+  - `RateBudgets.WaitAsync` takes a token per request and returns a `BudgetPermit`. `RateBudgets.ThrottledAsync(permit, retryAfter)` pauses the budget after a `429`, for `Retry-After` or a doubling backoff, for every job on the key on every instance.
+  - A `429` for a request sent before the latest pause began does not start another pause, so requests in flight together do not double the backoff once each.
   - Recipes draw from a budget with `"rate": { "budget": ..., "key": ... }`.
   - A wait longer than `MaxBudgetWait` postpones the job instead of holding its worker.
   - Metrics `synclane.budget.wait` and `synclane.budget.paused`, tagged with the budget's name only.
-  - Codes `SL1008`, `SL1009`, `SL3005`, `SL4003`, `SL5022` and `SL5023`.
+  - Codes `SL1008`, `SL1009`, `SL2004`, `SL3005`, `SL4003`, `SL5022` and `SL5023`.
 - `JobPostponedException`: a job gives its slot back without using an attempt and continues from its cursor after a delay. New outcome `postponed`.
 - `SyncLaneOptions.Describe()`: a read-only list of the declared queues and job types with their handlers.
 - `SyncLaneException.Errors`: an exception can carry several errors; `ThrowIfFailed()` throws all of them.
@@ -30,6 +32,7 @@ Packed as `0.2.0-preview.1` until the HTTP source has met the APIs of a producti
 
 ### Changed
 
+- The schema is at version 2: it adds the `rate_buckets` table and changes nothing else. With `CreateSchema` on there is nothing to do. With it off, run `SyncLaneSchema.Script()` before starting this version; until then the host stops at start-up with `SL2001`. An instance of 0.1 keeps working against the new schema.
 - The README no longer suggests sharing a lane to share a rate limit: a lane runs one job at a time, a rate budget paces requests.
 - `SL5109` (API unreachable) no longer keeps the `HttpRequestException` as its inner exception. Its message, which the engine stores in the `error` column, can hold the URL or a proxy's password; the error now says which kind of failure it was (host name, connection, TLS, proxy, protocol) instead.
 

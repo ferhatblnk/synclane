@@ -11,9 +11,9 @@ using SyncLane.Tests.Support;
 namespace SyncLane.Tests.Http;
 
 /// <summary>
-/// The gate of part 2.1: many jobs that share one account, through the real engine, against an API with a limit of its
-/// own. With a budget inside that limit nothing is throttled; after a <c>429</c> nobody on the account sends until the
-/// pause ends.
+/// The gates of parts 2.1 and 2.2: many jobs that share one account, through the real engine, on one host or two, against
+/// an API with a limit of its own. With a budget inside that limit nothing is throttled, however many hosts share it;
+/// after a <c>429</c> nobody on the account, on any host, sends until the pause ends.
 /// </summary>
 public class BudgetGateTests : PostgresTest
 {
@@ -63,12 +63,59 @@ public class BudgetGateTests : PostgresTest
         Assert.Contains(api.Arrivals, at => at >= throttledAt + TimeSpan.FromSeconds(0.95));
     }
 
-    private async Task<IReadOnlyList<Job>> RunAsync(IHost host, Func<IReadOnlyList<Job>, bool>? until = null)
+    [PostgresTheory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public async Task Two_hosts_sharing_a_budget_stay_inside_it_together(bool shared)
     {
-        until ??= jobs => jobs.Count == Owners && jobs.All(job => job.Status is JobStatus.Completed or JobStatus.Abandoned);
-        await host.StartAsync();
-        var client = host.Services.GetRequiredService<ISyncLane>();
-        var enqueued = await Task.WhenAll(Enumerable.Range(1, Owners).Select(owner =>
+        // Each host alone stays inside the API's limit; two hosts with buckets of their own together do not.
+        var api = new LimitedApi(perSecond: 40, burst: 4);
+        using var first = Host(api, Rate(shared ? "shared-account" : "account-a"), agent: "host-a");
+        using var second = Host(api, Rate(shared ? "shared-account" : "account-b"), agent: "host-b");
+
+        if (shared)
+        {
+            var jobs = await RunAsync([first, second], owners: 16);
+
+            Assert.All(jobs, job => Assert.Equal(JobStatus.Completed, job.Status));
+            Assert.Equal(0, api.Throttled);
+            Assert.True(api.Agents.Distinct().Count() == 2, "Both hosts must have sent requests, or the test proves nothing.");
+            // A steady 30 a second with a burst of 1 allows 31 in any second; one more for the jitter between a token
+            // and the request's arrival.
+            Assert.InRange(api.MostInOneSecond, 1, 32);
+        }
+        else
+        {
+            await RunAsync([first, second], owners: 16, until: _ => api.Throttled > 0);
+            Assert.True(api.Throttled > 0);
+        }
+    }
+
+    [PostgresFact]
+    public async Task After_a_429_on_one_host_no_host_sends_before_the_pause_ends()
+    {
+        var api = new LimitedApi(perSecond: 1000, burst: 1000, throttleRequest: 12, retryAfter: "1");
+        using var first = Host(api, Rate("shared-account"), agent: "host-a");
+        using var second = Host(api, Rate("shared-account"), agent: "host-b");
+
+        var jobs = await RunAsync([first, second], owners: 16);
+
+        Assert.All(jobs, job => Assert.Equal(JobStatus.Completed, job.Status));
+        Assert.True(api.Agents.Distinct().Count() == 2, "Both hosts must have sent requests, or the test proves nothing.");
+        var throttledAt = Assert.Single(api.ThrottledAt);
+        var duringPause = api.Arrivals.Where(at => at > throttledAt + TimeSpan.FromMilliseconds(50) && at < throttledAt + TimeSpan.FromSeconds(0.95));
+        Assert.Empty(duringPause);
+    }
+
+    private Task<IReadOnlyList<Job>> RunAsync(IHost host, Func<IReadOnlyList<Job>, bool>? until = null) =>
+        RunAsync([host], Owners, until);
+
+    private async Task<IReadOnlyList<Job>> RunAsync(IHost[] hosts, int owners, Func<IReadOnlyList<Job>, bool>? until = null)
+    {
+        until ??= jobs => jobs.Count == owners && jobs.All(job => job.Status is JobStatus.Completed or JobStatus.Abandoned);
+        await Task.WhenAll(hosts.Select(host => host.StartAsync()));
+        var client = hosts[0].Services.GetRequiredService<ISyncLane>();
+        var enqueued = await Task.WhenAll(Enumerable.Range(1, owners).Select(owner =>
             client.EnqueueAsync(new NewJob { Queue = Queue, Owner = new JobOwner($"shop-{owner}"), Type = "items" })));
         Assert.All(enqueued, result => Assert.True(result.Succeeded));
 
@@ -80,7 +127,7 @@ public class BudgetGateTests : PostgresTest
             var jobs = await JobsAsync();
             if (until(jobs))
             {
-                await host.StopAsync();
+                await Task.WhenAll(hosts.Select(host => host.StopAsync()));
                 return jobs;
             }
 
@@ -88,7 +135,9 @@ public class BudgetGateTests : PostgresTest
         }
     }
 
-    private IHost Host(LimitedApi api, string rate)
+    private static string Rate(string key) => $$""", "rate": { "budget": "shop", "key": "{{key}}" }""";
+
+    private IHost Host(LimitedApi api, string rate, string agent = "host")
     {
         var builder = Microsoft.Extensions.Hosting.Host.CreateApplicationBuilder(new HostApplicationBuilderSettings { EnvironmentName = "Development" });
         builder.Logging.ClearProviders();
@@ -109,15 +158,19 @@ public class BudgetGateTests : PostgresTest
                 queue.Handle<HttpRecipeHandler>("items");
             });
         });
-        builder.Services.AddSyncLaneHttp(http => http.Recipe("items", $$$"""
-            {
-              "name": "test/items",
-              "request": { "url": "https://api.example.com/{{owner.key}}/items" },
-              "records": "$.items",
-              "pagination": { "type": "page", "param": "page", "size": 2 }
-              {{{rate}}}
-            }
-            """).WriteTo((_, _) => Task.CompletedTask));
+        builder.Services.AddSyncLaneHttp(http =>
+        {
+            http.UserAgent = agent;
+            http.Recipe("items", $$$"""
+                {
+                  "name": "test/items",
+                  "request": { "url": "https://api.example.com/{{owner.key}}/items" },
+                  "records": "$.items",
+                  "pagination": { "type": "page", "param": "page", "size": 2 }
+                  {{{rate}}}
+                }
+                """).WriteTo((_, _) => Task.CompletedTask);
+        });
         builder.Services.AddHttpClient(HttpSource.ClientName).ConfigurePrimaryHttpMessageHandler(() => api);
 
         return builder.Build();
@@ -133,6 +186,7 @@ public class BudgetGateTests : PostgresTest
         private readonly Stopwatch _clock = Stopwatch.StartNew();
         private readonly ConcurrentQueue<TimeSpan> _arrivals = new();
         private readonly ConcurrentQueue<TimeSpan> _throttledAt = new();
+        private readonly ConcurrentQueue<string> _agents = new();
         private readonly double _burst = burst;
         private double _tokens = burst;
         private TimeSpan _refilledAt;
@@ -147,10 +201,32 @@ public class BudgetGateTests : PostgresTest
 
         public IReadOnlyList<TimeSpan> ThrottledAt => _throttledAt.ToArray();
 
+        public IReadOnlyList<string> Agents => _agents.ToArray();
+
+        /// <summary>The most requests that arrived within any one second.</summary>
+        public int MostInOneSecond
+        {
+            get
+            {
+                var arrivals = Arrivals.Order().ToArray();
+                var most = 0;
+                for (int start = 0, end = 0; start < arrivals.Length; start++)
+                {
+                    while (end < arrivals.Length && arrivals[end] - arrivals[start] < TimeSpan.FromSeconds(1))
+                        end++;
+
+                    most = Math.Max(most, end - start);
+                }
+
+                return most;
+            }
+        }
+
         protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
         {
             var now = _clock.Elapsed;
             _arrivals.Enqueue(now);
+            _agents.Enqueue(request.Headers.UserAgent.ToString());
 
             if (Interlocked.Increment(ref _requests) == throttleRequest || !TryTake(now))
             {

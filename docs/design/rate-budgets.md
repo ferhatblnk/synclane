@@ -1,6 +1,6 @@
 # Design: rate budgets
 
-Status: part 2.1 in review: budgets in one process. Plan and evidence: [phase-2.md](phase-2.md).
+Status: parts 2.1 (budgets) and 2.2 (shared across instances) in review. Plan and evidence: [phase-2.md](phase-2.md).
 
 ## The problem
 
@@ -53,10 +53,10 @@ public sealed class OrderHandler(RateBudgets budgets, ShopApi api) : IJobHandler
 {
     public async Task<JobPage> RunPageAsync(Job job, CancellationToken cancellationToken)
     {
-        await budgets.WaitAsync("example-shop", job.Owner, cancellationToken);
+        var permit = await budgets.WaitAsync("example-shop", job.Owner, cancellationToken);
         var page = await api.GetOrdersAsync(job, cancellationToken);
         if (page.TooManyRequests)
-            budgets.Throttled("example-shop", job.Owner, page.RetryAfter);
+            await budgets.ThrottledAsync(permit, page.RetryAfter, cancellationToken);
         // ...
     }
 }
@@ -71,7 +71,8 @@ Tokens refill continuously at `limit` per `per`, up to `burst`. A request **rese
 **A `429` pauses the budget for everyone on the key:**
 - the bucket is emptied and stops refilling until the pause ends, then refills from zero, so requests restart at the steady rate rather than all at once;
 - reservations made before the pause are void and are made again, behind it;
-- the pause is `Retry-After` when the API sent one. Otherwise it is a backoff that starts at one token's time (at least a second, Shopify's own advice) and doubles while `429`s keep coming, up to five minutes. The streak is forgotten after a quiet spell twice as long as the last pause.
+- the pause is `Retry-After` when the API sent one. Otherwise it is a backoff that starts at one token's time (at least a second, Shopify's own advice) and doubles while `429`s keep coming, up to five minutes. The streak is forgotten after a quiet spell twice as long as the last pause;
+- only a `429` for a request sent after the latest pause began counts. Requests that left together come back together: in part 2.1 each of their `429`s doubled the backoff again, so eight of them without `Retry-After` paused an account for 128 seconds instead of one. `WaitAsync` now returns a permit that carries the bucket's pause count (`generation`), and `ThrottledAsync` takes it back. A late `429` only lengthens the pause when its `Retry-After` asks for longer.
 
 The job that got the `429` is deferred until the pause ends, as before. Other jobs on the budget wait for it inside their page, or give their slot back when the wait is longer than `MaxBudgetWait`.
 
@@ -80,16 +81,26 @@ The job that got the `429` is deferred until the pause ends, as before. Other jo
 - it does not run on `TimeProvider`, so the waits could not be tested without real sleeping;
 - part 2.2 needs the bucket's state in a database row anyway.
 
-The bucket is under a hundred lines, with tests on a manual clock. Recorded as decision D18.
+The bucket is three SQL statements, tested with explicit times. Recorded as decision D18.
 
 ## Where the tokens live
 
-**Part 2.1:** in memory, one bucket per budget and key. Each instance has its own buckets, so two instances together can go twice as fast. With one instance, or with a budget split by hand (half the limit each), it is exact.
+**Part 2.1** kept them in memory: two instances together could go twice as fast.
 
-**Part 2.2:** shared through PostgreSQL. The options considered:
+**Part 2.2** keeps them in PostgreSQL, in `rate_buckets`: one row per budget and key, with the tokens left, when they were last refilled (in the future during a pause), the pause count (`generation`) and the backoff streak. The options considered:
+
 1. **Split the limit by instance count.** Simple, but it needs to know how many instances run, and it wastes an idle instance's share. Rejected.
-2. **One database round trip per request.** An atomic `UPDATE … RETURNING` on a `rate_buckets` row. Exact, but it adds a round trip to every call: at 100 a minute that is nothing, at 50 a second per key it is too much.
-3. **Reserve tokens in small batches.** An instance takes up to `n` tokens from the row in one statement and spends them in memory. Unused tokens expire with the window. **Chosen**, with `n` adaptive: 1 when the limit is low, more when it is high. A pause is written to the row, so every instance sees it.
+2. **One statement per token.** It locks the bucket's row, refills it up to now, and takes a token, or refuses one further away than `MaxBudgetWait`. Exact. **Chosen.**
+3. **Reserve tokens in batches** and spend them in memory. Rejected after measuring option 2:
+   - against a local PostgreSQL 18, a token costs about 0.16 ms (a bare `SELECT 1` is 0.03 ms), and one key serves about 12,000 tokens a second to eight callers;
+   - the APIs in [phase-2.md](phase-2.md#what-large-apis-do) allow a few to a few dozen requests a second per account, and answer in 50 ms or more. Against a local database the statement adds about 0.3% to a 50 ms request; a database across a network adds its round trip, typically under a millisecond in one data centre;
+   - tokens held by one instance cannot be used by another, and a batch spent late can exceed the burst: two instances each holding a burst's worth would send twice the burst at once.
+
+The row of a bucket nobody has used is created full, in the same round trip as the statement that needs it. A request that waited for its token reads the row's pause count once more before it goes: another instance may have paused the bucket in the meantime, and then the token is void and taken again behind the pause.
+
+**Clocks.** Refills are computed with the clock of the instance that asks, like leases. An instance whose clock runs a second ahead can let a second's worth of extra tokens through. Using the database's clock would avoid that, but every time in SyncLane comes from `TimeProvider`, so tests can move it; keeping instances on NTP is the documented requirement instead.
+
+**What is lost.** A waiter whose host stops keeps its reserved token: it is not handed back. That errs on the slow side.
 
 ## Reading what the API says (part 2.3)
 
@@ -117,7 +128,7 @@ When `learn` is on, or a budget has no limit:
 
 - **Probe for the limit by going fast on purpose.** It is someone's seller account. Learning only ever starts low and climbs.
 - **Guarantee zero `429`.** Other apps on the same account draw from the same limit on the provider's side, and some APIs share pools across all their partners. SyncLane cannot see them; it can react well.
-- **Put the owner in a metric.** Budget metrics carry the budget's name, never its key.
+- **Put the owner in a metric.** Budget metrics carry the budget's name, never its key. A `BudgetPermit` prints the budget only.
 
 ## Open questions
 
