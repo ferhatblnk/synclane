@@ -1,6 +1,7 @@
 <Solution>
   <Folder Name="/samples/">
     <Project Path="samples/Demo/Demo.csproj" />
+    <Project Path="samples/LiveCheck/LiveCheck.csproj" />
   </Folder>
   <Folder Name="/src/">
     <Project Path="src/SyncLane/SyncLane.csproj" />

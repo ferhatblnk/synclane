@@ -1,0 +1,10 @@
+{
+  // Page numbers; the records are the whole answer. A page shorter than "size" is the last one.
+  "name": "openbrewerydb/breweries-oregon",
+  "request": {
+    "url": "https://api.openbrewerydb.org/v1/breweries",
+    "query": { "by_state": "oregon" }
+  },
+  "records": "$",
+  "pagination": { "type": "page", "param": "page", "size": 50, "sizeParam": "per_page" }
+}

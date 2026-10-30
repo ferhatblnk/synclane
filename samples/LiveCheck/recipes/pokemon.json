@@ -1,0 +1,10 @@
+{
+  // The full URL of the next page, in the answer.
+  "name": "pokeapi/pokemon",
+  "request": {
+    "url": "https://pokeapi.co/api/v2/pokemon",
+    "query": { "limit": "200" }
+  },
+  "records": "$.results",
+  "pagination": { "type": "nextUrl", "from": "$.next" }
+}

@@ -191,6 +191,48 @@ ConnectionStrings__Postgres="Host=localhost;Username=postgres;Database=synclane"
 
 </details>
 
+## Recipes instead of handlers (preview)
+
+For APIs that list JSON records page by page, the `SyncLane.Http` package runs a job from a recipe instead of a handler you write: where the request goes, where the job's window goes into it, where the records are in the answer, how to page and how to authenticate.
+
+```jsonc
+{
+  "name": "example-shop/orders",
+  "request": {
+    "url": "https://api.example-shop.com/v2/orders",
+    "query": { "updated_after": "{{window.start}}", "updated_before": "{{window.end}}" }
+  },
+  "records": "$.content",
+  "pagination": { "type": "cursor", "param": "cursor", "from": "$.next_cursor" },
+  "auth": { "type": "bearer", "credential": "example-shop" }
+}
+```
+
+```csharp
+builder.Services.AddSyncLane(lane =>
+{
+    lane.ConnectionString = builder.Configuration.GetConnectionString("Postgres")!;
+    lane.AddQueue("shops", queue =>
+    {
+        queue.Owners<ConnectedShops>();
+        queue.Windowed<HttpRecipeHandler>("orders", horizon: TimeSpan.FromDays(365), slice: TimeSpan.FromDays(7), every: TimeSpan.FromMinutes(15));
+    });
+});
+
+builder.Services.AddSyncLaneHttp(http =>
+{
+    http.Credentials<ShopCredentials>();   // your ICredentialStore: credentials stay in your own storage
+    http.Recipe("orders", File.ReadAllText("recipes/orders.json")).WriteTo<OrderSink>();
+});
+```
+
+- **Paging:** page number, offset, cursor, next URL, `Link` header. **Auth:** bearer, basic, API key, OAuth 2.0 (client credentials and refresh token), signed requests.
+- A recipe holds no secret and can only call the host it names. Every problem in it is reported, with a code, before anything runs.
+- Checked against five public APIs, one per paging style: [samples/LiveCheck](samples/LiveCheck).
+- Not covered yet: a different host per owner, values per owner other than its key, multi-step flows (start a report, wait, download), GraphQL, XML or CSV answers. Write a handler for those; the engine is the same.
+
+The whole format: [docs/recipes.md](docs/recipes.md).
+
 ## Working with jobs from your code
 
 `ISyncLane` is the only service you inject. Every call returns a result instead of throwing for problems you can expect:
@@ -269,7 +311,7 @@ Every run of a job is a `synclane.job` span and every page a `synclane.page` spa
 
 ## Project status
 
-Version 0.1, early. The design comes from a job system that has been syncing external APIs for many accounts in production, and the rules in [docs/planning.md](docs/planning.md) were learned there the hard way. This repository is a clean, general rewrite of that design. It has its own tests, including ones that run many workers against a real PostgreSQL, but this code has not run in production itself. Try it on something that is allowed to fail first; [docs/production-trial.md](docs/production-trial.md) is the checklist we use for that.
+Version 0.2 preview, early. The design comes from a job system that has been syncing external APIs for many accounts in production, and the rules in [docs/planning.md](docs/planning.md) were learned there the hard way. This repository is a clean, general rewrite of that design. It has its own tests, including ones that run many workers against a real PostgreSQL, but this code has not run in production itself. Try it on something that is allowed to fail first; [docs/production-trial.md](docs/production-trial.md) is the checklist we use for that. `SyncLane.Http` is newer still: it has synced five public APIs, not yet the APIs of a production integration.
 
 ## Development
 

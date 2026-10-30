@@ -1,0 +1,12 @@
+{
+  // The same list, signed in: a bearer token from the credential store. Runs only when a token is given.
+  "name": "github/dotnet-runtime-issues-signed-in",
+  "request": {
+    "url": "https://api.github.com/repos/dotnet/runtime/issues",
+    "query": { "state": "all", "since": "{{window.start}}", "per_page": "100" },
+    "headers": { "Accept": "application/vnd.github+json", "X-GitHub-Api-Version": "2022-11-28" }
+  },
+  "records": "$",
+  "pagination": { "type": "linkHeader" },
+  "auth": { "type": "bearer", "credential": "github" }
+}
