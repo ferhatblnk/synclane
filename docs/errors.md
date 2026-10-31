@@ -91,8 +91,8 @@ Recipes are checked when they are loaded, and every problem is reported at once.
 | `SL5102` | Validation | A header would contain a line break once its placeholders were filled, usually from an owner key. The request is not sent. | Remove line breaks from the owner key. |
 | `SL5103` | Configuration | The response has nothing at the `records` path. | Compare the path with a real response. |
 | `SL5104` | Configuration | The `records` path leads to an object or a value, not an array. | Point the path at the list itself. |
-| `SL5105` | Throttled | The API answered 429. The job waits for `Retry-After`, cut to `MaxRetryAfter`, or for the queue's throttle delay. | Nothing, unless it keeps happening: then lower `Concurrency` or widen `every`. |
-| `SL5106` | Unauthorized | The API answered 401 or 403. The job is abandoned at once: the same credentials will not work on the next try. | Fix the owner's credentials, then requeue. |
+| `SL5105` | Throttled | The API answered 429, or 403 with `Retry-After` or with a declared remaining header of 0. The job waits for `Retry-After`, cut to `MaxRetryAfter`, or for the reset the recipe's rate headers give, or for the queue's throttle delay. | Nothing, unless it keeps happening: then lower `Concurrency` or widen `every`. |
+| `SL5106` | Unauthorized | The API answered 401, or 403 without a sign of a spent limit. The job is abandoned at once: the same credentials will not work on the next try. | Fix the owner's credentials, then requeue. |
 | `SL5107` | Unavailable | The API answered 408 or a 5xx status. The job is retried with the queue's growing delay. | Nothing, unless it keeps happening. |
 | `SL5108` | Unavailable | The API did not answer within `Timeout`. The job is retried. | Ask for smaller pages, or raise `Timeout`. |
 | `SL5109` | Unavailable | The API could not be reached. The message says what failed: the host name, the connection, TLS, the proxy, or the HTTP exchange. The exception's own message is not kept, because it may hold the URL or a proxy's password. The job is retried. | Check the host name, the network and the proxy. |

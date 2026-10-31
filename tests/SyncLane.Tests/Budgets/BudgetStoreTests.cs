@@ -159,6 +159,88 @@ public class BudgetStoreTests : PostgresTest
         Assert.Equal(TimeSpan.Zero, again.Wait);
     }
 
+    [PostgresFact]
+    public async Task A_reading_lowers_the_bucket_to_what_the_api_has_left_and_never_raises_it()
+    {
+        var budget = Budget(limit: 2, burst: 10);
+        var sent = await Budgets.ReserveAsync(budget, Key, Noon, Forever, CancellationToken.None);
+
+        Assert.Null(await ObserveAsync(budget, sent.Sequence, remaining: 100, resetAt: null, Noon));
+        Assert.Equal([0, 0, 0, 0, 0, 0, 0, 0, 0, 0.5], (await ReserveAsync(budget, Noon, 10)).Select(reservation => reservation.Wait.TotalSeconds));
+
+        var lowered = await Budgets.ReserveAsync(budget, "owner-2", Noon, Forever, CancellationToken.None);
+        await ObserveAsync(budget, lowered.Sequence, remaining: 3, resetAt: null, Noon, key: "owner-2");
+        var waits = new List<double>();
+
+        // Sequential: each reservation queues behind the one before it.
+        for (var index = 0; index < 4; index++)
+            waits.Add((await Budgets.ReserveAsync(budget, "owner-2", Noon, Forever, CancellationToken.None)).Wait.TotalSeconds);
+
+        Assert.Equal([0, 0, 0, 0.5], waits);
+    }
+
+    [PostgresFact]
+    public async Task Requests_that_took_a_token_after_the_answered_one_are_subtracted_from_what_the_api_has_left()
+    {
+        var budget = Budget(limit: 2, burst: 10);
+        var inFlight = await ReserveAsync(budget, Noon, 5);
+
+        // The API answered the first request with 6 left. Four more requests are on their way and not counted yet.
+        await ObserveAsync(budget, inFlight[0].Sequence, remaining: 6, resetAt: null, Noon);
+
+        Assert.Equal([0, 0, 0.5], (await ReserveAsync(budget, Noon, 3)).Select(reservation => reservation.Wait.TotalSeconds));
+    }
+
+    [PostgresFact]
+    public async Task With_nothing_left_and_a_reset_ahead_the_bucket_pauses_until_the_reset_and_restarts_empty()
+    {
+        var budget = Budget(limit: 2, burst: 5);
+        var sent = await Budgets.ReserveAsync(budget, Key, Noon, Forever, CancellationToken.None);
+
+        var paused = await ObserveAsync(budget, sent.Sequence, remaining: 0, resetAt: Noon.AddSeconds(10), Noon);
+        var after = await Budgets.ReserveAsync(budget, Key, Noon, Forever, CancellationToken.None);
+
+        Assert.Equal(Noon.AddSeconds(10), paused);
+        Assert.NotEqual(sent.Generation, after.Generation);
+        Assert.Equal(10.5, after.Wait.TotalSeconds);
+    }
+
+    [PostgresFact]
+    public async Task With_nothing_left_and_no_reset_the_bucket_empties_and_waiters_queue_again()
+    {
+        var budget = Budget(limit: 2, burst: 5);
+        var sent = await Budgets.ReserveAsync(budget, Key, Noon, Forever, CancellationToken.None);
+
+        var paused = await ObserveAsync(budget, sent.Sequence, remaining: 0, resetAt: null, Noon);
+        var after = await Budgets.ReserveAsync(budget, Key, Noon, Forever, CancellationToken.None);
+
+        Assert.Null(paused);
+        Assert.NotEqual(sent.Generation, after.Generation);
+        Assert.Equal(0.5, after.Wait.TotalSeconds);
+    }
+
+    [PostgresFact]
+    public async Task A_reset_that_has_passed_does_not_pause()
+    {
+        var budget = Budget(limit: 2, burst: 5);
+        var sent = await Budgets.ReserveAsync(budget, Key, Noon, Forever, CancellationToken.None);
+
+        Assert.Null(await ObserveAsync(budget, sent.Sequence, remaining: 0, resetAt: Noon.AddSeconds(-1), Noon));
+    }
+
+    [PostgresFact]
+    public async Task A_pause_for_a_spent_quota_does_not_lengthen_the_backoff_of_a_later_throttle()
+    {
+        var budget = Budget(limit: 2, burst: 1);
+        var sent = await Budgets.ReserveAsync(budget, Key, Noon, Forever, CancellationToken.None);
+        await ObserveAsync(budget, sent.Sequence, remaining: 0, resetAt: Noon.AddSeconds(2), Noon);
+
+        var later = await Budgets.ReserveAsync(budget, Key, Noon.AddSeconds(3), Forever, CancellationToken.None);
+        var throttle = await PauseAsync(budget, later.Generation, Noon.AddSeconds(3), retryAfter: null);
+
+        Assert.Equal(Noon.AddSeconds(4), throttle.Until);
+    }
+
     private static BudgetDescription Budget(int limit, int burst) => new("shop", limit, OneSecond, burst);
 
     private async Task<List<Reservation>> ReserveAsync(BudgetDescription budget, DateTimeOffset now, int count)
@@ -171,6 +253,10 @@ public class BudgetStoreTests : PostgresTest
 
         return reservations;
     }
+
+    private Task<DateTimeOffset?> ObserveAsync(
+        BudgetDescription budget, long sequence, double remaining, DateTimeOffset? resetAt, DateTimeOffset now, string key = Key) =>
+        Budgets.ObserveAsync(budget, key, sequence, remaining, resetAt, now, CancellationToken.None);
 
     private Task<BudgetPause> PauseAsync(BudgetDescription budget, long generation, DateTimeOffset now, TimeSpan? retryAfter) =>
         Budgets.PauseAsync(budget, Key, generation, now, retryAfter, OneSecond, FiveMinutes, CancellationToken.None);

@@ -212,6 +212,70 @@ public sealed record HttpRecipeRate
     /// <c>shared-account</c>, for owners that share one set of credentials and so one limit.
     /// </summary>
     public string? Key { get; init; }
+
+    /// <summary>
+    /// The headers in which the API says how many requests are left and when more come. Leave it out when its answers
+    /// say nothing. No header is read unless it is named here.
+    /// </summary>
+    public HttpRecipeRateHeaders? Headers { get; init; }
+}
+
+/// <summary>Where an API's answers say how many requests are left, and how they write it.</summary>
+[JsonUnmappedMemberHandling(JsonUnmappedMemberHandling.Disallow)]
+public sealed record HttpRecipeRateHeaders
+{
+    /// <summary>The header with how many requests are left, such as <c>X-Rate-Limit-Remaining</c>.</summary>
+    public string? Remaining { get; init; }
+
+    /// <summary>How <see cref="Remaining"/> is written. Defaults to <see cref="RateRemainingFormat.Number"/>.</summary>
+    public RateRemainingFormat? RemainingFormat { get; init; }
+
+    /// <summary>The header with when more requests become available, such as <c>X-Rate-Limit-Reset</c>.</summary>
+    public string? Reset { get; init; }
+
+    /// <summary>How <see cref="Reset"/> is written. Defaults to <see cref="RateResetFormat.Seconds"/>.</summary>
+    public RateResetFormat? ResetFormat { get; init; }
+}
+
+/// <summary>How an API writes how many requests are left.</summary>
+[JsonConverter(typeof(JsonStringEnumConverter<RateRemainingFormat>))]
+public enum RateRemainingFormat
+{
+    /// <summary>A number, such as <c>12</c>.</summary>
+    [JsonStringEnumMemberName("number")]
+    Number,
+
+    /// <summary>Used of a limit, such as <c>32/40</c>: 8 are left.</summary>
+    [JsonStringEnumMemberName("used/limit")]
+    UsedOfLimit,
+
+    /// <summary>
+    /// The <c>RateLimit</c> field of the IETF draft, such as <c>"default";r=50;t=30</c>: 50 are left within the next 30
+    /// seconds. It carries its own window, so <see cref="HttpRecipeRateHeaders.Reset"/> stays empty.
+    /// </summary>
+    [JsonStringEnumMemberName("ietf")]
+    Ietf
+}
+
+/// <summary>How an API writes when more requests become available.</summary>
+[JsonConverter(typeof(JsonStringEnumConverter<RateResetFormat>))]
+public enum RateResetFormat
+{
+    /// <summary>Seconds from now, such as <c>41</c>.</summary>
+    [JsonStringEnumMemberName("seconds")]
+    Seconds,
+
+    /// <summary>A Unix time in seconds, such as <c>1793361600</c>.</summary>
+    [JsonStringEnumMemberName("unix")]
+    Unix,
+
+    /// <summary>A Unix time in milliseconds, such as <c>1793361600000</c>.</summary>
+    [JsonStringEnumMemberName("unix-ms")]
+    UnixMilliseconds,
+
+    /// <summary>An HTTP date, such as <c>Fri, 30 Oct 2026 12:00:00 GMT</c>.</summary>
+    [JsonStringEnumMemberName("http-date")]
+    HttpDate
 }
 
 /// <summary>How requests are authenticated.</summary>

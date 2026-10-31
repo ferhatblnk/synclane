@@ -2,12 +2,15 @@ using System.Text.RegularExpressions;
 
 namespace SyncLane.Http;
 
-/// <summary>A recipe's rate budget, checked: the budget's name and the template of its key.</summary>
-internal sealed partial class CompiledRate(string budget, Template key)
+/// <summary>A recipe's rate budget, checked: the budget's name, the template of its key, and the headers it reads.</summary>
+internal sealed partial class CompiledRate(string budget, Template key, RateHeaders? headers)
 {
     private static readonly Template OwnerKey = Template.Parse($"{{{{{Placeholders.OwnerKey}}}}}")!;
 
     public string Budget => budget;
+
+    /// <summary>The headers that say how many requests are left, or <c>null</c> when the recipe names none.</summary>
+    public RateHeaders? Headers => headers;
 
     /// <summary>The bucket's key for <paramref name="job"/>.</summary>
     public string KeyOf(Job job) => key.Render(_ => job.Owner);
@@ -34,7 +37,8 @@ internal sealed partial class CompiledRate(string budget, Template key)
                 key = parsed;
         }
 
-        return errors.Count > before ? null : new CompiledRate(rate.Budget!, key);
+        var headers = RateHeaders.Compile(recipe, rate.Headers, errors);
+        return errors.Count > before ? null : new CompiledRate(rate.Budget!, key, headers);
     }
 
     [GeneratedRegex("^[A-Za-z0-9._:/-]{1,100}$")]

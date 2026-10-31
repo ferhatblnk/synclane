@@ -27,7 +27,34 @@ internal sealed class BudgetStore(NpgsqlDataSource dataSource, BudgetSql sql)
         if (!await reader.ReadAsync(cancellationToken))
             throw new SyncLaneException(SyncLaneErrors.BucketRowMissing(sql.Schema, budget.Name));
 
-        return new Reservation(reader.GetBoolean(0), TimeSpan.FromSeconds(Math.Max(0, reader.GetDouble(1))), reader.GetInt64(2));
+        return new Reservation(reader.GetBoolean(0), TimeSpan.FromSeconds(Math.Max(0, reader.GetDouble(1))), reader.GetInt64(2), reader.GetInt64(3));
+    }
+
+    /// <summary>
+    /// Applies what the API said is left after the request with <paramref name="sequence"/>, and when more comes.
+    /// Returns the pause it started, or <c>null</c> when it started none.
+    /// </summary>
+    public async Task<DateTimeOffset?> ObserveAsync(
+        BudgetDescription budget,
+        string key,
+        long sequence,
+        double remaining,
+        DateTimeOffset? resetAt,
+        DateTimeOffset now,
+        CancellationToken cancellationToken)
+    {
+        await using var command = dataSource.CreateCommand(sql.Observe);
+        command.Parameters.AddWithValue("budget", budget.Name);
+        command.Parameters.AddWithValue("key", key);
+        command.Parameters.AddWithValue("burst", (double)budget.Burst);
+        command.Parameters.AddWithValue("per_second", PerSecond(budget));
+        command.Parameters.AddWithValue("now", now.ToUniversalTime());
+        command.Parameters.AddWithValue("sequence", sequence);
+        command.Parameters.AddWithValue("remaining", remaining);
+        command.Parameters.Add(new NpgsqlParameter("reset_at", NpgsqlDbType.TimestampTz) { Value = resetAt is { } at ? at.ToUniversalTime() : DBNull.Value });
+
+        await using var reader = await command.ExecuteReaderAsync(cancellationToken);
+        return await reader.ReadAsync(cancellationToken) && reader.GetBoolean(0) ? reader.GetFieldValue<DateTimeOffset>(1) : null;
     }
 
     /// <summary>How many pauses the bucket has had, or <c>null</c> when it has no row.</summary>
@@ -90,8 +117,11 @@ internal sealed class BudgetStore(NpgsqlDataSource dataSource, BudgetSql sql)
     private static double PerSecond(BudgetDescription budget) => budget.Limit / budget.Per.TotalSeconds;
 }
 
-/// <summary>A token taken from a bucket: whether it was granted, how long until it is due, and the pause it belongs to.</summary>
-internal readonly record struct Reservation(bool Granted, TimeSpan Wait, long Generation);
+/// <summary>
+/// A token taken from a bucket: whether it was granted, how long until it is due, the pause it belongs to, and how many
+/// tokens the bucket had given when it was taken, this one included.
+/// </summary>
+internal readonly record struct Reservation(bool Granted, TimeSpan Wait, long Generation, long Sequence);
 
 /// <summary>What a throttle did to a bucket: whether it paused it (or made the pause longer), and when the pause ends.</summary>
 internal readonly record struct BudgetPause(bool Paused, DateTimeOffset Until);

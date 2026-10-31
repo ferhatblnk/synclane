@@ -45,8 +45,8 @@ public class MigrationTests : PostgresTest
         await ExecuteAsync(Migrations.All[0].Sql(Schema) + Migrations.Record(Schema, Migrations.All[0]));
         await EnqueueAsync(Noon, Planned("a", key: "1"));
 
-        Assert.Equal(new[] { 2 }, await Store.MissingMigrationsAsync(CancellationToken.None));
-        Assert.Equal(1, await Store.MigrateAsync(CancellationToken.None));
+        Assert.Equal(Enumerable.Range(2, Migrations.Latest - 1), await Store.MissingMigrationsAsync(CancellationToken.None));
+        Assert.Equal(Migrations.Latest - 1, await Store.MigrateAsync(CancellationToken.None));
 
         Assert.Equal("a", Assert.Single(await JobsAsync()).Owner);
         Assert.Equal(0, await ExecuteAsync($"DELETE FROM {Schema}.rate_buckets"));

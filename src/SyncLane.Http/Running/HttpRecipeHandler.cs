@@ -11,14 +11,18 @@ namespace SyncLane.Http;
 /// and register their recipes with <c>AddSyncLaneHttp</c>.
 /// </summary>
 /// <remarks>
-/// With a rate budget, every request first waits for a token. How answers become job outcomes: 2xx is a page; 429
-/// pauses the recipe's budget for everyone on the key and waits, honouring <c>Retry-After</c>; 401 renews an OAuth 2.0
-/// token once, and otherwise abandons the job, as 403 does, because retrying with the same credentials cannot help;
+/// With a rate budget, every request first waits for a token, and the headers the recipe names tell the budget how many
+/// requests are left. How answers become job outcomes: 2xx is a page; 429 pauses the recipe's budget for everyone on the
+/// key and waits, honouring <c>Retry-After</c>, or the recipe's reset header without one; a 403 with <c>Retry-After</c>,
+/// or whose remaining header says zero, is the same "slow down"; 401 renews an OAuth 2.0 token once, and otherwise
+/// abandons the job, as any other 403 does, because retrying with the same credentials cannot help;
 /// 408, 5xx, timeouts, network errors and broken JSON retry with the queue's growing delay; redirects and other 4xx
 /// abandon. No message ever contains a response body, a header value, a credential or a URL.
 /// </remarks>
 public sealed class HttpRecipeHandler : IJobHandler
 {
+    private static readonly TimeSpan MinResetWait = TimeSpan.FromSeconds(1);
+
     private readonly RecipeRegistry _recipes;
     private readonly HttpClient _client;
     private readonly IServiceProvider _services;
@@ -48,7 +52,7 @@ public sealed class HttpRecipeHandler : IJobHandler
             throw new JobAbandonedException(string.Join("; ", pageRequest.Errors));
 
         var auth = recipe.Auth is { } scheme ? await AuthenticateAsync(recipe, scheme, job, cancellationToken) : null;
-        var budget = recipe.Rate is { } rate ? new Budget(_services.GetRequiredService<RateBudgets>(), rate.Budget, rate.KeyOf(job)) : null;
+        var budget = recipe.Rate is { } rate ? new Budget(_services.GetRequiredService<RateBudgets>(), rate.Budget, rate.KeyOf(job), rate.Headers) : null;
         using var answer = await FetchAsync(recipe, job, pageRequest.Value, auth, budget, cancellationToken);
 
         var records = recipe.Records.Find(answer.Document.RootElement, recipe.Name);
@@ -141,10 +145,14 @@ public sealed class HttpRecipeHandler : IJobHandler
             if (renewable && response.StatusCode == HttpStatusCode.Unauthorized)
                 return null;
 
-            if (response.StatusCode == HttpStatusCode.TooManyRequests)
-                throw new JobThrottledException(HttpErrors.Throttled(recipe.Name).ToString(), await PauseAsync(response, budget, permit, cancellationToken));
+            var reading = budget?.Headers?.Read(response, _time.GetUtcNow(), _options.MaxRetryAfter) ?? default;
+            if (IsThrottle(response, reading))
+                throw new JobThrottledException(HttpErrors.Throttled(recipe.Name, (int)response.StatusCode).ToString(), await PauseAsync(response, reading, budget, permit, cancellationToken));
 
             ThrowUnlessSuccess(response, recipe.Name);
+
+            if (permit is not null && reading.Remaining is { } remaining)
+                await budget!.Budgets.ReportRemainingAsync(permit, remaining, reading.ResetsIn, cancellationToken);
 
             var links = response.Headers.TryGetValues("Link", out var values) ? values.ToArray() : [];
             var (document, tooLarge) = await JsonBody.ReadAsync(response.Content, _options.MaxResponseBytes, linked.Token);
@@ -183,17 +191,29 @@ public sealed class HttpRecipeHandler : IJobHandler
     }
 
     /// <summary>
-    /// How long the job that got a 429 waits. With a budget, the whole budget pauses for everyone on the key, on every
-    /// instance, and the job waits as long as the pause.
+    /// Whether an answer says "slow down": a 429, or a 403 that says when to come back or that nothing is left. Some APIs
+    /// answer a spent limit with 403; without one of these signals a 403 still means the credentials are refused.
     /// </summary>
-    private async Task<TimeSpan?> PauseAsync(HttpResponseMessage response, Budget? budget, BudgetPermit? permit, CancellationToken cancellationToken)
+    private static bool IsThrottle(HttpResponseMessage response, RateReading reading) =>
+        response.StatusCode == HttpStatusCode.TooManyRequests
+        || (response.StatusCode == HttpStatusCode.Forbidden && (response.Headers.RetryAfter is not null || reading.Remaining <= 0));
+
+    /// <summary>
+    /// How long the job that was told to slow down waits: <c>Retry-After</c>, or else the reset the recipe's headers
+    /// gave, at least a second, because a reset in whole seconds may have been rounded down. With a budget, the whole
+    /// budget pauses for everyone on the key, on every instance, and the job waits as long as the pause.
+    /// </summary>
+    private async Task<TimeSpan?> PauseAsync(
+        HttpResponseMessage response, RateReading reading, Budget? budget, BudgetPermit? permit, CancellationToken cancellationToken)
     {
-        var asked = RetryAfter.From(response, _time.GetUtcNow(), _options.MaxRetryAfter);
+        var asked = RetryAfter.From(response, _time.GetUtcNow(), _options.MaxRetryAfter)
+            ?? (reading.ResetsIn is { } reset ? (reset > MinResetWait ? reset : MinResetWait) : null);
+
         return budget is null || permit is null ? asked : await budget.Budgets.ThrottledAsync(permit, asked, cancellationToken);
     }
 
-    /// <summary>The rate budget a page's requests draw from, and whose bucket.</summary>
-    private sealed record Budget(RateBudgets Budgets, string Name, string Key);
+    /// <summary>The rate budget a page's requests draw from, whose bucket, and the headers that say what is left.</summary>
+    private sealed record Budget(RateBudgets Budgets, string Name, string Key, RateHeaders? Headers);
 
     /// <summary>A parsed answer and what paging needs from its headers.</summary>
     private sealed record Answer(JsonDocument Document, IReadOnlyList<string> Links, Uri Url) : IDisposable

@@ -291,6 +291,7 @@ if (response.StatusCode == HttpStatusCode.TooManyRequests)
 - **Shared by every instance.** Buckets live in the `rate_buckets` table, so two instances together keep to the limit you declared, not twice it. Taking a token is one short statement, about 0.2 ms against a local database.
 - **A `429` pauses the whole bucket** for `Retry-After`. Without one, the pause is a backoff that doubles while `429`s continue. Every job on the key, on every instance, waits, then the bucket restarts at the steady rate. Requests that were already on their way when the pause began do not make it longer when their own `429`s come back.
 - **A wait longer than `MaxBudgetWait`** (30 seconds) gives the job's slot back without using an attempt, so a paused budget never holds workers.
+- **What the API says counts too.** A recipe can name the headers in which the API says how many requests are left and when more come; the budget then stops at zero instead of running into a `429`, and notices another app spending the same quota. A hand-written handler passes the same numbers to `budgets.ReportRemainingAsync(permit, remaining, resetsIn)`. Readings only ever lower the budget. See [docs/recipes.md](docs/recipes.md#reading-what-the-api-says).
 
 How the design follows from the limits of large APIs: [docs/design/phase-2.md](docs/design/phase-2.md).
 

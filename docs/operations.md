@@ -156,6 +156,7 @@ All metrics belong to the meter `SyncLane` (`SyncLaneTelemetry.MeterName`). Ever
 | `synclane.planner.failed` | `{run}` | Planner runs that failed. |
 | `synclane.budget.wait` | `s` | Time a request waited for a token of a rate budget. Tagged `synclane.budget` only; the key is an owner and never a tag. |
 | `synclane.budget.paused` | `{pause}` | Times a rate budget was paused because the API answered `429`. Tagged `synclane.budget` only. |
+| `synclane.budget.exhausted` | `{pause}` | Times a rate budget waited for a reset because the API's headers said nothing was left. Tagged `synclane.budget` only. Expected when a quota is used to the full. |
 
 Traces come from the activity source `SyncLane` (`SyncLaneTelemetry.ActivitySourceName`). A `synclane.job` span covers one run of a job and carries `synclane.job.id`, `synclane.job.mode`, `synclane.job.attempt` and, at the end, `synclane.job.outcome`; a failed run records the exception and sets the span status to error. Each page is a `synclane.page` span inside it with `synclane.page.processed`. The cursor is not recorded, because some APIs put tokens in it.
 
@@ -164,7 +165,7 @@ Four signals worth an alert:
 - `synclane.job.finished{outcome="abandoned"}` above zero. Something waits for a person.
 - `synclane.job.throttled` growing faster than `synclane.job.taken`. The pace is too high for the other side.
 - `synclane.job.finished{outcome="lease_lost"}` above zero. A worker stalled longer than `LeaseDuration`, or clocks disagree.
-- `synclane.budget.paused` growing steadily. The declared budget is above what the API allows now: lower it. Another app on the same account can cause this too.
+- `synclane.budget.paused` growing steadily. The declared budget is above what the API allows now: lower it. Another app on the same account can cause this too. `synclane.budget.exhausted` growing is not a problem: it means SyncLane stopped at zero instead of being throttled.
 
 ## Several instances
 

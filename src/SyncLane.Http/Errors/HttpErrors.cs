@@ -125,9 +125,9 @@ internal static class HttpErrors
         HttpErrorCodes.RecordsNotFound, SyncErrorKind.Configuration,
         $"Recipe '{recipe}': the response has nothing at records '{path}'. Compare the path with a real response.");
 
-    public static SyncError Throttled(string recipe) => new(
+    public static SyncError Throttled(string recipe, int status) => new(
         HttpErrorCodes.Throttled, SyncErrorKind.Throttled,
-        $"Recipe '{recipe}': the API answered 429 and asked to slow down. The job waits and continues from its cursor.");
+        $"Recipe '{recipe}': the API answered {status} and asked to slow down. The job waits and continues from its cursor.");
 
     public static SyncError Unauthorized(string recipe, int status) => new(
         HttpErrorCodes.Unauthorized, SyncErrorKind.Unauthorized,

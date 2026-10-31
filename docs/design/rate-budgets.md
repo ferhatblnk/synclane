@@ -1,6 +1,6 @@
 # Design: rate budgets
 
-Status: parts 2.1 (budgets) and 2.2 (shared across instances) in review. Plan and evidence: [phase-2.md](phase-2.md).
+Status: parts 2.1 (budgets) and 2.2 (shared across instances) merged; part 2.3 (reading what the API says) in review. Plan and evidence: [phase-2.md](phase-2.md).
 
 ## The problem
 
@@ -104,16 +104,43 @@ The row of a bucket nobody has used is created full, in the same round trip as t
 
 ## Reading what the API says (part 2.3)
 
-In order of trust:
+A declared budget is a guess made in advance. Many APIs say on every answer how much is left. Reading that lets SyncLane stop at zero instead of running into a `429`, notice when another app on the account uses the same quota, and notice when a limit was lowered.
 
-1. **`Retry-After`**, seconds or an HTTP date. Standard. Read since part 1.2.
-2. **`RateLimit` and `RateLimit-Policy`** from the IETF draft. Still an Internet-Draft, so it is read but not relied on.
-3. **Headers a recipe declares:** the remaining count and the reset, with their format.
-   - ShipStation v1 sends both on every response, which makes a fixed window exact.
-   - Walmart sends a token count.
-   - Amazon sends its rate, which may lower a declared limit but never raise it.
+### What answers say
 
-   They are configured in the recipe, never named in the library.
+Checked against the official pages on 2026-10-30.
+
+| Pattern | Example | What it means | Declared in a recipe as |
+| --- | --- | --- | --- |
+| Remaining, and seconds to the reset | ShipStation v1: `X-Rate-Limit-Remaining: 12`, `X-Rate-Limit-Reset: 41` | 12 left in this window; a new window in 41 seconds | `remaining`, `reset` with `resetFormat: seconds` |
+| Remaining, and the reset as a time | GitHub: `x-ratelimit-remaining: 0`, `x-ratelimit-reset: 1793361600` | Nothing left until that Unix time. When the limit is exceeded GitHub answers `403` or `429` | `resetFormat: unix` |
+| A token count, no reset | Walmart: `x-current-token-count` | Tokens left in a bucket that refills | `remaining` only |
+| Used of a size, no reset | Shopify REST: `X-Shopify-Shop-Api-Call-Limit: 32/40` | 32 of a bucket of 40 used; it leaks at a known rate | `remainingFormat: used/limit` |
+| IETF draft 11 | `RateLimit: "default";r=50;t=30` | At most 50 within the next 30 seconds. The draft says a client "MUST NOT assume that all its service limit will be fully restored" after that | `remaining: RateLimit`, `remainingFormat: ietf` |
+| A rate only | Amazon: `x-amzn-RateLimit-Limit: 0.5` | The operation's rate. "May not be returned" | Part 2.4: it can lower a learned rate |
+| In the body | Shopify GraphQL: `extensions.cost.throttleStatus` | Cost points left and their restore rate | Later, with GraphQL recipes |
+
+No header is read unless the recipe declares it, the IETF one included: its draft has changed shape twice, and an API that sends it may count a different partition than the budget's key. Platform names stay in recipes and in this page, never in the library.
+
+### Rules
+
+1. **A reading only ever lowers.** The bucket drops to what the API says is left; it never gains tokens beyond its declared rate and burst. A declared budget stays the ceiling.
+2. **Requests still on their way are counted.** The API's count is as of the request it answers. Requests that took a token after that one have not been counted yet, and may be in flight on any instance. Every token carries a sequence number from the bucket's row (`taken`, migration 3), so `left = remaining - tokens taken since`. Without it, eight requests in flight against a window with three left would all go, and five would get `429`. The error is on the safe side: a request that overtook the one answered is subtracted twice, so SyncLane may stop a request or two early.
+3. **Nothing left and a reset known: pause until the reset.** Every instance waits; the bucket restarts empty, as after a `429`, because neither a reset header nor the IETF window promises the whole quota back. This is not a throttle: it does not lengthen the backoff of later `429`s and is counted in its own metric, `synclane.budget.exhausted`.
+4. **Nothing left, no reset known:** the bucket goes below zero and refills at its declared rate.
+5. **A reading that cannot be parsed is ignored**, as the IETF draft requires. Values are numbers or times; none is ever logged.
+6. **A time is measured against the answer's `Date` header** when it has one (Unix times and HTTP dates), so a skew between the API's clock and the instance's does not move the pause.
+7. **A `429` without `Retry-After` waits for the reset**, at least one second. `Retry-After` wins when both are present; the IETF draft says it MUST.
+8. **A `403` is a throttle when it carries `Retry-After`, or when its declared remaining is zero.** GitHub answers a spent limit with `403` and `x-ratelimit-remaining: 0`; until now such a job was abandoned as unauthorised. A `403` without either signal still abandons.
+
+### What it cannot do
+
+- **Promise zero `429` when another app spends the same quota continuously.** With a reset known, SyncLane stops at zero exactly. Without one, it corrects itself on every answer, but the other app can spend the last token between two answers.
+- **Fix a declared rate that is too high.** A count without a reset corrects the bucket's level, not its rate. Measured against a hidden bucket of 6 a second with a budget of 8: `429`s fell from 12% to 7 to 10% of requests, and did not stop. Lowering the rate is part 2.4.
+- **Fix a budget declared above a window's quota with a burst larger than it.** After a pause the bucket refills to its declared burst; declare a burst no larger than the window's quota.
+- **Know how an API rounds.** A reset in whole seconds may be rounded down. A request may then arrive just before the window turns; its `429` waits for the next reset.
+
+Hand-written handlers report the same readings with `RateBudgets.ReportRemainingAsync(permit, remaining, resetsIn)`. A delegating handler that does this for an `HttpClient` is left for a later part: it needs the current job's owner without being told, which is a new engine API of its own.
 
 ## Learning a limit (part 2.4)
 

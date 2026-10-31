@@ -110,7 +110,7 @@ Three tables in the configured schema.
 
 `migrations` records which schema steps the database has.
 
-`rate_buckets` holds one row per rate budget and key: the tokens left, when they were last refilled (in the future while the bucket is paused), and how many pauses it has had (`generation`). Its primary key `(budget, key)` serves every statement on it.
+`rate_buckets` holds one row per rate budget and key: the tokens left, when they were last refilled (in the future while the bucket is paused), how many pauses it has had (`generation`), and how many tokens it has given (`taken`). Its primary key `(budget, key)` serves every statement on it.
 
 The guarantees are indexes, not code:
 
@@ -227,6 +227,7 @@ Round trips per operation:
 | Start-up migration | 3, in one transaction | |
 | Take a budget's token | 1, plus 1 read after a wait to check for a pause | `rate_buckets` primary key |
 | Pause a budget after a `429` | 1 | `rate_buckets` primary key |
+| Report what an answer said is left | 1, only when the recipe names rate headers; writes only when the reading lowers the bucket | `rate_buckets` primary key |
 
 Known limits:
 
@@ -301,3 +302,6 @@ Each is a small interface the user implements; SyncLane calls it.
 | D20 | A job that only has to wait gives its slot back without using an attempt (`JobPostponedException`) | Waiting for a token is not a failure. Counting it would abandon jobs during a long pause; holding the slot would starve other work. | Accepted |
 | D21 | Rate buckets live in PostgreSQL, one statement per token, no batches and no in-memory mode | A budget kept per process lets two instances send twice the limit, and asks users to divide limits by hand. One locked row per bucket is exact. Measured on a local PostgreSQL 18: about 0.16 ms per token, and about 12,000 tokens a second on one key with eight callers, against APIs that allow a few to a few dozen requests a second and answer in 50 ms or more. Reserving tokens in batches would save little and hold tokens other instances could use. | Accepted |
 | D22 | A `429` for a request sent before the latest pause does not start another pause | Requests in flight together come back together. Counting each one doubled the backoff once per request: eight `429`s without `Retry-After` paused an account for over two minutes instead of one second. A permit carries the bucket's pause count, so a late `429` is recognised. It may still lengthen the pause if its `Retry-After` asks for longer. | Accepted |
+| D23 | Rate headers are read only when a recipe names them, and a reading only lowers a budget | No two of the APIs studied write them alike (docs/design/rate-budgets.md), the IETF field has changed shape twice in its drafts, and an API may count a partition other than the budget's key. A declared budget stays the ceiling; a header can only make SyncLane more careful. | Accepted |
+| D24 | A reading subtracts the requests that took a token after the one answered | The API counts a request when it arrives; requests already sent are not in the count. Without this, four requests in flight against a window with two left all go. A `taken` counter on the bucket's row (migration 3) gives each token a sequence number. The error is on the safe side: a request that overtakes another is subtracted twice. | Accepted |
+| D25 | A `403` with `Retry-After`, or whose declared remaining header is zero, is a throttle | GitHub answers a spent limit with `403` and `x-ratelimit-remaining: 0`; treating it as refused credentials abandoned jobs that only had to wait. A `403` without either signal still abandons. | Accepted |

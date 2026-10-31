@@ -50,7 +50,7 @@ Also: the IETF `RateLimit` and `RateLimit-Policy` headers are still an Internet-
 
 ## Parts
 
-### 2.1 Budgets in one process (in review)
+### 2.1 Budgets in one process (merged)
 
 - `AddBudget(name, limit, per, burst)` on the engine's options, shared by every queue.
 - `RateBudgets.WaitAsync(budget, key)`: a token bucket of our own, on `TimeProvider`.
@@ -69,7 +69,7 @@ Gate:
 
 **Added on the way:** `JobPostponedException`. Without it a job that gives its slot back would use an attempt, and a long pause would abandon jobs that never sent a request.
 
-### 2.2 Shared across instances (in review)
+### 2.2 Shared across instances (merged)
 
 - Migration 2: `rate_buckets`, one row per budget and key. It only adds a table, so an instance of the previous version keeps working during a rolling deploy.
 - Every token is one statement that locks the row. Batches were planned, then dropped after measuring: see [rate-budgets.md](rate-budgets.md#where-the-tokens-live).
@@ -84,15 +84,28 @@ Gate: two hosts sharing one budget never exceed it together.
 - Mutation checks turn tests red: removing the row lock (instances take more tokens than the bucket holds), removing the pause check after a wait, and counting every `429` as new.
 - Measured: about 0.16 ms per token; about 12,000 tokens a second on one key with eight callers (local PostgreSQL 18).
 
-### 2.3 Reading what the API says
+### 2.3 Reading what the API says (in review)
 
-- `RateLimit` and `RateLimit-Policy` from the IETF draft, read but not relied on.
-- Per recipe, the headers that say how much is left and when it refills, with their formats (seconds, Unix time, HTTP date):
-  - stop at zero and wait for the reset, instead of running into a `429`;
-  - this is the exact answer to fixed windows.
-- A delegating handler, so hand-written handlers get budgets without changing a line.
+What changed from the plan, after analysis:
+- **The IETF field is opt-in, not read by default.** Its draft has changed shape twice, and an API may count a partition other than the budget's key. A recipe names it like any other header.
+- **Its `t` is not a reset.** Draft 11 defines it as a window within which the quota must not be exceeded, and says a client "MUST NOT assume that all its service limit will be fully restored". So after any header-driven pause the bucket restarts empty, never full.
+- **A `403` can be a throttle.** GitHub answers a spent limit with `403` and `x-ratelimit-remaining: 0`; until now such a job was abandoned.
+- **The delegating handler moves to a later part.** It needs the current job's owner without being told, which is a new engine API. Hand-written handlers call `RateBudgets.ReportRemainingAsync` meanwhile.
 
-Gate: fake servers built on each pattern in the table above, each run without a `429` once its headers are declared.
+Built:
+- `rate.headers` in recipes: `remaining` (`number`, `used/limit`, `ietf`), `reset` (`seconds`, `unix`, `unix-ms`, `http-date`), measured against the answer's `Date`.
+- Readings only lower a budget, and subtract the requests that took a token after the one answered (migration 3: a `taken` counter).
+- Nothing left with a reset ahead pauses the key on every instance until the reset; counted as `synclane.budget.exhausted`, not as a throttle.
+- A `429` without `Retry-After` waits for the reset, at least a second.
+
+Gate, restated: the plan asked for "each pattern without a `429`". That holds where the API says when quota comes back. Where it only says how much is left, no client can promise it while another app spends the same quota between two answers, or while the declared rate is above the real one. So:
+- windowed patterns (seconds to reset, Unix reset with `403`, IETF): no `429` once declared, where the same run without headers is throttled;
+- count-only patterns: measured, and documented as an improvement, not a guarantee.
+
+**Result:**
+- `HeaderGateTests`: four jobs, 30 ms network latency, an API with 8 requests a second of which another app spends 2, a budget declaring the full 8 at once. With headers: no `429` or `403` in all three patterns, five runs in a row. Without: throttled at once.
+- Mutation checks turn tests red: no subtraction of requests in flight (gate, two patterns), no pause at zero, readings not reported, `403` never a throttle.
+- Count-only, measured: hidden bucket of 6 a second, budget of 8, four jobs, six seconds. Without headers 22 served and 12% throttled; with headers 28 served and 7 to 10% throttled. The count fixes the bucket's level, not its rate; part 2.4 is what lowers the rate.
 
 ### 2.4 Learning a limit
 
