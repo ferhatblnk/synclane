@@ -18,7 +18,7 @@ internal sealed class BudgetStore(NpgsqlDataSource dataSource, BudgetSql sql)
 
         var reserve = Command(sql.Reserve, budget.Name, key);
         reserve.Parameters.AddWithValue("burst", (double)budget.Burst);
-        reserve.Parameters.AddWithValue("per_second", PerSecond(budget));
+        AddRates(reserve.Parameters, budget);
         reserve.Parameters.AddWithValue("now", now.ToUniversalTime());
         reserve.Parameters.AddWithValue("max_wait", maxWait.TotalSeconds);
         batch.BatchCommands.Add(reserve);
@@ -47,7 +47,7 @@ internal sealed class BudgetStore(NpgsqlDataSource dataSource, BudgetSql sql)
         command.Parameters.AddWithValue("budget", budget.Name);
         command.Parameters.AddWithValue("key", key);
         command.Parameters.AddWithValue("burst", (double)budget.Burst);
-        command.Parameters.AddWithValue("per_second", PerSecond(budget));
+        AddRates(command.Parameters, budget);
         command.Parameters.AddWithValue("now", now.ToUniversalTime());
         command.Parameters.AddWithValue("sequence", sequence);
         command.Parameters.AddWithValue("remaining", remaining);
@@ -67,16 +67,17 @@ internal sealed class BudgetStore(NpgsqlDataSource dataSource, BudgetSql sql)
     }
 
     /// <summary>
-    /// Pauses the bucket because the API answered "slow down" to a request sent in <paramref name="generation"/>.
-    /// Returns whether the pause started or grew, and when it ends.
+    /// Pauses the bucket because the API answered "slow down" to the request with <paramref name="sequence"/>, sent in
+    /// <paramref name="generation"/>. Returns whether the pause started or grew, when it ends, and the bucket's rate after.
     /// </summary>
     public async Task<BudgetPause> PauseAsync(
         BudgetDescription budget,
         string key,
         long generation,
+        long sequence,
         DateTimeOffset now,
         TimeSpan? retryAfter,
-        TimeSpan firstBackoff,
+        TimeSpan minBackoff,
         TimeSpan maxBackoff,
         CancellationToken cancellationToken)
     {
@@ -85,23 +86,26 @@ internal sealed class BudgetStore(NpgsqlDataSource dataSource, BudgetSql sql)
 
         var pause = Command(sql.Pause, budget.Name, key);
         pause.Parameters.AddWithValue("generation", generation);
+        pause.Parameters.AddWithValue("sequence", sequence);
         pause.Parameters.AddWithValue("now", now.ToUniversalTime());
         pause.Parameters.Add(new NpgsqlParameter("retry_after", NpgsqlDbType.Interval) { Value = retryAfter is { } asked ? asked : DBNull.Value });
-        pause.Parameters.AddWithValue("first_backoff", firstBackoff);
+        pause.Parameters.AddWithValue("min_backoff", minBackoff);
         pause.Parameters.AddWithValue("max_backoff", maxBackoff);
+        AddRates(pause.Parameters, budget);
         batch.BatchCommands.Add(pause);
 
         await using var reader = await batch.ExecuteReaderAsync(cancellationToken);
         if (!await reader.ReadAsync(cancellationToken))
             throw new SyncLaneException(SyncLaneErrors.BucketRowMissing(sql.Schema, budget.Name));
 
-        return new BudgetPause(reader.GetBoolean(0), reader.GetFieldValue<DateTimeOffset>(1));
+        return new BudgetPause(reader.GetBoolean(0), reader.GetFieldValue<DateTimeOffset>(1), reader.GetDouble(2));
     }
 
     private NpgsqlBatchCommand Seed(BudgetDescription budget, string key, DateTimeOffset now)
     {
         var seed = Command(sql.Seed, budget.Name, key);
         seed.Parameters.AddWithValue("burst", (double)budget.Burst);
+        seed.Parameters.AddWithValue("start_rate", Ceiling(budget) * budget.Start);
         seed.Parameters.AddWithValue("now", now.ToUniversalTime());
         return seed;
     }
@@ -114,7 +118,14 @@ internal sealed class BudgetStore(NpgsqlDataSource dataSource, BudgetSql sql)
         return command;
     }
 
-    private static double PerSecond(BudgetDescription budget) => budget.Limit / budget.Per.TotalSeconds;
+    /// <summary>The declared limit in tokens a second: the most a bucket's rate may ever be.</summary>
+    private static double Ceiling(BudgetDescription budget) => budget.Limit / budget.Per.TotalSeconds;
+
+    private static void AddRates(NpgsqlParameterCollection parameters, BudgetDescription budget)
+    {
+        parameters.AddWithValue("ceiling", Ceiling(budget));
+        parameters.AddWithValue("start_rate", Ceiling(budget) * budget.Start);
+    }
 }
 
 /// <summary>
@@ -123,5 +134,8 @@ internal sealed class BudgetStore(NpgsqlDataSource dataSource, BudgetSql sql)
 /// </summary>
 internal readonly record struct Reservation(bool Granted, TimeSpan Wait, long Generation, long Sequence);
 
-/// <summary>What a throttle did to a bucket: whether it paused it (or made the pause longer), and when the pause ends.</summary>
-internal readonly record struct BudgetPause(bool Paused, DateTimeOffset Until);
+/// <summary>
+/// What a throttle did to a bucket: whether it paused it (or made the pause longer), when the pause ends, and the rate
+/// in tokens a second the bucket refills at after it.
+/// </summary>
+internal readonly record struct BudgetPause(bool Paused, DateTimeOffset Until, double Rate);

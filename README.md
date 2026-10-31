@@ -289,7 +289,8 @@ if (response.StatusCode == HttpStatusCode.TooManyRequests)
 
 - **One bucket per budget and key**, usually the owner. Owners that share one set of credentials pass one key.
 - **Shared by every instance.** Buckets live in the `rate_buckets` table, so two instances together keep to the limit you declared, not twice it. Taking a token is one short statement, about 0.2 ms against a local database.
-- **A `429` pauses the whole bucket** for `Retry-After`. Without one, the pause is a backoff that doubles while `429`s continue. Every job on the key, on every instance, waits, then the bucket restarts at the steady rate. Requests that were already on their way when the pause began do not make it longer when their own `429`s come back.
+- **A `429` pauses the whole bucket** for `Retry-After`, or one token's time, at least a second. Every job on the key, on every instance, waits; then the bucket goes on at 0.7 times its rate and climbs back while requests go through. The pause doubles, up to five minutes, only while the first request after each pause is refused again. Requests that were already on their way when the pause began do not count again.
+- **The limit is a ceiling, and the budget learns how much of it is safe.** A budget whose limit is right never sees a `429` and never changes. One whose limit is too high, or shared with another app, settles below it. For a limit nobody publishes, declare a generous ceiling and start lower: `AddBudget("example-shop", limit: 20, per: TimeSpan.FromSeconds(1), start: 0.25)`. Against simulated APIs with hidden limits it kept `429`s under 1% and reached 95 to 100% of the limit ([how it was measured](docs/design/rate-budgets.md#learning-a-limit-part-24)); it has not yet met a real one.
 - **A wait longer than `MaxBudgetWait`** (30 seconds) gives the job's slot back without using an attempt, so a paused budget never holds workers.
 - **What the API says counts too.** A recipe can name the headers in which the API says how many requests are left and when more come; the budget then stops at zero instead of running into a `429`, and notices another app spending the same quota. A hand-written handler passes the same numbers to `budgets.ReportRemainingAsync(permit, remaining, resetsIn)`. Readings only ever lower the budget. See [docs/recipes.md](docs/recipes.md#reading-what-the-api-says).
 
@@ -317,7 +318,7 @@ Every run of a job is a `synclane.job` span and every page a `synclane.page` spa
 | `RunPlanner`, `RunWorkers` | `true` | Turn them off in instances that should only enqueue and read. |
 | `PlanInterval` | 1 minute | How often the planner looks for missing jobs. |
 | `PollInterval` | 5 seconds | How long an idle worker slot waits before it looks again. |
-| `AddBudget(name, limit, per, burst)` | none | A rate budget: `limit` requests per `per`, at most `burst` at once (default 1, evenly spaced). |
+| `AddBudget(name, limit, per, burst, start)` | none | A rate budget: at most `limit` requests per `per`, at most `burst` at once (default 1, evenly spaced). It starts at `start` times the limit (default 1) and learns below it. |
 | `MaxBudgetWait` | 30 seconds | The longest a request waits for a budget's token inside a job; a longer wait postpones the job. |
 | `queue.Concurrency` | `1` | Jobs of the queue one process runs at once. `1` makes the queue strictly sequential. |
 | `queue.MaxAttempts` | `5` | Regular attempts before a job is deferred. |

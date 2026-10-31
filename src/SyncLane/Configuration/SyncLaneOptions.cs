@@ -56,7 +56,8 @@ public sealed partial class SyncLaneOptions
 
     /// <summary>
     /// Declares a rate budget: how fast requests to one account may go, shared by every job and queue that draws from it
-    /// with <see cref="RateBudgets"/>. Each key, usually an owner, gets a bucket of its own.
+    /// with <see cref="RateBudgets"/>. Each key, usually an owner, gets a bucket of its own. The limit is a ceiling: when
+    /// the API answers "slow down", the bucket's rate drops below it and climbs back while requests go through.
     /// </summary>
     /// <param name="name">The budget's name, used by recipes and handlers and in metrics.</param>
     /// <param name="limit">How many requests per <paramref name="per"/>, at a steady pace.</param>
@@ -65,13 +66,18 @@ public sealed partial class SyncLaneOptions
     /// How many requests may go at once after a quiet spell. Default 1, which spaces requests evenly: the safe choice
     /// when the API's algorithm is not known, and for a window that resets on the clock.
     /// </param>
-    public SyncLaneOptions AddBudget(string name, int limit, TimeSpan per, int burst = 1)
+    /// <param name="start">
+    /// The share of <paramref name="limit"/> a new bucket starts at, from 0.01 to 1. Default 1, for a limit the API
+    /// documents. Lower it for a limit nobody publishes: declare a generous ceiling, start at a quarter of it, and the
+    /// rate climbs while the API accepts and backs off when it refuses. It never goes above the limit.
+    /// </param>
+    public SyncLaneOptions AddBudget(string name, int limit, TimeSpan per, int burst = 1, double start = 1)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(name);
         if (_budgets.Any(budget => budget.Name == name))
             throw new SyncLaneException(SyncLaneErrors.BudgetDeclaredTwice(name));
 
-        _budgets.Add(new BudgetDescription(name, limit, per, burst));
+        _budgets.Add(new BudgetDescription(name, limit, per, burst, start));
         return this;
     }
 
@@ -125,6 +131,9 @@ public sealed partial class SyncLaneOptions
 
             if (budget.Burst < 1)
                 throw new SyncLaneException(SyncLaneErrors.BudgetSettingInvalid(budget.Name, "burst must be at least 1"));
+
+            if (!(budget.Start is >= 0.01 and <= 1))
+                throw new SyncLaneException(SyncLaneErrors.BudgetSettingInvalid(budget.Name, "start must be from 0.01 to 1"));
         }
 
         foreach (var queue in _queues)

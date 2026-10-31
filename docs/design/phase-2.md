@@ -1,6 +1,6 @@
 # Plan: phase 2, rate budgets
 
-Status: in progress. Each part is one pull request. A part is merged only when its gate passes. The design is in [rate-budgets.md](rate-budgets.md); this page is the plan and the evidence behind it.
+Status: in progress; the phase gate passes in simulation (part 2.4). Each part is one pull request. A part is merged only when its gate passes. The design is in [rate-budgets.md](rate-budgets.md); this page is the plan and the evidence behind it.
 
 ## Goal
 
@@ -107,12 +107,35 @@ Gate, restated: the plan asked for "each pattern without a `429`". That holds wh
 - Mutation checks turn tests red: no subtraction of requests in flight (gate, two patterns), no pause at zero, readings not reported, `403` never a throttle.
 - Count-only, measured: hidden bucket of 6 a second, budget of 8, four jobs, six seconds. Without headers 22 served and 12% throttled; with headers 28 served and 7 to 10% throttled. The count fixes the bucket's level, not its rate; part 2.4 is what lowers the rate.
 
-### 2.4 Learning a limit
+### 2.4 Learning a limit (in review)
 
-- For budgets declared without a limit, or with `learn`: start low, halve on `429`, climb slowly after a quiet window, never above a declared ceiling.
-- A benchmark against a fake server with a hidden limit.
+What changed from the plan, after analysis ([rate-budgets.md](rate-budgets.md#learning-a-limit-part-24)):
+- **Not halving, and not only for budgets declared without a limit.** A simulation compared candidates first. Per-token AIMD under the declared limit won; halving and time-based growth did not reach the gate at low rates. Every budget learns, because a budget whose limit is right never sees a `429` and never changes; `start` lowers the starting point for limits nobody publishes.
+- **The pause rule of 2.1 was replaced.** It doubled with every `429` until a quiet spell and drove pauses to five minutes while the rate was being lowered. A pause now doubles only while the first request after the previous one is refused again.
+- **A rate in a header (Amazon's `x-amzn-RateLimit-Limit`) is left for later.** Learning covers it more slowly; reading it is a recipe field once there is a reason.
 
-Gate: the phase gate above.
+Built:
+- Migration 4: `rate`, `rate_max` and `taken_at_pause` on `rate_buckets`. The rate is shared by every instance, like the tokens.
+- Reserving a token while the bucket is empty and not paused raises the rate; a fresh `429` cuts it and remembers what it cut from.
+- `AddBudget(..., start)`, from 0.01 to 1 of the limit.
+
+Gate: `LearningGateTests` drives the real statements with the clock passed in. Each scenario runs 20 simulated minutes of four jobs at 150 ms latency against an API whose limit SyncLane is not told.
+
+| Scenario | Throughput of the hidden limit | Throttled |
+| --- | --- | --- |
+| Unknown limit, started at half of it | 95.2% | 0.39% |
+| Declared four times too high | 95.3% | 0.65% |
+| A bucket of 40 leaking 2 a second (Shopify REST-like), declared four times too high | 101.5% | 0.73% |
+| Another app spends 40% of the limit | 94.7% | 0.58% |
+| The limit halves halfway | 98.6% | 0.39% |
+| A window of 40 a minute without headers, declared four times too high | 96.6% | 0.90% |
+
+The cautious alternative of the stop rule, a fixed limit at half the real one, gets 50% with no `429`. Learning beats it, so it stays on by default.
+
+**Result:** the phase gate passes in simulation, through the library's own SQL.
+- Mutation checks turn the gate red: no cut on a `429` (two scenarios), the old pause rule (three), no slow zone (all six), growth while idle (one).
+- **What it has not met:** a real API. The simulation is only as good as its servers. The first version of the "another app" server was wrong twice in this part: it let the other app's requests pile up during a pause, then never let it win. The first real integration is the check that matters.
+- **Found on the way, not fixed here:** a job's attempts never reset. A saved page does not reset `attempt_count`, so a job of a thousand pages that meets five `429`s in its life, hours apart, is deferred and then abandoned. With learning, an occasional `429` is normal (under 1%). Proposed as the next part: attempts count failures since the last saved page, and a `429` with a budget postpones the job instead of using an attempt.
 
 ## Checks against what we refuted
 

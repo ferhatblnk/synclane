@@ -20,6 +20,8 @@ public class BudgetDeclarationTests
         Assert.Equal(SyncErrorCodes.BudgetSettingInvalid, Invalid(options => options.AddBudget("shop", 1, TimeSpan.Zero)));
         Assert.Equal(SyncErrorCodes.BudgetSettingInvalid, Invalid(options => options.AddBudget("shop", 1, TimeSpan.FromSeconds(1), burst: 0)));
         Assert.Equal(SyncErrorCodes.BudgetSettingInvalid, Invalid(options => options.AddBudget("two words", 1, TimeSpan.FromSeconds(1))));
+        Assert.Equal(SyncErrorCodes.BudgetSettingInvalid, Invalid(options => options.AddBudget("shop", 1, TimeSpan.FromSeconds(1), start: 0)));
+        Assert.Equal(SyncErrorCodes.BudgetSettingInvalid, Invalid(options => options.AddBudget("shop", 1, TimeSpan.FromSeconds(1), start: 1.5)));
         Assert.Equal(SyncErrorCodes.IntervalNotPositive, Invalid(options => options.MaxBudgetWait = TimeSpan.Zero));
     }
 
