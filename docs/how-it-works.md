@@ -125,7 +125,7 @@ Three things happen around that loop.
 
 The cursor and the processed count are never reset by a failure. Whatever status a job leaves `running` with, it comes back at the page it stopped on.
 
-**Attempts count failures since the last saved page.** A job that saves a page has shown that it works, so its count starts again. A job of a thousand pages that meets a timeout now and then, hours apart, finishes; a job that fails five times on the same page is deferred. Airbyte draws the same line: it limits attempts in a row that synced nothing, and lets attempts that made progress go on. Here progress is never lost, because the cursor is saved, so a job that keeps making progress always reaches the end.
+**Attempts count failures since the last saved page.** A job that saves a page has shown that it works, so its count starts again. A job of a thousand pages that meets a timeout now and then, hours apart, finishes; a job that fails five times on the same page is deferred. Progress is never lost, because the cursor is saved, so a job that keeps making progress always reaches the end.
 
 ### Why `deferred` exists
 

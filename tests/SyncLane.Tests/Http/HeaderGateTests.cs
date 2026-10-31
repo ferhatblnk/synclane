@@ -12,7 +12,7 @@ using SyncLane.Tests.Support;
 namespace SyncLane.Tests.Http;
 
 /// <summary>
-/// The gate of part 2.3: APIs that count requests in windows of one second and say on every answer what is left, in
+/// The gate for rate headers: APIs that count requests in windows of one second and say on every answer what is left, in
 /// the ways real APIs do. Another app on the same account spends part of every window, which no declared budget can
 /// know. Once the recipe names the headers, nothing is throttled; without them, the same run is.
 /// </summary>

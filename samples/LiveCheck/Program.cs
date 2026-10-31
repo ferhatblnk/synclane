@@ -11,7 +11,7 @@ using Npgsql;
 using SyncLane;
 using SyncLane.Http;
 
-// The live check of phase 1.5: public APIs, one per paging style, synced through the real engine with recipes and no
+// The live check: public APIs, one per paging style, synced through the real engine with recipes and no
 // code of their own. Run by hand, never in CI: live APIs are slow, rate limited and change. See README.md.
 
 const string Queue = "live";

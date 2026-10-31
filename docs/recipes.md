@@ -2,7 +2,7 @@
 
 A recipe tells `SyncLane.Http` how to fetch one job type over HTTP: the request, how the job's window is written into it, and where the records are in the answer. It replaces a hand-written `IJobHandler` for APIs that fit it.
 
-> **Preview.** Recipes run, page, authenticate and keep to a rate budget, and have synced five public APIs, one per paging style ([samples/LiveCheck](../samples/LiveCheck)). They have not yet met the APIs of a production integration; see [design/phase-1.md](design/phase-1.md).
+> **Preview.** Recipes run, page, authenticate and keep to a rate budget, and have synced five public APIs, one per paging style ([samples/LiveCheck](../samples/LiveCheck)). They have not yet met the APIs of a production integration.
 
 ## A recipe
 
@@ -325,7 +325,7 @@ Examples from public documentation. Check the API's own page: these change.
 How far it goes:
 
 - **With a reset, a window is exact.** The run in the tests (four jobs, another app spending a quarter of every window) gets no `429`.
-- **Without a reset, the count fixes the bucket's level, not its rate.** If the declared rate is above what the API allows, `429`s become fewer but do not stop: in a measured run against a hidden limit of 6 a second with a budget of 8, they went from 12% of requests to 7 to 10%. Lower the rate; learning it is part 2.4.
+- **Without a reset, the count fixes the bucket's level, not its rate.** If the declared rate is above what the API allows, `429`s become fewer but do not stop: in a measured run against a hidden limit of 6 a second with a budget of 8, they went from 12% of requests to 7 to 10%. The `429`s that remain lower the budget's learned rate, which is what brings them down.
 - **A burst larger than a window's quota still overshoots** after a pause. Declare a burst no larger than the quota.
 
 ## Fields

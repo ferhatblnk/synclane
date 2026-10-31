@@ -11,7 +11,7 @@ using SyncLane.Tests.Support;
 namespace SyncLane.Tests.Http;
 
 /// <summary>
-/// The gates of parts 2.1 and 2.2: many jobs that share one account, through the real engine, on one host or two, against
+/// The gates for shared budgets: many jobs that share one account, through the real engine, on one host or two, against
 /// an API with a limit of its own. With a budget inside that limit nothing is throttled, however many hosts share it;
 /// after a <c>429</c> nobody on the account, on any host, sends until the pause ends.
 /// </summary>

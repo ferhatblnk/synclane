@@ -1,6 +1,6 @@
 # Live check
 
-Syncs public APIs with recipes only, through the real engine, and compares what arrived with what each API says it has. It is the gate of phase 1.5 ([docs/design/phase-1.md](../../docs/design/phase-1.md)): if recipes cannot describe real APIs without custom code, the declarative approach is too weak.
+Syncs public APIs with recipes only, through the real engine, and compares what arrived with what each API says it has. It checks that recipes alone can describe real APIs: if they need custom code, the declarative approach is too weak.
 
 It is run by hand, never in CI: live APIs are slow, rate limited and change without notice.
 
@@ -43,4 +43,4 @@ breweries                          page       Completed      1      6      296  
 - **Expected** is the total the API reports through another endpoint. A small difference on `earthquakes` can be real: the catalogue revises recent events.
 - The exit code is 0 when every row says `ok`.
 
-The APIs, their endpoints and their behaviour are described here as they were on the date of the last recorded run in [docs/design/phase-1.md](../../docs/design/phase-1.md). They are not statements by the providers, and they may have changed.
+The APIs, their endpoints and their behaviour are described here as they were when the check last ran. They are not statements by the providers, and they may have changed.
