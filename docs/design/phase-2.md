@@ -135,7 +135,22 @@ The cautious alternative of the stop rule, a fixed limit at half the real one, g
 **Result:** the phase gate passes in simulation, through the library's own SQL.
 - Mutation checks turn the gate red: no cut on a `429` (two scenarios), the old pause rule (three), no slow zone (all six), growth while idle (one).
 - **What it has not met:** a real API. The simulation is only as good as its servers. The first version of the "another app" server was wrong twice in this part: it let the other app's requests pile up during a pause, then never let it win. The first real integration is the check that matters.
-- **Found on the way, not fixed here:** a job's attempts never reset. A saved page does not reset `attempt_count`, so a job of a thousand pages that meets five `429`s in its life, hours apart, is deferred and then abandoned. With learning, an occasional `429` is normal (under 1%). Proposed as the next part: attempts count failures since the last saved page, and a `429` with a budget postpones the job instead of using an attempt.
+- **Found on the way, fixed in part 2.5:** a job's attempts never reset. A saved page did not reset `attempt_count`, so a job of a thousand pages that met five `429`s in its life, hours apart, was deferred and then abandoned. With learning, an occasional `429` is normal (under 1%).
+
+### 2.5 A job that makes progress is not failing (in review)
+
+Found in 2.4: attempts added up over a job's whole life, and a throttle cost an attempt even with a budget pacing the API. With learning, a `429` now and then is expected, so long jobs would have been abandoned for doing nothing wrong.
+
+What others do, read on 2026-10-31:
+- **Airbyte** limits attempts that synced nothing: 5 in a row, 10 in all. Attempts that synced something have a wider limit of 20, and reset the backoff ([jobs](https://docs.airbyte.com/platform/understanding-airbyte/jobs)).
+- **Fivetran** marks a sync that hits a rate limit or a quota "rescheduled", not failed, and runs it again when the limit allows ([DV360](https://fivetran.com/docs/connectors/applications/google-display-and-video-360/troubleshooting/dv360-quota-limit-exceeded), [Genesys](https://fivetran.com/docs/connectors/applications/genesys/troubleshooting/429-rate-limit-errors)).
+- **Temporal** retries activities without a limit by default, and a heartbeat carries progress into the next attempt ([retry policies](https://docs.temporal.io/encyclopedia/retry-policies)).
+
+Built:
+- A saved page sets `attempt_count` back to 1: `MaxAttempts` limits failures in a row. Unlike Airbyte there is no cap on attempts that made progress: progress here is a saved cursor, never redone, so a job that keeps making it reaches the end.
+- With a budget, a `429` or a `403` that means one postpones the job for the budget's pause (`JobPostponedException`); without one it uses an attempt as before.
+
+Gate: a job allowed two attempts that fails once on each of three pages finishes instead of being abandoned. Mutation checks turn tests red when the reset or the postponement is removed.
 
 ## Checks against what we refuted
 

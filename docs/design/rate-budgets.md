@@ -74,7 +74,7 @@ Tokens refill continuously at `limit` per `per`, up to `burst`. A request **rese
 - the pause is `Retry-After` when the API sent one. Otherwise it is one token's time (at least a second, Shopify's own advice). Since part 2.4 it doubles, up to five minutes, only while the first request after each pause is refused again; in 2.1 it doubled with every `429` until a quiet spell, which part 2.4 found harmful;
 - only a `429` for a request sent after the latest pause began counts. Requests that left together come back together: in part 2.1 each of their `429`s doubled the backoff again, so eight of them without `Retry-After` paused an account for 128 seconds instead of one. `WaitAsync` now returns a permit that carries the bucket's pause count (`generation`), and `ThrottledAsync` takes it back. A late `429` only lengthens the pause when its `Retry-After` asks for longer.
 
-The job that got the `429` is deferred until the pause ends, as before. Other jobs on the budget wait for it inside their page, or give their slot back when the wait is longer than `MaxBudgetWait`.
+The job that got the `429` waits until the pause ends. Since part 2.5 it gives its slot back without using an attempt, because the budget's pause is what protects the API. Other jobs on the budget wait for it inside their page, or give their slot back when the wait is longer than `MaxBudgetWait`.
 
 **Why not `System.Threading.RateLimiting`**, which the roadmap named:
 - its token bucket cannot be paused or drained from outside;

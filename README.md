@@ -121,7 +121,7 @@ flowchart LR
 1. **Plan.** Once a minute the planner asks your `IOwnerSource` who is connected, reads in one query what already exists for them, and inserts what is missing. A snapshot type gets one initial job. A windowed type gets its history in slices back to the horizon, anchored to midnight UTC so that two calls on the same day produce the same slices. Each period adds one recurring job; for a windowed type its window starts where coverage ends.
 2. **Take.** A worker slot takes the next job that is due and whose lane has nothing running. Types run in the order you declared them; within a type the newest window runs first, so what is new is never stuck behind history. The row is marked `running` with the worker's name and a lease.
 3. **Run.** The handler is called page by page. After every page the cursor and the record count are saved and the lease is renewed. A heartbeat renews the lease while a slow page is in flight.
-4. **Finish.** No next cursor means `completed`. An exception means `failed` and a delay that doubles with every attempt; a `JobThrottledException` means a longer delay. When the regular attempts are used up the job is `deferred`: it steps aside, the rest of its lane runs, and it gets one more attempt once the lane is idle. If that fails too it is `abandoned` and waits for you.
+4. **Finish.** No next cursor means `completed`. An exception means `failed` and a delay that doubles with every attempt; a `JobThrottledException` means a longer delay. Attempts count since the last saved page, so a long job that fails now and then still finishes. When the regular attempts are used up the job is `deferred`: it steps aside, the rest of its lane runs, and it gets one more attempt once the lane is idle. If that fails too it is `abandoned` and waits for you.
 5. **Recover.** A worker that stops hands its job back with the cursor. A worker that dies stops renewing its lease, and another worker takes the job over; the dead worker's writes are refused from then on.
 
 ```mermaid
@@ -264,7 +264,7 @@ Three exceptions let a handler say more than "it failed":
 
 - `JobThrottledException` when the other side asks you to slow down, optionally with the wait it named.
 - `JobAbandonedException` when a retry cannot help, for example when the account's access was revoked.
-- `JobPostponedException` when the job only has to wait: it gives its slot back without using an attempt and continues from its cursor later. A rate budget throws it for you when a token is far away.
+- `JobPostponedException` when the job only has to wait: it gives its slot back without using an attempt and continues from its cursor later. A rate budget throws it for you when a token is far away, and so does a recipe with a budget when the API says "slow down". A hand-written handler does the same after `ThrottledAsync`: `throw new JobPostponedException(reason, pause)`.
 
 ## Rate budgets
 
@@ -321,7 +321,7 @@ Every run of a job is a `synclane.job` span and every page a `synclane.page` spa
 | `AddBudget(name, limit, per, burst, start)` | none | A rate budget: at most `limit` requests per `per`, at most `burst` at once (default 1, evenly spaced). It starts at `start` times the limit (default 1) and learns below it. |
 | `MaxBudgetWait` | 30 seconds | The longest a request waits for a budget's token inside a job; a longer wait postpones the job. |
 | `queue.Concurrency` | `1` | Jobs of the queue one process runs at once. `1` makes the queue strictly sequential. |
-| `queue.MaxAttempts` | `5` | Regular attempts before a job is deferred. |
+| `queue.MaxAttempts` | `5` | Attempts in a row without saving a page before a job is deferred. |
 | `queue.LeaseDuration` | 5 minutes | How long a silent worker keeps its job. |
 | `queue.RetryBaseDelay`, `RetryMaxDelay` | 1 minute, 1 hour | Delay after a failure: base, doubled per attempt, capped. |
 | `queue.ThrottleBaseDelay`, `ThrottleMaxDelay` | 5 minutes, 30 minutes | The same for a `JobThrottledException` that names no wait. |

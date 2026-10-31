@@ -12,8 +12,9 @@ namespace SyncLane.Http;
 /// </summary>
 /// <remarks>
 /// With a rate budget, every request first waits for a token, and the headers the recipe names tell the budget how many
-/// requests are left. How answers become job outcomes: 2xx is a page; 429 pauses the recipe's budget for everyone on the
-/// key and waits, honouring <c>Retry-After</c>, or the recipe's reset header without one; a 403 with <c>Retry-After</c>,
+/// requests are left. How answers become job outcomes: 2xx is a page; 429 waits, honouring <c>Retry-After</c>, or the
+/// recipe's reset header without one, and with a budget pauses it for everyone on the key and costs the job no
+/// attempt; a 403 with <c>Retry-After</c>,
 /// or whose remaining header says zero, is the same "slow down"; 401 renews an OAuth 2.0 token once, and otherwise
 /// abandons the job, as any other 403 does, because retrying with the same credentials cannot help;
 /// 408, 5xx, timeouts, network errors and broken JSON retry with the queue's growing delay; redirects and other 4xx
@@ -147,7 +148,7 @@ public sealed class HttpRecipeHandler : IJobHandler
 
             var reading = budget?.Headers?.Read(response, _time.GetUtcNow(), _options.MaxRetryAfter) ?? default;
             if (IsThrottle(response, reading))
-                throw new JobThrottledException(HttpErrors.Throttled(recipe.Name, (int)response.StatusCode).ToString(), await PauseAsync(response, reading, budget, permit, cancellationToken));
+                throw await SlowDownAsync(recipe, response, reading, budget, permit, cancellationToken);
 
             ThrowUnlessSuccess(response, recipe.Name);
 
@@ -199,17 +200,27 @@ public sealed class HttpRecipeHandler : IJobHandler
         || (response.StatusCode == HttpStatusCode.Forbidden && (response.Headers.RetryAfter is not null || reading.Remaining <= 0));
 
     /// <summary>
-    /// How long the job that was told to slow down waits: <c>Retry-After</c>, or else the reset the recipe's headers
-    /// gave, at least a second, because a reset in whole seconds may have been rounded down. With a budget, the whole
-    /// budget pauses for everyone on the key, on every instance, and the job waits as long as the pause.
+    /// What a "slow down" makes of the job. The wait is <c>Retry-After</c>, or else the reset the recipe's headers gave,
+    /// at least a second, because a reset in whole seconds may have been rounded down.
+    /// <list type="bullet">
+    /// <item>With a budget, the whole budget pauses for everyone on the key, on every instance, and the job gives its
+    /// slot back for the pause without using an attempt: the budget is what keeps the API safe, and pacing is not
+    /// failing.</item>
+    /// <item>Without one, nothing slows the next request down, so the attempt counts, and the queue's throttle delay
+    /// applies when the API named no wait.</item>
+    /// </list>
     /// </summary>
-    private async Task<TimeSpan?> PauseAsync(
-        HttpResponseMessage response, RateReading reading, Budget? budget, BudgetPermit? permit, CancellationToken cancellationToken)
+    private async Task<Exception> SlowDownAsync(
+        CompiledRecipe recipe, HttpResponseMessage response, RateReading reading, Budget? budget, BudgetPermit? permit, CancellationToken cancellationToken)
     {
+        var message = HttpErrors.Throttled(recipe.Name, (int)response.StatusCode).ToString();
         var asked = RetryAfter.From(response, _time.GetUtcNow(), _options.MaxRetryAfter)
             ?? (reading.ResetsIn is { } reset ? (reset > MinResetWait ? reset : MinResetWait) : null);
 
-        return budget is null || permit is null ? asked : await budget.Budgets.ThrottledAsync(permit, asked, cancellationToken);
+        if (budget is null || permit is null)
+            return new JobThrottledException(message, asked);
+
+        return new JobPostponedException(message, await budget.Budgets.ThrottledAsync(permit, asked, cancellationToken));
     }
 
     /// <summary>The rate budget a page's requests draw from, whose bucket, and the headers that say what is left.</summary>

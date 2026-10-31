@@ -107,7 +107,8 @@ public class EndToEndTests : PostgresTest
 
         Assert.Equal(["page=1", "page=2", "page=2", "page=3"], api.Requests.Select(request => request.RequestUri!.Query.TrimStart('?')));
         Assert.Equal(["a", "b", "c", "d", "e"], written);
-        Assert.Equal((5L, 2), (job.ProcessedCount, job.AttemptCount));
+        // The second run saved pages, so it is the job's first attempt since its last progress.
+        Assert.Equal((5L, 1), (job.ProcessedCount, job.AttemptCount));
     }
 
     private IHost Host(FakeApi api, Func<RecordPage, CancellationToken, Task> sink, string recipe = Orders)

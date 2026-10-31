@@ -33,11 +33,11 @@ public class BudgetedRecipeTests : PostgresTest
         });
         await using var source = Source(api, budget: options => options.AddBudget("shop", 100, TimeSpan.FromSeconds(1), burst: 10));
 
-        var throttled = await Assert.ThrowsAsync<JobThrottledException>(() => source.RunAsync("shop-7"));
+        var throttled = await Assert.ThrowsAsync<JobPostponedException>(() => source.RunAsync("shop-7"));
         await source.RunAsync("shop-8");
         await source.RunAsync("shop-7");
 
-        Assert.InRange(throttled.RetryAfter!.Value.TotalSeconds, 0.95, 1);
+        Assert.InRange(throttled.Delay.TotalSeconds, 0.95, 1);
         var (throttledAt, otherOwner, sameOwner) = (api.Times[0], api.Times[1], api.Times[2]);
         Assert.InRange((otherOwner - throttledAt).TotalSeconds, 0, 0.2);
         Assert.InRange((sameOwner - throttledAt).TotalSeconds, 0.95, 3);
@@ -69,9 +69,9 @@ public class BudgetedRecipeTests : PostgresTest
         var api = new TimedApi(() => Answer(HttpStatusCode.TooManyRequests, ("X-Left", "0"), ("X-Reset", "5")));
         await using var source = Source(api, budget: Shop, rate: WithHeaders);
 
-        var throttled = await Assert.ThrowsAsync<JobThrottledException>(() => source.RunAsync("shop-7"));
+        var throttled = await Assert.ThrowsAsync<JobPostponedException>(() => source.RunAsync("shop-7"));
 
-        Assert.InRange(throttled.RetryAfter!.Value.TotalSeconds, 4.9, 5);
+        Assert.InRange(throttled.Delay.TotalSeconds, 4.9, 5);
     }
 
     [PostgresFact]
@@ -80,9 +80,9 @@ public class BudgetedRecipeTests : PostgresTest
         var api = new TimedApi(() => Answer(HttpStatusCode.TooManyRequests, ("Retry-After", "2"), ("X-Reset", "30")));
         await using var source = Source(api, budget: Shop, rate: WithHeaders);
 
-        var throttled = await Assert.ThrowsAsync<JobThrottledException>(() => source.RunAsync("shop-7"));
+        var throttled = await Assert.ThrowsAsync<JobPostponedException>(() => source.RunAsync("shop-7"));
 
-        Assert.InRange(throttled.RetryAfter!.Value.TotalSeconds, 1.9, 2);
+        Assert.InRange(throttled.Delay.TotalSeconds, 1.9, 2);
     }
 
     [PostgresFact]
@@ -91,10 +91,10 @@ public class BudgetedRecipeTests : PostgresTest
         var api = new TimedApi(() => Answer(HttpStatusCode.Forbidden, ("X-Left", "0"), ("X-Reset", "5")));
         await using var source = Source(api, budget: Shop, rate: WithHeaders);
 
-        var throttled = await Assert.ThrowsAsync<JobThrottledException>(() => source.RunAsync("shop-7"));
+        var throttled = await Assert.ThrowsAsync<JobPostponedException>(() => source.RunAsync("shop-7"));
 
         Assert.StartsWith(HttpErrorCodes.Throttled, throttled.Message);
-        Assert.InRange(throttled.RetryAfter!.Value.TotalSeconds, 4.9, 5);
+        Assert.InRange(throttled.Delay.TotalSeconds, 4.9, 5);
     }
 
     [PostgresFact]
@@ -108,10 +108,10 @@ public class BudgetedRecipeTests : PostgresTest
         });
         await using var source = Source(api, budget: Shop, rate: WithHeaders);
 
-        var throttled = await Assert.ThrowsAsync<JobThrottledException>(() => source.RunAsync("shop-7"));
+        var throttled = await Assert.ThrowsAsync<JobPostponedException>(() => source.RunAsync("shop-7"));
         var refused = await Assert.ThrowsAsync<JobAbandonedException>(() => source.RunAsync("shop-8"));
 
-        Assert.InRange(throttled.RetryAfter!.Value.TotalSeconds, 2.9, 3);
+        Assert.InRange(throttled.Delay.TotalSeconds, 2.9, 3);
         Assert.StartsWith(HttpErrorCodes.Unauthorized, refused.Message);
     }
 

@@ -43,10 +43,11 @@ internal sealed partial class JobRunner(
 
         using var held = CancellationTokenSource.CreateLinkedTokenSource(stopping);
         var heartbeat = KeepLeaseAsync(queue, job, worker, held);
+        var progress = new Progress(job);
 
         try
         {
-            return await RunPagesAsync(queue, type, job, worker, held.Token);
+            return await RunPagesAsync(queue, type, progress, worker, held.Token);
         }
         catch (OperationCanceledException) when (stopping.IsCancellationRequested)
         {
@@ -62,7 +63,7 @@ internal sealed partial class JobRunner(
         catch (Exception exception)
         {
             activity?.AddException(exception);
-            return await FailAsync(queue, job, worker, exception, activity);
+            return await FailAsync(queue, progress.Job, worker, exception, activity);
         }
         finally
         {
@@ -71,9 +72,9 @@ internal sealed partial class JobRunner(
         }
     }
 
-    private async Task<string> RunPagesAsync(QueueOptions queue, JobType type, Job job, string worker, CancellationToken cancellationToken)
+    private async Task<string> RunPagesAsync(QueueOptions queue, JobType type, Progress progress, string worker, CancellationToken cancellationToken)
     {
-        var current = job;
+        var current = progress.Job;
 
         // Sequential: each page starts from the cursor the previous page returned.
         do
@@ -93,7 +94,8 @@ internal sealed partial class JobRunner(
                 return JobOutcome.LeaseLost;
             }
 
-            current = current with { Cursor = cursor, ProcessedCount = current.ProcessedCount + page.Processed };
+            current = current with { Cursor = cursor, ProcessedCount = current.ProcessedCount + page.Processed, AttemptCount = 1 };
+            progress.Job = current;
         }
         while (current.Cursor is not null);
 
@@ -207,6 +209,12 @@ internal sealed partial class JobRunner(
 
         LogAbandoned(job.Id, job.Type, job.AttemptCount, reason);
         return JobOutcome.Abandoned;
+    }
+
+    /// <summary>The job as far as this run has taken it: the cursor saved last, and its attempt count since then.</summary>
+    private sealed class Progress(Job job)
+    {
+        public Job Job { get; set; } = job;
     }
 
     [LoggerMessage(Level = LogLevel.Information, Message = "Job {JobId} ({JobType}) completed with {Processed} records.")]

@@ -142,7 +142,9 @@ The system this design comes from once tripled its slice from 30 to 90 days to "
 
 **`Concurrency`** is per process and per queue. Three instances with `Concurrency = 4` run up to twelve jobs of that queue at once, and still at most one per lane. Set it to `1` for an API that must be called strictly one request at a time, whatever the account.
 
-**`MaxAttempts`** counts every pick-up, including ones that ended in a throttle. With the defaults a job that keeps failing is deferred after about fifteen minutes of ordinary failures, or more than an hour of throttling.
+**`MaxAttempts`** counts pick-ups since the job last saved a page, so it limits failures in a row, not over a job's life. A throttle counts only when the recipe or handler has no rate budget; with one, the budget's pause is what protects the API, and the job is postponed instead. With the defaults a job that keeps failing on one page is deferred after about fifteen minutes of ordinary failures, or more than an hour of unbudgeted throttling.
+
+A job whose budget keeps being refused waits as long as the budget's pause, which grows to five minutes, and is never deferred for it: it shows as `pending` with an `SL5105` error, and `synclane.budget.paused` grows. That is the signal to look at the account.
 
 **`every` and `overlap`**: a recurring window starts `overlap` before the previous one ended. Use the overlap to cover records that show up late on the other side, and rely on upserts to make the double read harmless.
 
@@ -159,7 +161,7 @@ All metrics belong to the meter `SyncLane` (`SyncLaneTelemetry.MeterName`). Ever
 | `synclane.page.completed` | `{page}` | Pages a handler returned. |
 | `synclane.page.duration` | `s` | Time a handler took for a page it returned. |
 | `synclane.record.processed` | `{record}` | Records the handlers reported. |
-| `synclane.job.throttled` | `{job}` | Runs that ended with a `JobThrottledException`. They are also counted as `failed`, `deferred` or `abandoned`. |
+| `synclane.job.throttled` | `{job}` | Runs that ended with a `JobThrottledException`: throttles without a rate budget, which use an attempt. They are also counted as `failed`, `deferred` or `abandoned`. With a budget, a throttle postpones the job and shows in `synclane.budget.paused`. |
 | `synclane.planner.planned` | `{job}` | Jobs the planner added. |
 | `synclane.planner.failed` | `{run}` | Planner runs that failed. |
 | `synclane.budget.wait` | `s` | Time a request waited for a token of a rate budget. Tagged `synclane.budget` only; the key is an owner and never a tag. |
@@ -171,7 +173,7 @@ Traces come from the activity source `SyncLane` (`SyncLaneTelemetry.ActivitySour
 Four signals worth an alert:
 
 - `synclane.job.finished{outcome="abandoned"}` above zero. Something waits for a person.
-- `synclane.job.throttled` growing faster than `synclane.job.taken`. The pace is too high for the other side.
+- `synclane.job.throttled` growing faster than `synclane.job.taken`. The pace is too high for the other side: give the recipe or handler a rate budget.
 - `synclane.job.finished{outcome="lease_lost"}` above zero. A worker stalled longer than `LeaseDuration`, or clocks disagree.
 - `synclane.budget.paused` growing steadily. The declared budget is above what the API allows now: lower it. Another app on the same account can cause this too. `synclane.budget.exhausted` growing is not a problem: it means SyncLane stopped at zero instead of being throttled.
 

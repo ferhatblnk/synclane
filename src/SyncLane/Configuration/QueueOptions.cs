@@ -15,7 +15,10 @@ public sealed class QueueOptions
     /// <summary>How many jobs of this queue one process runs at once. With 1 the queue is strictly sequential.</summary>
     public int Concurrency { get; set; } = 1;
 
-    /// <summary>Regular attempts before a job is deferred. A deferred job gets one more.</summary>
+    /// <summary>
+    /// Attempts in a row without saving a page before a job is deferred. A deferred job gets one more. A saved page starts
+    /// the count again, so failures spread over a long job never add up to this.
+    /// </summary>
     public int MaxAttempts { get; set; } = 5;
 
     /// <summary>How long a worker may stay silent before another worker takes its job over. Renewed while the job runs.</summary>

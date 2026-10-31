@@ -19,7 +19,7 @@ Everything is in `synclane.jobs`. The full definition is in [schema.sql](schema.
 | `dedup_key` | What makes the job unique for its owner and type. |
 | `cursor` | Where the next page starts. |
 | `processed_count` | Records handled so far, over all pages and attempts. |
-| `attempt_count` | How many times a worker has picked the job up. |
+| `attempt_count` | How many times a worker has picked the job up since it last saved a page. A saved page sets it back to 1. |
 | `error` | The last failure. |
 | `next_run_at` | The job is not picked up before this moment. |
 | `leased_by`, `lease_expires_at` | Who holds the job and until when. |
@@ -117,12 +117,15 @@ Three things happen around that loop.
 | --- | --- | --- |
 | Exception, attempts left | `failed` | After `RetryBaseDelay`, doubled per attempt, capped at `RetryMaxDelay` |
 | `JobThrottledException` | `failed` | After the wait it named, or `ThrottleBaseDelay` doubled per attempt, capped at `ThrottleMaxDelay` |
+| `JobPostponedException` | `pending`, the attempt not counted | After the wait it named. A rate budget throws it when a token is far away, and a recipe with a budget when the API says "slow down" |
 | Exception on attempt `MaxAttempts` | `deferred` | When nothing else is pending, running or waiting for a retry in its lane |
 | Exception on the deferred attempt | `abandoned` | After a requeue |
 | `JobAbandonedException` | `abandoned` | After a requeue |
 | No handler for the type | `abandoned` | After a requeue |
 
 The cursor and the processed count are never reset by a failure. Whatever status a job leaves `running` with, it comes back at the page it stopped on.
+
+**Attempts count failures since the last saved page.** A job that saves a page has shown that it works, so its count starts again. A job of a thousand pages that meets a timeout now and then, hours apart, finishes; a job that fails five times on the same page is deferred. Airbyte draws the same line: it limits attempts in a row that synced nothing, and lets attempts that made progress go on. Here progress is never lost, because the cursor is saved, so a job that keeps making progress always reaches the end.
 
 ### Why `deferred` exists
 
