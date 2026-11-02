@@ -5,7 +5,7 @@ using Xunit.Abstractions;
 namespace SyncLane.Tests.Budgets;
 
 /// <summary>
-/// The gate of phase 2: against an API whose limit SyncLane is not told, fewer than 1% of requests are throttled and
+/// The gate for learning rates: against an API whose limit SyncLane is not told, fewer than 1% of requests are throttled and
 /// throughput reaches at least 80% of the hidden limit. Each run is twenty simulated minutes of four jobs at 150 ms
 /// latency, driven through the real statements with the clock passed in, so it takes seconds, not minutes.
 /// </summary>

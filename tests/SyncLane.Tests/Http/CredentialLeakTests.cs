@@ -13,7 +13,7 @@ using SyncLane.Tests.Support;
 namespace SyncLane.Tests.Http;
 
 /// <summary>
-/// The gate of phase 1.4: no credential reaches a log, a span, a metric, an error message or the database, whatever the
+/// The gate for authentication: no credential reaches a log, a span, a metric, an error message or the database, whatever the
 /// API does. Every owner below meets a different failure, and the fake API and token endpoint echo every secret they
 /// receive back in bodies and exception messages, which is the worst a real one or a proxy could do.
 /// </summary>

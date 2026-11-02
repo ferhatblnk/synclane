@@ -14,3 +14,7 @@ appsettings.*.local.json
 
 # Private working notes, not published
 ROADMAP.md
+
+# Design notes, phase plans and analysis stay on the developer's machine.
+/private/
+/docs/design/

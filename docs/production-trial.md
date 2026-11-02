@@ -1,6 +1,6 @@
 # Production trial
 
-Phase 0 of the roadmap ends when SyncLane has run one real integration for 30 days. This page is the checklist for that trial: what to set up, what to break on purpose, what to watch and when to stop.
+Before you rely on SyncLane, run one real integration with it for 30 days. This page is the checklist for that trial: what to set up, what to break on purpose, what to watch and when to stop.
 
 ## Before the first run
 
@@ -43,7 +43,7 @@ GROUP BY status;
 
 ## Keep a log
 
-One line per incident in a file next to the integration: date, what happened, which job ids, what fixed it, and whether it was SyncLane's fault, the handler's or the provider's. The log is what Phase 1 starts from.
+One line per incident in a file next to the integration: date, what happened, which job ids, what fixed it, and whether it was SyncLane's fault, the handler's or the provider's. The log is what tells you, at the end, whether SyncLane is ready for the next integration.
 
 ## Exit: the trial is done when
 

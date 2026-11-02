@@ -8,8 +8,8 @@ namespace SyncLane.Storage;
 /// A bucket refills at its current rate, which it learns: it never goes above the declared limit (<c>@ceiling</c>, in
 /// tokens a second), drops to 0.7 times itself on a fresh throttle (not below 1% of the limit), and rises with every
 /// token taken while the bucket is the bottleneck. The rise is 2% per token below 90% of the rate that last caused a
-/// throttle, 0.03% from there up to it, and 0.1% above it. The numbers come from the simulation in
-/// docs/design/rate-budgets.md; change them only with a new measurement.
+/// throttle, 0.03% from there up to it, and 0.1% above it. The numbers come from a simulation against servers with
+/// hidden limits, and LearningGateTests guards them; change them only with a new measurement.
 /// </remarks>
 internal sealed class BudgetSql
 {
