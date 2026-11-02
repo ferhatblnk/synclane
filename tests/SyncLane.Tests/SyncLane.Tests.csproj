@@ -15,6 +15,7 @@
   <ItemGroup>
     <ProjectReference Include="..\..\src\SyncLane\SyncLane.csproj" />
     <ProjectReference Include="..\..\src\SyncLane.Http\SyncLane.Http.csproj" />
+    <ProjectReference Include="..\..\src\SyncLane.Cli\SyncLane.Cli.csproj" />
   </ItemGroup>
 
   <ItemGroup>

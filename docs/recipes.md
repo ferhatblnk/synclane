@@ -4,6 +4,75 @@ A recipe tells `SyncLane.Http` how to fetch one job type over HTTP: the request,
 
 > **Preview.** Recipes run, page, authenticate and keep to a rate budget, and have synced five public APIs, one per paging style ([samples/LiveCheck](../samples/LiveCheck)). They have not yet met the APIs of a production integration.
 
+## Starting from a curl
+
+You rarely write a recipe from nothing. Copy a request that works, from the API's documentation, from Postman, or from the browser's developer tools ("Copy as cURL"), and put `synclane init` in front of it:
+
+```bash
+synclane init curl 'https://api.example-shop.com/v2/orders?updated_after=2026-10-01T00:00:00Z&page=1&per_page=100' \
+  -H 'Authorization: Bearer <token>'
+```
+
+`init` sends the request once and writes `orders.jsonc` from what the answer shows:
+- where the records are;
+- how to page:
+  - a `Link` header;
+  - a next URL;
+  - a cursor, or `has_more` with the last record's id;
+  - the page or offset already in the query;
+- which query values are the time window, and in which format;
+- the rate headers the API sends;
+- whether every record has a unique `id`, and which field carries its version.
+
+Each field it inferred has a comment above it saying why. Notes at the top say what is left for you, such as declaring the rate budget.
+
+The token in the curl is used for that one request and is written nowhere: the recipe's `auth` names a credential instead. To keep the token out of your shell history, pipe the curl in: `pbpaste | synclane init` on macOS, `Get-Clipboard | synclane init` in PowerShell.
+
+`init` never replaces a file unless you pass `--force`; `--out` names another file. A URL that redirects is refused, because recipes do not follow redirects; the message says what to use instead.
+
+Then run the recipe for two pages, without a database:
+
+```bash
+synclane test orders.jsonc
+```
+
+```text
+Testing example-shop/orders, from 2026-10-24 12:00 to 2026-10-31 12:00 UTC.
+
+Page 1     100 records     412 ms
+Page 2     100 records     380 ms
+
+Fields:  id, number, status, updated_at, customer, lines, and 14 more
+Key:     $.id, unique across 200 records.
+Paging:  page 2 brought new records; more pages follow.
+
+The recipe works.
+```
+
+`test` runs the recipe through the same handler a job uses.
+
+**Credentials.** `test` reads the credential from the environment, or asks for it in the terminal without showing it. The variables are named after the credential:
+
+| Auth type | Variables (for a credential named `example-shop`) |
+| --- | --- |
+| bearer, API key | `SYNCLANE_EXAMPLE_SHOP_TOKEN` |
+| basic | `SYNCLANE_EXAMPLE_SHOP_USERNAME`, `SYNCLANE_EXAMPLE_SHOP_PASSWORD` |
+| OAuth 2.0 | `SYNCLANE_EXAMPLE_SHOP_CLIENT_ID`, `SYNCLANE_EXAMPLE_SHOP_CLIENT_SECRET`, `SYNCLANE_EXAMPLE_SHOP_REFRESH_TOKEN` |
+
+**Options:**
+- `--since` sets the window: a length such as `30d` or a date. The default is 7 days.
+- `--owner` gives the owner key to a recipe that uses `{{owner.key}}`.
+
+**What it prints:** field names, never their values. It never prints a cursor, a URL or a credential.
+
+**Exit code:** 1 when the recipe does not work, so the command also runs in CI.
+
+**A repeated page:** a page 2 that repeats page 1 fails the test with `SL6010`. It means the API ignored the paging parameter, and the message names that parameter.
+
+**Signed recipes:** a recipe that signs its requests with an `IRequestSigner` runs your code, which `test` cannot load. Test it from your application.
+
+The command is the `SyncLane.Cli` tool: `dotnet tool install --global SyncLane.Cli` once the packages are published. From a clone, `dotnet run --project src/SyncLane.Cli -- init ...` does the same.
+
 ## A recipe
 
 ```jsonc

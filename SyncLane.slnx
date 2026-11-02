@@ -6,6 +6,7 @@
   <Folder Name="/src/">
     <Project Path="src/SyncLane/SyncLane.csproj" />
     <Project Path="src/SyncLane.Http/SyncLane.Http.csproj" />
+    <Project Path="src/SyncLane.Cli/SyncLane.Cli.csproj" />
   </Folder>
   <Folder Name="/tests/">
     <Project Path="tests/SyncLane.Tests/SyncLane.Tests.csproj" />
