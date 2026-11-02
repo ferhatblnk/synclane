@@ -96,7 +96,7 @@ Every failure falls into exactly one category. Pick the mechanism from the categ
 
 ### 6. Security
 
-- SQL values are always parameters. The only thing ever interpolated into SQL is the schema name, and only after `SchemaName.IsValid`.
+- SQL values are always parameters. The only things ever interpolated into SQL are the schema name and a Postgres destination's schema and table names, and only after they are checked as lower-case identifiers (`SchemaName.IsValid`, `PostgresSinkOptions.Validate`).
 - Never log, trace, tag or store credentials, headers, request or response bodies, or cursors (cursors often contain tokens). A recipe never holds a credential, and a key in a query string is taken out of a URL before it becomes a cursor.
 - Never keep the message of a network exception (`HttpRequestException` and the like): it can hold the URL or a proxy's password. Keep its kind. **(checked by `CredentialLeakTests`, which also searches logs, spans, metrics and every stored row for each auth type)**
 - Metric tags carry the queue and job type only, never the owner or lane: they identify customers and have unbounded cardinality. **(checked by `TelemetryTests`)**
@@ -130,7 +130,7 @@ Every failure falls into exactly one category. Pick the mechanism from the categ
 - Test names are sentences that state the behaviour: `A_failed_job_runs_again_from_the_page_it_stopped_at`.
 - Anything touching SQL is tested against PostgreSQL with `[PostgresFact]`, not mocked.
 - Every bug fix comes with a test that fails without it.
-- Never put real connection strings, tokens, account ids or customer data in tests or fixtures.
+- Never put real connection strings, tokens, account ids or customer data in tests or fixtures. Not a made-up value in a real secret's format either: a scanner cannot tell it from a real one. Tests build their secrets when they run (`TestSecrets`). A test or sample that needs a real credential reads it from an environment variable, and its documentation says where to get one. **(checked)**
 
 ## Style
 

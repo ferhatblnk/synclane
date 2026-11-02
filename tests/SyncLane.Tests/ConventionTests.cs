@@ -96,6 +96,27 @@ public partial class ConventionTests
         Assert.Empty(offenders);
     }
 
+    [Fact]
+    public void No_value_shaped_like_a_secret_is_written_in_the_repository()
+    {
+        // Only where, never the value: the message of a failing test is published too.
+        var offenders = Published()
+            .SelectMany(path => File.ReadLines(path).Select((line, index) => (Path: Path.GetRelativePath(Root, path), Line: index + 1, Text: line)))
+            .Where(line => SecretShaped().IsMatch(line.Text))
+            .Select(line => $"{line.Path}:{line.Line}");
+
+        Assert.Empty(offenders);
+    }
+
+    /// <summary>Every text file published with the repository: code, tests, samples, documentation and workflows.</summary>
+    private static IEnumerable<string> Published() =>
+        new[] { "src", "tests", "samples", "docs", "schemas", ".github" }
+            .Select(folder => Path.Combine(Root, folder))
+            .Where(Directory.Exists)
+            .SelectMany(folder => Directory.EnumerateFiles(folder, "*", SearchOption.AllDirectories))
+            .Concat(new[] { "README.md", "CHANGELOG.md", "ARCHITECTURE.md", "CLAUDE.md", "CONTRIBUTING.md", "SECURITY.md" }.Select(file => Path.Combine(Root, file)).Where(File.Exists))
+            .Where(path => TextFile().IsMatch(path) && !BuildOutput().IsMatch(path));
+
     /// <summary>Line numbers of loop headers whose header or body awaits.</summary>
     private static IEnumerable<int> AwaitingLoops(SourceFile file)
     {
@@ -170,6 +191,20 @@ public partial class ConventionTests
 
     [GeneratedRegex(@"\.Wait\(\)|\.GetAwaiter\(\)\.GetResult\(\)|(?<![A-Za-z])\.Result\b")]
     private static partial Regex Blocking();
+
+    /// <summary>
+    /// The formats secret scanners look for: webhook signing secrets, access tokens of code hosts, payment, chat and
+    /// cloud providers, private keys and signed tokens. A made-up value in one of these formats cannot be told from a
+    /// real one, so tests build theirs at run time (<c>TestSecrets</c>).
+    /// </summary>
+    [GeneratedRegex(@"whsec_[A-Za-z0-9+/]{24,}|gh[pousr]_[A-Za-z0-9]{36}|github_pat_[A-Za-z0-9_]{22,}|[sr]k_(live|test)_[A-Za-z0-9]{16,}|xox[abprs]-[A-Za-z0-9-]{10,}|AKIA[0-9A-Z]{16}|-----BEGIN [A-Z ]*PRIVATE KEY-----|shp(at|ss|ca|pa)_[a-fA-F0-9]{32}|glpat-[A-Za-z0-9_-]{20}|AIza[0-9A-Za-z_-]{35}|eyJ[A-Za-z0-9_-]{10,}\.eyJ[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}")]
+    private static partial Regex SecretShaped();
+
+    [GeneratedRegex(@"\.(cs|csproj|props|slnx|json|jsonc|md|yml|yaml|sql|http|env|txt|xml)$", RegexOptions.IgnoreCase)]
+    private static partial Regex TextFile();
+
+    [GeneratedRegex(@"[\\/](bin|obj|TestResults)[\\/]")]
+    private static partial Regex BuildOutput();
 
     private sealed record SourceFile(string Path, string[] Lines)
     {

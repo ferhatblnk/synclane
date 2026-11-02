@@ -233,7 +233,8 @@ public sealed class HttpRecipeHandler : IJobHandler
     }
 
     private Task WriteAsync(HttpRecipeBinding binding, RecordPage page, CancellationToken cancellationToken) =>
-        binding.SinkDelegate is { } write
-            ? write(page, cancellationToken)
-            : ((IRecordSink)_services.GetRequiredService(binding.SinkType!)).WriteAsync(page, cancellationToken);
+        binding.Postgres is { } postgres ? _services.GetRequiredService<PostgresSinks>().For(postgres).WriteAsync(page, cancellationToken)
+        : binding.Http is { } http ? _services.GetRequiredService<HttpSinks>().For(http).WriteAsync(page, cancellationToken)
+        : binding.SinkDelegate is { } write ? write(page, cancellationToken)
+        : ((IRecordSink)_services.GetRequiredService(binding.SinkType!)).WriteAsync(page, cancellationToken);
 }

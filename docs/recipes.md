@@ -43,7 +43,7 @@ The same recipe can be built in C#, as `new HttpRecipe { Name = ..., Request = n
 
 ## Running a recipe
 
-Declare the job type with `HttpRecipeHandler`, and register its recipe and where its records go:
+Declare the job type with `HttpRecipeHandler`, and register its recipe and where its records go ([Destinations](#destinations)):
 
 ```csharp
 builder.Services.AddSyncLane(lane =>
@@ -58,11 +58,11 @@ builder.Services.AddSyncLane(lane =>
 
 builder.Services.AddSyncLaneHttp(http =>
 {
-    http.Recipe("orders", File.ReadAllText("recipes/orders.json")).WriteTo<OrderSink>();
+    http.Recipe("orders", File.ReadAllText("recipes/orders.json")).WriteToPostgres("shop_orders");
 });
 ```
 
-A sink receives each page's records:
+For a store of your own, a sink receives each page's records:
 
 ```csharp
 public sealed class OrderSink(AppDb db) : IRecordSink
@@ -117,6 +117,131 @@ An abandoned job waits for you: fix the cause, then `RequeueAsync`. It continues
 | `UserAgent` | `SyncLane.Http/<version>` | Sent when a recipe sets no `User-Agent`. |
 
 The requests go through the named `HttpClient` `HttpSource.ClientName`. Add handlers to it with `services.AddHttpClient(HttpSource.ClientName)`, for a proxy for example. Do not add retry handlers: the engine already retries the job from its cursor.
+
+## Destinations
+
+### PostgreSQL
+
+```csharp
+http.Recipe("orders", File.ReadAllText("recipes/orders.json"))
+    .WriteToPostgres("shop_orders", table => table.VersionedBy("$.updated_at"));
+```
+
+SyncLane creates the table the first time a page arrives, in its own database and schema unless you name others, and keeps one row per account and record:
+
+| Column | What it holds |
+| --- | --- |
+| `owner`, `key` | The primary key: the account, and the record's key. Keys are unique per account, not across accounts. |
+| `record` | The latest copy of the record, as `jsonb`. |
+| `version` | The version it was written with, if the destination has one. |
+| `first_seen_at` | When the key first arrived. |
+| `changed_at` | When the record last changed. Writing the same record again does not touch the row. |
+
+Each page is one statement. A page is delivered at least once, since a worker that stops between the write and the cursor save writes it again, so the table is written so that a repeat changes nothing:
+- duplicates within a page are removed first;
+- a row is rewritten only when its record changed;
+- with a version, an older copy never replaces a newer one.
+
+| Setting | Default | What it does |
+| --- | --- | --- |
+| `KeyedBy("$.id")`, or several paths | `$.id`, inferred | What identifies a record. Paths are written `$.name` or `$.parent.name`; several make a composite key. |
+| `KeyedByContent()` | | Keys a record by a hash of its content, written in one canonical form. For records that never change, such as events or ledger lines: a record that changes becomes a new row with each version. |
+| `VersionedBy("$.updated_at")` | none | A number, or an ISO 8601 time; times in different offsets compare as the same moment, never as text. Of two copies the higher version wins; a copy without a version never replaces one with. |
+| `Schema` | SyncLane's schema | A lower-case identifier. |
+| `ConnectionString` | SyncLane's database | Another database. |
+
+**When no key is named,** `$.id` is used, but only if every record of the page has one that is a string or a number and no two are equal. A guess that could merge two records is never made: otherwise the job stops with `SL5125`, naming the fields of the page that could serve.
+
+**With `CreateSchema` off,** SyncLane does not create the table: run `PostgresSinkSchema.Script(schema, table)` in your own migration. A missing table stops the job with `SL5127`.
+
+### HTTP
+
+```csharp
+http.Recipe("orders", File.ReadAllText("recipes/orders.json"))
+    .WriteToHttp("https://sync.example.com/orders", receiver =>
+    {
+        receiver.Secret = builder.Configuration["Receiver:Secret"];        // whsec_…, to sign every request
+        receiver.Headers["Authorization"] = builder.Configuration["Receiver:Token"]!;
+    });
+```
+
+Each page is posted as one JSON message:
+
+```json
+{ "type": "orders", "data": { "owner": "shop-7", "records": [ { "key": "1001", "version": 1793448000000000, "record": { } } ] } }
+```
+
+Keys and versions are read as for PostgreSQL: the same `KeyedBy`, `KeyedByContent` and `VersionedBy`, with the same `$.id` default. A version is a number; an ISO 8601 time arrives as microseconds since 1970, so the receiver compares numbers only.
+
+The requests follow [Standard Webhooks](https://www.standardwebhooks.com/), so a receiver can check them with an existing library:
+- `webhook-id`: the same records always give the same id, because the body holds no time. A page sent again carries the id it had; a page whose records changed carries a new one. The same value goes in `Idempotency-Key`.
+- `webhook-timestamp`: when it was sent.
+- `webhook-signature`: present when a secret is set.
+
+What SyncLane does with the answer:
+
+| Answer | What happens |
+| --- | --- |
+| 2xx | Taken. |
+| `413` | The request is split in halves until it fits. One record that still does not fit stops the job (`SL5130`). A page over `MaxBytes` (1 MB) is split before it is sent. |
+| `429`, `502`, `503`, `504` | Tried again in the page, honouring `Retry-After`; then, or straight away for a wait over 30 seconds, the job is postponed without using an attempt. |
+| Other 5xx, no answer in time, network failure | Tried three times with a short pause, without fetching the source again; then the attempt fails and the job runs again later (`SL5129`). |
+| A redirect, `410`, other 4xx | The job stops (`SL5128`): the receiver will keep refusing. Redirects are not followed. |
+
+**What the receiver does:**
+- Keep one row per `owner` and `key`, replacing it only when `version` is not lower.
+- Answer 2xx only once the records are stored.
+
+That is all it takes for every record to arrive once in effect: a message is sent again after anything goes wrong, and the key makes the repeat harmless. The URL, the headers and the secret are never logged; the URL must be https, except on `localhost`.
+
+### A sink of your own
+
+Write an `IRecordSink`, and use `RecordIdentity` for the hard part. It reads keys and versions the same way, and removes duplicates within the page:
+
+```csharp
+public sealed class OrderSink(AppDb db) : IRecordSink
+{
+    private static readonly RecordIdentity Identity = RecordIdentity.ByPaths("$.id").VersionedBy("$.updated_at");
+
+    public async Task WriteAsync(RecordPage page, CancellationToken cancellationToken)
+    {
+        var records = Identity.Identify(page);
+        if (!records.Succeeded)
+            throw new JobAbandonedException(string.Join("; ", records.Errors));
+
+        foreach (var record in records.Value!)
+            db.Orders.Upsert(page.Job.Owner, record.Key, record.Version, record.Record);   // keep the newer version
+
+        await db.SaveChangesAsync(cancellationToken);
+    }
+}
+```
+
+Then check it the way workers will treat it, from any test framework:
+
+```csharp
+var result = await SinkConformance.CheckAsync(
+    new OrderSink(db),
+    async (owner, cancellationToken) => await db.Orders.Where(order => order.Owner == owner)
+        .Select(order => new SinkSample(order.Id, order.Total)).ToListAsync(cancellationToken),
+    new SinkConformanceOptions
+    {
+        Versioned = true,
+        Record = sample => $$"""{ "id": "{{sample.Id}}", "total": {{sample.Value}}, "updated_at": "{{sample.UpdatedAt:O}}" }"""
+    });
+
+Assert.True(result.Succeeded, string.Join("\n", result.Errors));
+```
+
+It writes pages for owners made up for the run, and reads back what the store holds after each scenario:
+- a page written twice;
+- a page fetched again with one record changed and one added;
+- two copies of a record in one page;
+- an older copy after a newer one, when `Versioned`;
+- the same key under two owners;
+- an empty page.
+
+Each scenario the sink fails is in the result with code `SL5131`, naming what it found, for example "record 2 holds 1 instead of 2". `Record` turns a sample into the JSON your sink expects; leave it out for sinks that read `id`, `value` and `updated_at`.
 
 ## Pagination
 
