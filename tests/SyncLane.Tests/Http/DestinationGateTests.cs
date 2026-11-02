@@ -188,7 +188,7 @@ public class DestinationGateTests : PostgresTest
     /// </summary>
     private sealed class ContractReceiver(int seed) : HttpMessageHandler
     {
-        public const string Secret = "whsec_MfKQ9r8GKYqrTwjUPD8ILPZIo2LaLaSw";
+        public static readonly string Secret = TestSecrets.Webhook;
 
         private readonly Chaos _chaos = new(seed);
         private readonly ConcurrentDictionary<string, string> _bodies = new();

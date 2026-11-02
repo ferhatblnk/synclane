@@ -130,7 +130,7 @@ Every failure falls into exactly one category. Pick the mechanism from the categ
 - Test names are sentences that state the behaviour: `A_failed_job_runs_again_from_the_page_it_stopped_at`.
 - Anything touching SQL is tested against PostgreSQL with `[PostgresFact]`, not mocked.
 - Every bug fix comes with a test that fails without it.
-- Never put real connection strings, tokens, account ids or customer data in tests or fixtures.
+- Never put real connection strings, tokens, account ids or customer data in tests or fixtures. Not a made-up value in a real secret's format either: a scanner cannot tell it from a real one. Tests build their secrets when they run (`TestSecrets`). A test or sample that needs a real credential reads it from an environment variable, and its documentation says where to get one. **(checked)**
 
 ## Style
 

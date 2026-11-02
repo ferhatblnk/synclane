@@ -5,12 +5,13 @@ using System.Text;
 using System.Text.Json;
 using Microsoft.Extensions.DependencyInjection;
 using SyncLane.Http;
+using SyncLane.Tests.Support;
 
 namespace SyncLane.Tests.Http;
 
 public class HttpSinkTests
 {
-    private const string Secret = "whsec_MfKQ9r8GKYqrTwjUPD8ILPZIo2LaLaSw";
+    private static readonly string Secret = TestSecrets.Webhook;
 
     [Fact]
     public async Task A_page_is_one_standard_webhooks_message_and_the_same_records_always_carry_the_same_id()

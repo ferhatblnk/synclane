@@ -24,7 +24,7 @@ docker run --rm -d -p 5432:5432 -e POSTGRES_HOST_AUTH_METHOD=trust --name livech
 SYNCLANE_LIVE_DB="Host=localhost;Username=postgres" dotnet run --project samples/LiveCheck
 ```
 
-To check authentication against a real API too, give it any GitHub token; it needs no scope:
+To check authentication against a real API too, give it a GitHub token of your own. Create one under GitHub's Settings → Developer settings → Personal access tokens (https://github.com/settings/tokens): a classic token with no scope, or a fine-grained one with read-only access to public repositories, is enough.
 
 ```bash
 SYNCLANE_LIVE_GITHUB_TOKEN=<token> SYNCLANE_LIVE_DB="Host=localhost;Username=postgres" dotnet run --project samples/LiveCheck
