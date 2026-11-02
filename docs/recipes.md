@@ -276,13 +276,15 @@ lane.AddBudget("example-shop", limit: 2, per: TimeSpan.FromSeconds(1), burst: 40
 | `headers` | no | Where the API's answers say how many requests are left. See [Reading what the API says](#reading-what-the-api-says). |
 
 - Every request to the API waits for a token: the first request of a page, and the one sent again after an OAuth 2.0 token is renewed. Requests to a token endpoint do not draw from the budget.
-- A `429` pauses the budget for everyone on the key: for `Retry-After` when the API sent it, otherwise for a backoff that starts at one token's time (at least a second) and doubles while `429`s continue, up to five minutes. After the pause the bucket refills from empty, so requests restart at the steady rate. A `429` for a request sent before the pause began does not make the pause longer, unless its `Retry-After` asks for longer.
+- A `429` pauses the budget for everyone on the key: for `Retry-After` when the API sent it, otherwise for one token's time, at least a second. After the pause the bucket refills from empty at 0.7 times its rate, and the rate climbs back while requests go through, never above the declared limit. The pause doubles, up to five minutes, only while the first request after each pause is refused again. A `429` for a request sent before the pause began does not count again, unless its `Retry-After` asks for longer.
 - A token further away than `MaxBudgetWait` (30 seconds) postpones the job: it gives its slot back without using an attempt.
 - Several recipes can name one budget: an account's limit is usually shared by all its endpoints. An API that limits each operation separately gets one budget per operation.
 - Buckets live in the database, so every instance draws from the same one. A `429` heard by one instance pauses the key on all of them.
 - **Choosing the numbers.** Read the API's documentation for its algorithm and scope.
   - For a token or leaky bucket, set `limit` per `per` to its rate and `burst` to its bucket size.
-  - For a window that resets on the clock, or when nothing is documented, keep `burst` at 1 and the limit a little under the published one: other apps on the same account draw from it too.
+  - For a window that resets on the clock, keep `burst` at 1, or name its headers.
+  - When nothing is documented, declare a generous ceiling and a lower `start`, such as `AddBudget("example-shop", limit: 20, per: TimeSpan.FromSeconds(1), start: 0.25)`. The rate climbs while the API accepts and backs off when it refuses.
+  - Learning needs requests to learn from: a few hundred. For an operation allowed once a minute, declare its documented rate.
 
 ### Reading what the API says
 

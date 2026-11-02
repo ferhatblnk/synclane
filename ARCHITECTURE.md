@@ -76,7 +76,7 @@ flowchart TB
 | `JobWorker` | Runs `Concurrency` slots per queue; each slot leases and runs jobs. | Slot scheduling changes. |
 | `JobRunner` | Runs one leased job: pages, checkpoints, heartbeat, outcome. | The page loop changes. |
 | `FailurePolicy` | Pure function: failed attempt to next status and delay. | Retry behaviour changes. |
-| `RateBudgets` | One token bucket per budget and key, shared by every instance: requests wait for tokens, a `429` pauses the bucket. | Budgets read limits from headers (part 2.3), or learn them (2.4). |
+| `RateBudgets` | One token bucket per budget and key, shared by every instance: requests wait for tokens, a `429` pauses the bucket and lowers its rate, and the rate climbs back below the declared limit. | The learning rule changes, after a new measurement. |
 | `JobSql`, `BudgetSql` | Every SQL statement, built once for the configured schema. | A query changes. |
 | `JobStore` | Executes job statements; every write to a held job is conditional on still holding it. Owns the connection pool. | Table access changes. |
 | `BudgetStore` | Executes bucket statements, each one round trip that locks the bucket's row. | Bucket access changes. |
@@ -110,7 +110,7 @@ Three tables in the configured schema.
 
 `migrations` records which schema steps the database has.
 
-`rate_buckets` holds one row per rate budget and key: the tokens left, when they were last refilled (in the future while the bucket is paused), how many pauses it has had (`generation`), and how many tokens it has given (`taken`). Its primary key `(budget, key)` serves every statement on it.
+`rate_buckets` holds one row per rate budget and key: the tokens left, when they were last refilled (in the future while the bucket is paused), how many pauses it has had (`generation`), how many tokens it has given (`taken`), and its learned rate (`rate`, with `rate_max`, the rate that last caused a throttle). Its primary key `(budget, key)` serves every statement on it.
 
 The guarantees are indexes, not code:
 
@@ -305,3 +305,5 @@ Each is a small interface the user implements; SyncLane calls it.
 | D23 | Rate headers are read only when a recipe names them, and a reading only lowers a budget | No two of the APIs studied write them alike (docs/design/rate-budgets.md), the IETF field has changed shape twice in its drafts, and an API may count a partition other than the budget's key. A declared budget stays the ceiling; a header can only make SyncLane more careful. | Accepted |
 | D24 | A reading subtracts the requests that took a token after the one answered | The API counts a request when it arrives; requests already sent are not in the count. Without this, four requests in flight against a window with two left all go. A `taken` counter on the bucket's row (migration 3) gives each token a sequence number. The error is on the safe side: a request that overtakes another is subtracted twice. | Accepted |
 | D25 | A `403` with `Retry-After`, or whose declared remaining header is zero, is a throttle | GitHub answers a spent limit with `403` and `x-ratelimit-remaining: 0`; treating it as refused credentials abandoned jobs that only had to wait. A `403` without either signal still abandons. | Accepted |
+| D26 | Every budget learns its rate: per-token AIMD under the declared limit | Declared limits are often wrong or shared. Simulated against hidden limits, cutting to 0.7 on a fresh `429` and raising the rate per token taken while the budget is the bottleneck (2% below 90% of the last refused rate, 0.03% up to it, 0.1% above) kept `429`s under 1% at 91 to 100% throughput. Time-based growth failed at low rates, and a scale-free CUBIC collapsed on large buckets. A budget whose limit is right never changes. | Accepted |
+| D27 | A pause doubles only while the first request after the previous pause is refused again | Doubling on every `429` until a quiet spell punished a rate that was being lowered step by step, and drove pauses to five minutes. Measured, the old rule cut a window without headers from 91–96% to 72% throughput. | Accepted |

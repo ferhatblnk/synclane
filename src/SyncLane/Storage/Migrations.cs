@@ -10,6 +10,7 @@ internal static class Migrations
         new(1, "jobs table", JobsTable),
         new(2, "rate buckets", RateBucketsTable),
         new(3, "rate bucket sequence", RateBucketSequence),
+        new(4, "learned rates", LearnedRates),
     ];
 
     public static int Latest => All[^1].Version;
@@ -100,4 +101,16 @@ internal static class Migrations
     /// </summary>
     private static string RateBucketSequence(string schema) =>
         $"ALTER TABLE {schema}.{BudgetSql.TableName} ADD COLUMN IF NOT EXISTS taken bigint NOT NULL DEFAULT 0;";
+
+    /// <summary>
+    /// Version 4: the rate a bucket has learned, the rate that last caused a throttle, and how many tokens it had given
+    /// when it last paused. A row without a rate starts at its budget's starting rate.
+    /// </summary>
+    private static string LearnedRates(string schema) =>
+        $"""
+        ALTER TABLE {schema}.{BudgetSql.TableName}
+            ADD COLUMN IF NOT EXISTS rate double precision,
+            ADD COLUMN IF NOT EXISTS rate_max double precision,
+            ADD COLUMN IF NOT EXISTS taken_at_pause bigint NOT NULL DEFAULT 0;
+        """;
 }

@@ -64,6 +64,14 @@ WHERE refilled_at > now()
 ORDER BY refilled_at DESC;
 ```
 
+What each bucket has learned. `rate` is the current rate in requests a second, never above the declared limit; `rate_max` is the rate that last caused a `429`. A rate far below the declared limit means the API, or another app on the account, allows less than you declared:
+
+```sql
+SELECT budget, key, round(rate::numeric, 3) AS rate, round(rate_max::numeric, 3) AS rate_max, throttled_at
+FROM synclane.rate_buckets
+ORDER BY budget, rate;
+```
+
 ## Changing
 
 Everything `ISyncLane` does is a plain update, so you can do the same from `psql` when you need something it does not offer.

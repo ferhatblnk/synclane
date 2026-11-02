@@ -78,13 +78,19 @@ public sealed partial class RateBudgets
 
     /// <summary>
     /// Pauses the permit's budget for its key because the API answered "slow down" to the request sent with it. Every
-    /// request of the key, on every instance, waits until the pause ends; then the bucket refills from empty. Returns
-    /// how long the pause lasts: use it as the wait of the job that got the answer.
+    /// request of the key, on every instance, waits until the pause ends; then the bucket refills from empty, at 0.7
+    /// times the rate it had, and climbs back while requests go through. Returns how long the pause lasts: use it as
+    /// the wait of the job that got the answer.
     /// </summary>
+    /// <remarks>
+    /// Only the first "slow down" after the latest pause began does this. Answers to requests sent before it are
+    /// already covered, so requests in flight together slow the budget down once.
+    /// </remarks>
     /// <param name="permit">The permit the throttled request was sent with.</param>
     /// <param name="retryAfter">
-    /// The wait the API asked for, from <c>Retry-After</c> or a header of its own. Without one, the pause starts at the
-    /// time of one token, at least a second, and doubles while the API keeps saying "slow down", up to five minutes.
+    /// The wait the API asked for, from <c>Retry-After</c> or a header of its own. Without one, the pause lasts one
+    /// token's time, at least a second. It doubles, up to five minutes, while the first request after each pause is
+    /// refused again: then the API is still full, not merely a little over.
     /// </param>
     /// <param name="cancellationToken">Stops the call.</param>
     public async ValueTask<TimeSpan> ThrottledAsync(BudgetPermit permit, TimeSpan? retryAfter = null, CancellationToken cancellationToken = default)
@@ -94,13 +100,13 @@ public sealed partial class RateBudgets
         var declared = Declared(permit.Budget, permit.Key);
         var now = _time.GetUtcNow();
         var asked = retryAfter is { } wait ? Clamp(wait) : (TimeSpan?)null;
-        var pause = await _store.PauseAsync(declared, permit.Key, permit.Generation, now, asked, FirstBackoff(declared), MaxBackoff, cancellationToken);
+        var pause = await _store.PauseAsync(declared, permit.Key, permit.Generation, permit.Sequence, now, asked, MinBackoff, MaxBackoff, cancellationToken);
         var left = pause.Until > now ? pause.Until - now : TimeSpan.Zero;
 
         if (pause.Paused)
         {
             _metrics.BudgetPaused(permit.Budget);
-            LogPaused(permit.Budget, left);
+            LogPaused(permit.Budget, left, pause.Rate);
         }
 
         return left;
@@ -149,18 +155,11 @@ public sealed partial class RateBudgets
             : throw new SyncLaneException(SyncLaneErrors.BudgetNotDeclared(budget));
     }
 
-    /// <summary>The first pause without <c>Retry-After</c>: one token's time, but at least a second.</summary>
-    private static TimeSpan FirstBackoff(BudgetDescription budget)
-    {
-        var oneToken = budget.Per / budget.Limit;
-        return oneToken > MinBackoff ? oneToken : MinBackoff;
-    }
-
     private static TimeSpan Clamp(TimeSpan asked) =>
         asked < TimeSpan.Zero ? TimeSpan.Zero : asked > MaxPause ? MaxPause : asked;
 
-    [LoggerMessage(Level = LogLevel.Warning, Message = "Budget {Budget} is paused for {Pause} because the API asked to slow down. Every job that draws from it waits.")]
-    private partial void LogPaused(string budget, TimeSpan pause);
+    [LoggerMessage(Level = LogLevel.Warning, Message = "Budget {Budget} is paused for {Pause} because the API asked to slow down, and goes on at {Rate} requests a second. Every job that draws from it waits.")]
+    private partial void LogPaused(string budget, TimeSpan pause, double rate);
 
     [LoggerMessage(Level = LogLevel.Information, Message = "Budget {Budget} waits {Pause} because the API said nothing is left until then.")]
     private partial void LogExhausted(string budget, TimeSpan pause);
