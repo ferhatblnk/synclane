@@ -223,9 +223,12 @@ builder.Services.AddSyncLane(lane =>
 builder.Services.AddSyncLaneHttp(http =>
 {
     http.Credentials<ShopCredentials>();   // your ICredentialStore: credentials stay in your own storage
-    http.Recipe("orders", File.ReadAllText("recipes/orders.json")).WriteTo<OrderSink>();
+    http.Recipe("orders", File.ReadAllText("recipes/orders.json"))
+        .WriteToPostgres("shop_orders", table => table.VersionedBy("$.updated_at"));
 });
 ```
+
+`WriteToPostgres` creates the table and keeps one row per account and record: no DDL, no upsert to write. A page that runs twice changes nothing, and an older copy of a record never replaces a newer one. Records are keyed by `$.id` when every record has a unique one; otherwise the job stops and names the fields that could serve. `WriteToHttp(url)` posts the same records, with their keys and versions, to a service of yours. Any other store takes an `IRecordSink` of your own, and `SinkConformance.CheckAsync` tells you, in a test, whether it survives pages written twice.
 
 - **Paging:** page number, offset, cursor, next URL, `Link` header. **Auth:** bearer, basic, API key, OAuth 2.0 (client credentials and refresh token), signed requests.
 - A recipe holds no secret and can only call the host it names. Every problem in it is reported, with a code, before anything runs.

@@ -32,6 +32,27 @@ public static class HttpSourceServiceCollectionExtensions
         foreach (var sink in options.Bindings.Select(binding => binding.SinkType).OfType<Type>().Distinct())
             services.TryAddScoped(sink);
 
+        if (options.Bindings.Any(binding => binding.Postgres is not null))
+        {
+            services.TryAddSingleton(provider => new PostgresSinks(
+                provider.GetRequiredService<SyncLaneOptions>(),
+                provider.GetRequiredService<TimeProvider>(),
+                provider.GetRequiredService<Microsoft.Extensions.Logging.ILoggerFactory>()));
+        }
+
+        if (options.Bindings.Any(binding => binding.Http is not null))
+        {
+            services.TryAddSingleton(provider => new HttpSinks(
+                provider.GetRequiredService<IHttpClientFactory>(),
+                provider.GetRequiredService<HttpSourceOptions>(),
+                provider.GetRequiredService<TimeProvider>()));
+
+            services.AddHttpClient(HttpSource.DestinationClientName)
+                .ConfigurePrimaryHttpMessageHandler(HttpSource.CreatePrimaryHandler)
+                .ConfigureHttpClient(client => client.Timeout = Timeout.InfiniteTimeSpan)
+                .RemoveAllLoggers();
+        }
+
         if (options.CredentialStore is { } store)
             services.AddScoped(typeof(ICredentialStore), store);
 

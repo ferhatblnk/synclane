@@ -75,6 +75,9 @@ public static class HttpErrorCodes
     /// <summary>A recipe draws from a rate budget that is not declared.</summary>
     public const string BudgetMissing = "SL5023";
 
+    /// <summary>A destination's setting cannot work: a table or schema name, a key path or a version path.</summary>
+    public const string SinkSettingInvalid = "SL5024";
+
     /// <summary>The recipe uses the job's window, and the job has none.</summary>
     public const string WindowMissing = "SL5101";
 
@@ -146,4 +149,25 @@ public static class HttpErrorCodes
 
     /// <summary>A request signer changed the method, scheme, host or port of the request.</summary>
     public const string SignerMovedRequest = "SL5124";
+
+    /// <summary>A record has no value its destination can key it by.</summary>
+    public const string RecordKeyMissing = "SL5125";
+
+    /// <summary>A record's version is neither a number nor an ISO 8601 time.</summary>
+    public const string RecordVersionInvalid = "SL5126";
+
+    /// <summary>A destination's table does not exist, and <c>CreateSchema</c> is off.</summary>
+    public const string SinkTableMissing = "SL5127";
+
+    /// <summary>An HTTP destination refused a page and will keep refusing: a redirect, 410 or another 4xx.</summary>
+    public const string DestinationRejected = "SL5128";
+
+    /// <summary>An HTTP destination did not take a page after a few tries: 5xx, a timeout or a network failure.</summary>
+    public const string DestinationUnavailable = "SL5129";
+
+    /// <summary>A single record is larger than an HTTP destination accepts.</summary>
+    public const string RecordTooLarge = "SL5130";
+
+    /// <summary>A sink failed a scenario of <see cref="SinkConformance"/>: a page delivered again changed what it stored.</summary>
+    public const string SinkNotIdempotent = "SL5131";
 }

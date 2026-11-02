@@ -13,6 +13,12 @@ public static class HttpSource
     public const string ClientName = "SyncLane.Http";
 
     /// <summary>
+    /// The name of the <see cref="HttpClient"/> HTTP destinations post with. Like <see cref="ClientName"/>, it follows no
+    /// redirects; do not add retry handlers, the destination already tries three times.
+    /// </summary>
+    public const string DestinationClientName = "SyncLane.Http.Destination";
+
+    /// <summary>
     /// The connection handler: no redirects, so a recipe only calls the host it names and headers never travel to
     /// another one; gzip, deflate and brotli answered when the server offers them; connections renewed every two
     /// minutes so DNS changes are seen.

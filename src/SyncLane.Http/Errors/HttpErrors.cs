@@ -240,4 +240,51 @@ internal static class HttpErrors
     public static SyncError RecordsNotArray(string recipe, string path, string kind) => new(
         HttpErrorCodes.RecordsNotArray, SyncErrorKind.Configuration,
         $"Recipe '{recipe}': records '{path}' leads to a JSON {kind}, not an array. Point the path at the list of records.");
+
+    public static SyncError SinkSettingInvalid(string? type, string setting, string rule) => new(
+        HttpErrorCodes.SinkSettingInvalid, SyncErrorKind.Configuration,
+        (type is null ? "The" : $"Job type '{type}': the") + $" destination's {setting} {rule}. See destinations in docs/recipes.md.");
+
+    public static SyncError RecordKeyMissing(string recipe, string key, IReadOnlyCollection<string> candidates) => new(
+        HttpErrorCodes.RecordKeyMissing, SyncErrorKind.Validation,
+        $"Recipe '{recipe}': a record of this page cannot be keyed by {key}: the value is missing, is not a string or a " +
+        "number, or is not unique in the page. Without a key a repeated page would be written twice. " +
+        (candidates.Count > 0
+            ? $"Fields that could serve, present, scalar and unique in this page: {string.Join(", ", candidates)}. Name one with KeyedBy(...). "
+            : "Name the key with KeyedBy(...), or, for records that never change, key them by their content with KeyedByContent(). ") +
+        "Then requeue the job.");
+
+    public static SyncError RecordVersionInvalid(string recipe, string path) => new(
+        HttpErrorCodes.RecordVersionInvalid, SyncErrorKind.Validation,
+        $"Recipe '{recipe}': a record's version at {path} is neither a number nor an ISO 8601 time, so an older copy " +
+        "could not be told from a newer one. Name another field with VersionedBy(...), or leave the version out; then requeue the job.");
+
+    public static SyncError SinkTableMissing(string schema, string table) => new(
+        HttpErrorCodes.SinkTableMissing, SyncErrorKind.Configuration,
+        $"The destination table {schema}.{table} does not exist, and CreateSchema is off, so SyncLane does not create it. " +
+        $"Run the SQL from PostgresSinkSchema.Script(\"{schema}\", \"{table}\") in your own migration, or set CreateSchema to true; then requeue the job.");
+
+    public static SyncError DestinationRejected(string type, int status) => new(
+        HttpErrorCodes.DestinationRejected, SyncErrorKind.Validation,
+        $"Job type '{type}': the HTTP destination answered {status} and will keep refusing: " + status switch
+        {
+            410 => "the endpoint says it is gone. Point WriteToHttp at the new one",
+            401 or 403 => "it does not accept the request. Check the headers configured for it",
+            >= 300 and < 400 => "redirects are not followed. Use the final URL in WriteToHttp",
+            _ => "fix the receiver, or the URL in WriteToHttp"
+        } + "; then requeue the job.");
+
+    public static SyncError DestinationUnavailable(string type, string failure) => new(
+        HttpErrorCodes.DestinationUnavailable, SyncErrorKind.Unavailable,
+        $"Job type '{type}': the HTTP destination did not take the page after three tries ({failure}). The job runs again later, from the same page.");
+
+    public static SyncError RecordTooLarge(string type, int maxBytes) => new(
+        HttpErrorCodes.RecordTooLarge, SyncErrorKind.Validation,
+        $"Job type '{type}': a single record is larger than the HTTP destination accepts (it answered 413, or the record is over MaxBytes, {maxBytes} bytes). " +
+        "Raise the receiver's limit or MaxBytes; then requeue the job.");
+
+    public static SyncError SinkNotIdempotent(string scenario, string finding) => new(
+        HttpErrorCodes.SinkNotIdempotent, SyncErrorKind.Validation,
+        $"The sink failed '{scenario}': {finding}. A page can be delivered more than once, so writing it again must change " +
+        "nothing; write by key, and keep the newer version. See 'A sink of your own' in docs/recipes.md.");
 }

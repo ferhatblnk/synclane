@@ -117,6 +117,8 @@ public sealed class HttpSourceOptions
             .Select(group => HttpErrors.RecipeDeclaredTwice(group.Key)));
 
         errors.AddRange(_bindings.Where(binding => !binding.HasSink).Select(binding => HttpErrors.SinkMissing(binding.JobType)));
+        errors.AddRange(_bindings.Where(binding => binding.Postgres is not null).SelectMany(binding => binding.Postgres!.Validate(binding.JobType)));
+        errors.AddRange(_bindings.Where(binding => binding.Http is not null).SelectMany(binding => binding.Http!.Validate(binding.JobType)));
 
         errors.AddRange(_signers
             .GroupBy(signer => signer.Name, StringComparer.Ordinal)

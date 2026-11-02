@@ -261,7 +261,7 @@ Each is a small interface the user implements; SyncLane calls it.
 | --- | --- | --- |
 | `IJobHandler` | Available | Run one page of a job and return the next cursor. |
 | `IOwnerSource` | Available | List the accounts a queue should plan for. |
-| `IRecordSink` | Available in `SyncLane.Http` | Write the records of a page. Ready-made sinks are planned. |
+| `IRecordSink` | Available in `SyncLane.Http` | Write the records of a page. `WriteToPostgres` and `WriteToHttp` are built in; `RecordIdentity` gives custom sinks the same keys, versions and duplicate removal, and `SinkConformance` checks them against replays. |
 | `ICredentialStore` | Available in `SyncLane.Http` | Give an owner's credential for a page, and save a rotated refresh token. Credentials stay in the user's storage, outside the jobs table. |
 | `IRequestSigner` | Available in `SyncLane.Http` | Sign an outgoing request for APIs that require it. May add headers and query parameters, never move the request. |
 | Rate budgets | Available | `RateBudgets` for hand-written handlers, `rate` in recipes. |
@@ -271,8 +271,8 @@ Each is a small interface the user implements; SyncLane calls it.
 | Package | Contents | Status |
 | --- | --- | --- |
 | `SyncLane` | Engine: planning, running, storage, results, errors, telemetry | This repository |
-| `SyncLane.Http` | Declarative HTTP source: recipes, pagination, auth, rate budgets | Preview: recipes run, page and authenticate ([docs/recipes.md](docs/recipes.md)); checked against five public APIs ([samples/LiveCheck](samples/LiveCheck)) |
-| `SyncLane.Sinks.*` | Destinations | Planned |
+| `SyncLane.Http` | Declarative HTTP source: recipes, pagination, auth, rate budgets, the PostgreSQL and HTTP destinations | Preview: recipes run, page and authenticate ([docs/recipes.md](docs/recipes.md)); checked against five public APIs ([samples/LiveCheck](samples/LiveCheck)) |
+| `SyncLane.Sinks.*` | Destinations for other databases, one package each, on the public `RecordIdentity` | Planned |
 | `SyncLane.Cli` | `init --curl`, `probe`, `test` | Planned |
 | Adapters to in-house packages | For example `SyncResult` to `ApiResult` | Separate solution, never in this one |
 
@@ -309,3 +309,9 @@ Each is a small interface the user implements; SyncLane calls it.
 | D27 | A pause doubles only while the first request after the previous pause is refused again | Doubling on every `429` until a quiet spell punished a rate that was being lowered step by step, and drove pauses to five minutes. Measured, the old rule cut a window without headers from 91–96% to 72% throughput. | Accepted |
 | D28 | Attempts count failures since the last saved page | A saved page proves the attempt works and is never lost, so a job that keeps making progress always reaches the end. Counting over a job's life abandoned long jobs for failures hours apart. | Accepted |
 | D29 | With a rate budget, a throttle postpones the job instead of using an attempt | The budget's pause already protects the API, growing to five minutes while the first request after each pause is refused. Counting attempts on top abandoned jobs during an hour of throttling, though nothing was wrong with them. The cost: a job on an account that refuses forever waits forever; `synclane.budget.paused` and the `SL5105` in its row show it. | Accepted |
+| D30 | A destination needs a key, and infers one only when it is safe | A page is delivered at least once, so without a key a repeat is a duplicate. `$.id` is used when every record of the page has a unique scalar one; anything else stops the job and names the fields that could serve. Records that never change can be keyed by a hash of their canonical content. Appending without a key is never a fallback. | Accepted |
+| D31 | The Postgres destination writes a page with one `INSERT … SELECT FROM unnest(…) ON CONFLICT`, not `COPY` into a temporary table | Measured on PostgreSQL 18 with pages half new and half changed: 0.71 ms against 1.50 for 100 records, 12.98 against 14.65 for 2,000, 73 against 76 for 10,000. `COPY` needs a transaction, a temporary table and a second statement, four more round trips over a network. | Accepted |
+| D32 | A destination owns its table, and a row is rewritten only when its record changed | No DDL for the user, and a fixed shape SyncLane can rely on. Skipping unchanged rows means syncing the same data again writes nothing, which saves write-ahead log and bloat. Versions are compared as numbers or as instants, never as text. | Accepted |
+| D33 | The HTTP destination's body holds no time, and its id is a hash of the body | The same records then always make the same bytes and the same id. A page sent again carries its old id, so a receiver can drop it, and a page whose records changed carries a new one, so no id is ever reused with a different payload. That is what both Standard Webhooks and the `Idempotency-Key` draft require. The send time travels in the signed `webhook-timestamp` header. | Accepted |
+| D34 | The HTTP destination retries in the page, and postpones when the receiver asks to slow down | Failing the attempt would fetch the source page again and spend the source's rate budget to resend records already in hand. Three quick tries cover a blip; a receiver that asks to slow down is pacing, not failing (as D29), and a wait over 30 seconds does not hold the worker. | Accepted |
+| D35 | Custom sinks get a conformance check, not examples | Examples show the happy path; sinks break on replays. `SinkConformance.CheckAsync` replays pages the way workers do and reads the store back, returns a result, and depends on no test framework. A sink with its own record shape maps the samples with one function. | Accepted |
