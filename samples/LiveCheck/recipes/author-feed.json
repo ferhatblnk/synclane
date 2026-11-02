@@ -1,5 +1,6 @@
 {
   // A cursor in the answer, sent back as a query parameter. The owner key is the account whose feed is read.
+  "$schema": "../../../schemas/recipe.schema.json",
   "name": "bluesky/author-feed",
   "request": {
     "url": "https://public.api.bsky.app/xrpc/app.bsky.feed.getAuthorFeed",

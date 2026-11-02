@@ -17,6 +17,8 @@ Run the PostgreSQL tests before calling any change to storage, running or the pu
 
 `docs/schema.sql` is generated. After adding a migration, regenerate it from `SyncLaneSchema.Script()`; `OptionsTests` fails until you do.
 
+`schemas/recipe.schema.json` is generated from the recipe types and their XML comments. After changing a recipe type or its comments, run `SYNCLANE_WRITE_SCHEMA=1 dotnet test --filter "FullyQualifiedName~RecipeSchemaTests"` and build again; `RecipeSchemaTests` fails until you do.
+
 ## Layout
 
 | Path | What lives there |
@@ -31,6 +33,7 @@ Run the PostgreSQL tests before calling any change to storage, running or the pu
 | `src/SyncLane/Telemetry` | Metrics instruments and outcome names. |
 | `src/SyncLane.Http` | The declarative HTTP source: recipes, request building, record paths, paging, authentication, its own codes (`HttpErrorCodes`) and catalog (`HttpErrors`). Uses only the engine's public API. |
 | `tests/SyncLane.Tests` | Unit tests, PostgreSQL tests (`[PostgresFact]`) and `ConventionTests`. |
+| `schemas` | `recipe.schema.json`, generated; embedded in `SyncLane.Http`. |
 | `docs` | User documentation and `errors.md`. Design notes, phase plans and analyses are kept out of the repository, in the git-ignored `private/` folder. |
 
 ## Rules

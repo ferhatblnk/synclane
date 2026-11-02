@@ -235,7 +235,7 @@ builder.Services.AddSyncLaneHttp(http =>
 - Checked against five public APIs, one per paging style: [samples/LiveCheck](samples/LiveCheck).
 - Not covered yet: a different host per owner, values per owner other than its key, multi-step flows (start a report, wait, download), GraphQL, XML or CSV answers. Write a handler for those; the engine is the same.
 
-The whole format: [docs/recipes.md](docs/recipes.md).
+The whole format: [docs/recipes.md](docs/recipes.md). Add `"$schema"` to a recipe and your editor completes, explains and checks every field as you type ([schemas/recipe.schema.json](schemas/recipe.schema.json)).
 
 ## Working with jobs from your code
 

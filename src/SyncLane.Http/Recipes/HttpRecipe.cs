@@ -42,6 +42,14 @@ public sealed record HttpRecipe
     public HttpRecipeRate? Rate { get; init; }
 
     /// <summary>
+    /// The JSON Schema of a recipe, for editors and tools: every field with its description, and the values each choice
+    /// takes. Name it in a recipe's <c>$schema</c>, as the URL in its <c>$id</c> or a path to <c>schemas/recipe.schema.json</c>,
+    /// and an editor completes and checks the recipe while it is written. <see cref="Parse"/> still checks what a schema
+    /// cannot, such as a URL's host or a placeholder's name.
+    /// </summary>
+    public static string JsonSchema => Schemas.Recipe.Value;
+
+    /// <summary>
     /// Reads a recipe from JSON and validates it. Every problem found is returned at once, each with its code.
     /// </summary>
     public static SyncResult<HttpRecipe> Parse(string json)
@@ -395,3 +403,15 @@ public enum WindowFormat
     AllowTrailingCommas = true)]
 [JsonSerializable(typeof(HttpRecipe))]
 internal sealed partial class RecipeJson : JsonSerializerContext;
+
+/// <summary>The schema of a recipe, read once from the file embedded at build time.</summary>
+internal static class Schemas
+{
+    public static readonly Lazy<string> Recipe = new(() =>
+    {
+        // The file is embedded by the project, so it is always there.
+        using var stream = typeof(HttpRecipe).Assembly.GetManifestResourceStream("SyncLane.Http.recipe.schema.json")!;
+        using var reader = new StreamReader(stream);
+        return reader.ReadToEnd();
+    });
+}

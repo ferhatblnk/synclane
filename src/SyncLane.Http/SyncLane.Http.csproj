@@ -28,4 +28,8 @@
     <InternalsVisibleTo Include="SyncLane.Tests" />
   </ItemGroup>
 
+  <ItemGroup>
+    <!-- Generated from the recipe types by RecipeSchemaTests; see CLAUDE.md. -->
+    <EmbeddedResource Include="..\..\schemas\recipe.schema.json" LogicalName="SyncLane.Http.recipe.schema.json" />
+  </ItemGroup>
 </Project>

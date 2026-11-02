@@ -1,5 +1,6 @@
 {
   // The full URL of the next page, in the answer.
+  "$schema": "../../../schemas/recipe.schema.json",
   "name": "pokeapi/pokemon",
   "request": {
     "url": "https://pokeapi.co/api/v2/pokemon",

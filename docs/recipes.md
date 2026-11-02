@@ -8,7 +8,7 @@ A recipe tells `SyncLane.Http` how to fetch one job type over HTTP: the request,
 
 ```jsonc
 {
-  "$schema": "https://example.com/recipe.v1.json",   // optional; for editors only
+  "$schema": "https://raw.githubusercontent.com/ferhatblnk/synclane/main/schemas/recipe.schema.json",
   "name": "example-shop/orders",
   "request": {
     "method": "GET",
@@ -26,6 +26,14 @@ A recipe tells `SyncLane.Http` how to fetch one job type over HTTP: the request,
 ```
 
 The platform and endpoint above are made up; the format is real. Comments and trailing commas are allowed. A field the format does not know is an error, so a typo is caught instead of silently ignored.
+
+**`$schema` makes the editor help while you write.** It points at the recipe's JSON Schema, generated from the same types `HttpRecipe.Parse` reads, so it never disagrees with them. VS Code, Rider and Visual Studio then:
+- complete field names;
+- show each field's description on hover;
+- list the choices of fields such as `auth.type` or `pagination.type`, each with what it does;
+- underline a misspelt field before anything runs.
+
+Use the URL above, or a path to [schemas/recipe.schema.json](../schemas/recipe.schema.json) in a copy of the repository. The schema is also `HttpRecipe.JsonSchema`, for tools. It checks the shape; `Parse` still checks what a schema cannot, such as the URL's host or a placeholder's name. In VS Code, a recipe with comments is happiest as `jsonc`: name it `orders.jsonc`, or add `"files.associations": { "recipes/*.json": "jsonc" }`.
 
 Load it and see every problem at once:
 
