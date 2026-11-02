@@ -1,5 +1,6 @@
 {
   // A record offset that starts at 1, inside the job's window. Sorted by time, so offsets stay stable.
+  "$schema": "../../../schemas/recipe.schema.json",
   "name": "usgs/earthquakes",
   "request": {
     "url": "https://earthquake.usgs.gov/fdsnws/event/1/query",

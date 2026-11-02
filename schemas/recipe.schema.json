@@ -1,0 +1,288 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://raw.githubusercontent.com/ferhatblnk/synclane/main/schemas/recipe.schema.json",
+  "title": "SyncLane HTTP recipe",
+  "description": "How to fetch one job type over HTTP: the request, where the records are in the answer and how the job\u0027s window is written. Build it in code or load it from JSON with String); the format is described in docs/recipes.md.",
+  "type": "object",
+  "properties": {
+    "$schema": {
+      "description": "The JSON Schema the file follows. Ignored by SyncLane; lets editors check the file.",
+      "type": "string"
+    },
+    "name": {
+      "description": "A name for messages and logs, such as \u0060example-shop/orders\u0060.",
+      "type": "string"
+    },
+    "request": {
+      "description": "The request to send for each page.",
+      "type": "object",
+      "properties": {
+        "method": {
+          "description": "\u0060GET\u0060 or \u0060POST\u0060. Defaults to \u0060GET\u0060.",
+          "type": "string"
+        },
+        "url": {
+          "description": "The absolute https URL. Placeholders may appear in the path and the query, never in the scheme, host or port, so a recipe can only call the host it names. Placeholder values are escaped.",
+          "type": "string"
+        },
+        "query": {
+          "description": "Query parameters added to the URL. Values may contain placeholders and are escaped.",
+          "type": "object",
+          "additionalProperties": {
+            "type": "string"
+          }
+        },
+        "headers": {
+          "description": "Request headers. Values may contain placeholders. \u0060Authorization\u0060 and \u0060Proxy-Authorization\u0060 are refused: credentials go through Auth, never into a recipe.",
+          "type": "object",
+          "additionalProperties": {
+            "type": "string"
+          }
+        },
+        "body": {
+          "description": "A JSON body for POST. Placeholders are filled in string values only, and written as JSON strings, so a value can never change the shape of the body."
+        },
+        "allowHttp": {
+          "description": "Allow a plain http URL. Meant for local test servers; leave it off for real APIs.",
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "url"
+      ],
+      "additionalProperties": false
+    },
+    "records": {
+      "description": "Where the array of records is in the JSON answer: \u0060$\u0060 for the root, or \u0060$.data.items\u0060. Defaults to the root.",
+      "type": "string"
+    },
+    "window": {
+      "description": "How the job\u0027s window is written into the request. Defaults to ISO 8601 in UTC.",
+      "type": "object",
+      "properties": {
+        "format": {
+          "description": "The format of \u0060{{window.start}}\u0060 and \u0060{{window.end}}\u0060. Always in UTC.",
+          "enum": [
+            "iso8601",
+            "unix",
+            "unixMilliseconds",
+            "date"
+          ],
+          "enumDescriptions": [
+            "\u00602026-10-30T12:00:00Z\u0060.",
+            "Seconds since 1970-01-01, such as \u00601793361600\u0060.",
+            "Milliseconds since 1970-01-01.",
+            "The date only, \u00602026-10-30\u0060. Use it only when windows start and end at midnight."
+          ]
+        }
+      },
+      "additionalProperties": false
+    },
+    "pagination": {
+      "description": "How to get the next page. Leave it out when one request returns everything.",
+      "type": "object",
+      "properties": {
+        "type": {
+          "description": "How the API pages.",
+          "enum": [
+            "page",
+            "offset",
+            "cursor",
+            "nextUrl",
+            "linkHeader"
+          ],
+          "enumDescriptions": [
+            "A page number in a query parameter: 1, 2, 3.",
+            "A record offset in a query parameter: 0, 100, 200.",
+            "A token from the answer, sent back in a query parameter.",
+            "The full URL of the next page, in the answer.",
+            "The URL of the next page in the \u0060Link\u0060 header, with \u0060rel=\u0022next\u0022\u0060."
+          ]
+        },
+        "param": {
+          "description": "The query parameter that carries the page number, the offset or the cursor.",
+          "type": "string"
+        },
+        "start": {
+          "description": "The first page number (default 1) or the first offset (default 0).",
+          "type": "integer"
+        },
+        "size": {
+          "description": "Records per page. With Page a shorter page is the last one, which saves a request; without it the last page is the first empty one. Required for Offset.",
+          "type": "integer"
+        },
+        "sizeParam": {
+          "description": "A query parameter to send Size in, such as \u0060limit\u0060 or \u0060per_page\u0060.",
+          "type": "string"
+        },
+        "from": {
+          "description": "For Cursor: where the next cursor is in the answer, such as \u0060$.meta.next\u0060. For NextUrl: where the next page\u0027s URL is, such as \u0060$.links.next\u0060.",
+          "type": "string"
+        },
+        "fromLastRecord": {
+          "description": "For Cursor: take the cursor from this property of the page\u0027s last record instead, such as \u0060id\u0060.",
+          "type": "string"
+        },
+        "hasMore": {
+          "description": "For Cursor: a boolean in the answer that is \u0060false\u0060 on the last page, such as \u0060$.has_more\u0060.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "type"
+      ],
+      "additionalProperties": false
+    },
+    "auth": {
+      "description": "How requests are authenticated. Leave it out for an open API. A recipe never holds a secret: it names the credential, and the ICredentialStore gives its values for each owner.",
+      "type": "object",
+      "properties": {
+        "type": {
+          "description": "The authentication scheme.",
+          "enum": [
+            "bearer",
+            "basic",
+            "apiKey",
+            "oauth2",
+            "signed"
+          ],
+          "enumDescriptions": [
+            "\u0060Authorization: Bearer\u0060 with the credential\u0027s Token.",
+            "\u0060Authorization: Basic\u0060 with the credential\u0027s user name and password.",
+            "The credential\u0027s Token in a header or query parameter of the recipe\u0027s choice.",
+            "An OAuth 2.0 access token, fetched from the token endpoint, kept in memory and renewed before it expires.",
+            "Each request signed by an IRequestSigner you register."
+          ]
+        },
+        "credential": {
+          "description": "The name the credential store finds the values under, together with the job\u0027s owner. Recipes for one account share a name, such as \u0060example-shop\u0060.",
+          "type": "string"
+        },
+        "in": {
+          "description": "For ApiKey: where the key goes. Defaults to a header.",
+          "enum": [
+            "header",
+            "query"
+          ],
+          "enumDescriptions": [
+            "In a request header.",
+            "In a query parameter. Prefer a header when the API accepts one: a URL is recorded in more places."
+          ]
+        },
+        "name": {
+          "description": "For ApiKey: the header or query parameter that carries the key, such as \u0060X-Api-Key\u0060.",
+          "type": "string"
+        },
+        "prefix": {
+          "description": "For ApiKey in a header: text written before the key, such as \u0060Token \u0060.",
+          "type": "string"
+        },
+        "grant": {
+          "description": "For OAuth2: how the access token is obtained.",
+          "enum": [
+            "clientCredentials",
+            "refreshToken"
+          ],
+          "enumDescriptions": [
+            "The client credentials grant: the client id and secret alone.",
+            "The refresh token grant: a refresh token the owner granted, for example through a consent screen in your application."
+          ]
+        },
+        "tokenUrl": {
+          "description": "For OAuth2: the absolute https URL of the token endpoint. No placeholders.",
+          "type": "string"
+        },
+        "scope": {
+          "description": "For OAuth2: the scope to ask for, such as \u0060orders:read\u0060. Left out, none is sent.",
+          "type": "string"
+        },
+        "clientAuth": {
+          "description": "For OAuth2: how the client id and secret reach the token endpoint. Defaults to Basic.",
+          "enum": [
+            "basic",
+            "body"
+          ],
+          "enumDescriptions": [
+            "In an \u0060Authorization: Basic\u0060 header, as RFC 6749 recommends.",
+            "As \u0060client_id\u0060 and \u0060client_secret\u0060 in the form body, for endpoints that only accept that."
+          ]
+        },
+        "signer": {
+          "description": "For Signed: the name the IRequestSigner was registered under.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "type",
+        "credential"
+      ],
+      "additionalProperties": false
+    },
+    "rate": {
+      "description": "The rate budget the recipe\u0027s requests draw from. Leave it out to send as fast as the queue\u0027s concurrency allows, which is fine for an API without a limit and rarely anywhere else.",
+      "type": "object",
+      "properties": {
+        "budget": {
+          "description": "The budget\u0027s name, as declared with \u0060lane.AddBudget\u0060 in \u0060AddSyncLane\u0060.",
+          "type": "string"
+        },
+        "key": {
+          "description": "Whose bucket. Defaults to \u0060{{owner.key}}\u0060, one bucket per owner. Write a fixed text, such as \u0060shared-account\u0060, for owners that share one set of credentials and so one limit.",
+          "type": "string"
+        },
+        "headers": {
+          "description": "The headers in which the API says how many requests are left and when more come. Leave it out when its answers say nothing. No header is read unless it is named here.",
+          "type": "object",
+          "properties": {
+            "remaining": {
+              "description": "The header with how many requests are left, such as \u0060X-Rate-Limit-Remaining\u0060.",
+              "type": "string"
+            },
+            "remainingFormat": {
+              "description": "How Remaining is written. Defaults to Number.",
+              "enum": [
+                "number",
+                "used/limit",
+                "ietf"
+              ],
+              "enumDescriptions": [
+                "A number, such as \u006012\u0060.",
+                "Used of a limit, such as \u006032/40\u0060: 8 are left.",
+                "The \u0060RateLimit\u0060 field of the IETF draft, such as \u0060\u0022default\u0022;r=50;t=30\u0060: 50 are left within the next 30 seconds. It carries its own window, so Reset stays empty."
+              ]
+            },
+            "reset": {
+              "description": "The header with when more requests become available, such as \u0060X-Rate-Limit-Reset\u0060.",
+              "type": "string"
+            },
+            "resetFormat": {
+              "description": "How Reset is written. Defaults to Seconds.",
+              "enum": [
+                "seconds",
+                "unix",
+                "unix-ms",
+                "http-date"
+              ],
+              "enumDescriptions": [
+                "Seconds from now, such as \u006041\u0060.",
+                "A Unix time in seconds, such as \u00601793361600\u0060.",
+                "A Unix time in milliseconds, such as \u00601793361600000\u0060.",
+                "An HTTP date, such as \u0060Fri, 30 Oct 2026 12:00:00 GMT\u0060."
+              ]
+            }
+          },
+          "additionalProperties": false
+        }
+      },
+      "required": [
+        "budget"
+      ],
+      "additionalProperties": false
+    }
+  },
+  "required": [
+    "name",
+    "request"
+  ],
+  "additionalProperties": false
+}

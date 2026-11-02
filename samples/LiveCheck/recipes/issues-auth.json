@@ -1,5 +1,6 @@
 {
   // The same list, signed in: a bearer token from the credential store. Runs only when a token is given.
+  "$schema": "../../../schemas/recipe.schema.json",
   "name": "github/dotnet-runtime-issues-signed-in",
   "request": {
     "url": "https://api.github.com/repos/dotnet/runtime/issues",
