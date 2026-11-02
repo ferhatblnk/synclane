@@ -5,11 +5,89 @@
 [![.NET 10](https://img.shields.io/badge/.NET-10-512BD4.svg)](https://dotnet.microsoft.com/)
 [![Tested on PostgreSQL 17](https://img.shields.io/badge/tested%20on-PostgreSQL%2017-336791.svg)](.github/workflows/ci.yml)
 
-**A small job scheduler for syncing data from other people's APIs. Every job is one row in a PostgreSQL table you own: its window, its cursor, its attempts, its error.**
+**Sync data from other people's APIs into your own database, from inside your .NET application. Start from a curl that works; every job is one row in a PostgreSQL table you own.**
 
-If your application pulls orders, products or anything else from an external API on behalf of many accounts, you end up needing the same things: load two years of history without one request that runs for a day, pick up what is new every few minutes, continue after a crash instead of starting over, back off when the other side says "slow down", and never hit one account's rate limit from two workers at once.
+If your application pulls orders, products or anything else from an external API on behalf of many accounts, you end up needing the same things: load two years of history without one request that runs for a day, pick up what is new every few minutes, continue after a crash instead of starting over, back off when the other side says "slow down", never hit one account's rate limit from two workers at once, and write each record once.
 
-SyncLane is a .NET library that does exactly that and nothing else. It has one table, about 1,200 lines of code, and no dependency beyond Npgsql and the `Microsoft.Extensions` abstractions.
+SyncLane does exactly that and nothing else. It is a library inside your process, not a server: one table, no account, no data leaving your infrastructure, free under Apache 2.0.
+
+## From a curl to synced data
+
+```mermaid
+flowchart TD
+    curl["A curl that works<br/>from the API's docs or your browser"]
+    init["synclane init<br/>sends it once, writes orders.jsonc<br/>with every guess explained"]
+    test["synclane test<br/>two real pages, no database:<br/>records, key and paging checked"]
+    curl --> init --> test
+
+    subgraph app["Your application, your database"]
+        register["AddSyncLane + AddSyncLaneHttp<br/>about 15 lines"]
+        planner["Planner<br/>history in slices,<br/>what is new every few minutes"]
+        jobs[("synclane.jobs<br/>one row per job:<br/>window, cursor, attempts, error")]
+        workers["Workers<br/>one account at a time,<br/>continue from the last page"]
+        register --> planner --> jobs --> workers
+    end
+
+    test --> register
+
+    workers <-->|"paced by a rate budget<br/>shared by every instance"| api["The API"]
+    workers -->|"keyed and versioned:<br/>a repeated page changes nothing"| dest[("Your table, your service<br/>or a sink of your own")]
+```
+
+| You write | SyncLane does |
+| --- | --- |
+| A curl, turned into a recipe by `synclane init` | Requests, paging, authentication, retries, rate limits, reading the API's rate headers |
+| Who your accounts are: an `IOwnerSource` of a few lines | One lane per account, history cut into slices, new data every few minutes, nothing planned twice |
+| Where records go: one line, such as `WriteToPostgres("shop_orders")` | The table, the keys, the versions, no duplicates after a crash or a retry |
+
+## Up and running in three steps
+
+The packages and the tool are not on NuGet yet. Until they are, reference the projects and run the tool with `dotnet run --project src/SyncLane.Cli --`.
+
+**1. Turn a request that works into a recipe.** Put `synclane init` in front of a curl copied from the API's documentation or your browser. It sends the request once and writes the recipe from the answer: where the records are, how to page, which query values are the time window, which rate headers the API sends. Every field it inferred has a comment saying why, and the token in the curl is written nowhere.
+
+```bash
+synclane init curl 'https://api.example-shop.com/v2/orders?updated_after=2026-10-01T00:00:00Z&page=1' \
+  -H 'Authorization: Bearer <token>'
+```
+
+**2. Check it against the real API.** Two pages, no database. Exit code 1 when something is wrong, so it also runs in CI.
+
+```bash
+synclane test orders.jsonc
+```
+
+**3. Register it.** The table is created at start-up, the planner runs once a minute and the workers start pulling.
+
+```csharp
+builder.Services.AddSyncLane(lane =>
+{
+    lane.ConnectionString = builder.Configuration.GetConnectionString("Postgres")!;
+    lane.AddQueue("shops", queue =>
+    {
+        queue.Owners<ConnectedShops>();   // who is connected
+        queue.Windowed<HttpRecipeHandler>("orders", horizon: TimeSpan.FromDays(365), slice: TimeSpan.FromDays(7), every: TimeSpan.FromMinutes(15));
+    });
+});
+
+builder.Services.AddSyncLaneHttp(http =>
+{
+    http.Credentials<ShopCredentials>();   // each account's token, from your own storage
+    http.Recipe("orders", File.ReadAllText("orders.jsonc")).WriteToPostgres("shop_orders");
+});
+```
+
+No handler, no DDL, no upsert, no retry loop. For an API a recipe cannot describe, you write a handler instead and keep everything else ([A handler of your own](#a-handler-of-your-own)).
+
+## What makes it different
+
+- **It starts from what the API does, not from what its documentation says.** One real answer shows the records, the next page and the rate headers. The recipe explains each guess beside the field it fills, and `synclane test` proves it before anything runs.
+- **It runs inside your application, on your database.** No server to operate, no account to create, no data passing through anyone else. Installing it is adding a package; the table is created at start-up.
+- **Every job is a row you can read and fix.** Window, cursor, attempts, error, next run. If something is stuck, `SELECT` tells you why and `UPDATE` fixes it.
+- **It is polite to the API, per account.** One budget per account, shared by every queue and instance. It reads what the API says is left, learns how fast is safe under the limit you declare, and pauses everyone on the account when the API says "slow down".
+- **It writes each record once.** Records are keyed by `$.id` when that is safe, by a path you name, or by their content; a page written twice changes nothing and an older copy never replaces a newer one. When it cannot key a record, it stops and names the fields that could serve. It never quietly appends.
+- **Every failure says what to do.** Each error has a code, a sentence on what went wrong and how to fix it, and a row in [docs/errors.md](docs/errors.md).
+- **It is small.** A 2,200-line engine, an HTTP source, and a command-line tool. One table plus one for rate budgets. Dependencies: Npgsql and the `Microsoft.Extensions` abstractions.
 
 ## Why
 
@@ -24,7 +102,9 @@ SyncLane keeps that state where you can read and change it:
 - **Planning that can be repeated.** The planner compares what should exist with what exists and adds the difference. Calling it a thousand times changes nothing. Raising the history from 60 days to two years fills only the gap.
 - **A row you can act on.** `status`, `attempt_count`, `error`, `next_run_at`, `leased_by`. If something is stuck, `SELECT` tells you why and `UPDATE` fixes it.
 
-## Quick start
+## A handler of your own
+
+For an API a recipe cannot describe, write the page yourself. Everything else stays the same: planning, lanes, cursors, retries, rate budgets.
 
 ```csharp
 builder.Services.AddSyncLane(lane =>
