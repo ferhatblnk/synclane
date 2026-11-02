@@ -88,6 +88,7 @@ Every problem is reported before anything runs. `AddSyncLaneHttp` throws one `Sy
 | 2xx | Records go to the sink; the job completes. | |
 | 429 | The job waits for `Retry-After` (at most `MaxRetryAfter`), or for the reset the recipe's [rate headers](#reading-what-the-api-says) give (at least a second), or the queue's throttle delay, and continues. With a [rate budget](#rate-budgets), the whole budget pauses for everyone on the key, and the job waits as long as the pause. | `SL5105` |
 | 403 with `Retry-After`, or whose declared remaining header says 0 | The same as 429. Some APIs answer a spent limit with 403. | `SL5105` |
+| 429 or such a 403, with a rate budget | The job gives its slot back for the budget's pause without using an attempt: the budget keeps the API safe, and pacing is not failing. | `SL5105` |
 | A budget's token is further away than `MaxBudgetWait` | The job gives its slot back without using an attempt and runs again when the token is due. Nothing is sent. | `SL4003` |
 | 401 to an OAuth 2.0 token kept from an earlier page | The token is renewed once and the page sent again. | |
 | 401, any other 403 | The job is abandoned at once. The same credentials will not work on the next try. | `SL5106` |

@@ -36,6 +36,8 @@ Packed as `0.2.0-preview.1` until the HTTP source has met the APIs of a producti
 ### Changed
 
 - A `403` that carries `Retry-After`, or whose declared remaining header says 0, is a throttle (`SL5105`) instead of refused credentials (`SL5106`). Some APIs answer a spent limit with `403`. The message of `SL5105` names the status it got.
+- Attempts count failures since the job last saved a page: a saved page sets `attempt_count` back to 1. Until now they added up over a job's whole life, so a job of a thousand pages that met five timeouts or `429`s hours apart was deferred and then abandoned. `MaxAttempts` now limits failures in a row.
+- With a rate budget, a `429` (or a `403` that means one) postpones the job for the budget's pause instead of using an attempt: the budget is what keeps the API safe. Without a budget it still uses one. `synclane.job.throttled` counts only the throttles that use an attempt.
 - After a `429` without `Retry-After`, the pause is one token's time, at least a second, and doubles only while the first request after each pause is refused again. Until now it doubled with every `429` until a quiet spell, which drove pauses to five minutes while the rate was being lowered.
 - The schema is at version 4: it adds the `rate_buckets` table with its `taken`, `rate`, `rate_max` and `taken_at_pause` columns, and changes nothing else. With `CreateSchema` on there is nothing to do. With it off, run `SyncLaneSchema.Script()` before starting this version; until then the host stops at start-up with `SL2001`. An instance of 0.1 keeps working against the new schema.
 - The README no longer suggests sharing a lane to share a rate limit: a lane runs one job at a time, a rate budget paces requests.

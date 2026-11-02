@@ -72,8 +72,38 @@ public class RunnerTests : PostgresTest
         Assert.Equal((JobStatus.Failed, "2", 100L, 1), (failed.Status, failed.Cursor, failed.ProcessedCount, failed.AttemptCount));
         Assert.Equal(("TimeoutException: No answer in 30 s.", Noon.AddMinutes(1)), (failed.Error, failed.NextRunAt));
         Assert.Equal([null, "2", "2", "3"], handler.Cursors);
-        Assert.Equal((JobStatus.Completed, 240L, 2), (completed.Status, completed.ProcessedCount, completed.AttemptCount));
+        // The second run saved pages, so it is the job's first attempt since its last progress.
+        Assert.Equal((JobStatus.Completed, 240L, 1), (completed.Status, completed.ProcessedCount, completed.AttemptCount));
         Assert.Null(completed.Error);
+    }
+
+    [PostgresFact]
+    public async Task A_job_that_saves_pages_between_failures_is_never_abandoned_for_failures_spread_over_its_life()
+    {
+        // Every page after the first fails once, then works: three failures in all, with two attempts allowed.
+        var failed = new HashSet<string>();
+        var handler = new ScriptedHandler((job, _) => job.Cursor switch
+        {
+            null => Task.FromResult(new JobPage("2", 10)),
+            { } cursor when failed.Add(cursor) => throw new TimeoutException("No answer in 30 s."),
+            "2" => Task.FromResult(new JobPage("3", 10)),
+            "3" => Task.FromResult(new JobPage("4", 10)),
+            _ => Task.FromResult(new JobPage(null, 10))
+        });
+        var queue = Options<ScriptedHandler>(options => options.MaxAttempts = 2);
+
+        var runs = new List<Job> { await RunAsync(handler, queue) };
+
+        // Sequential: each run starts where the previous one stopped.
+        for (var run = 0; run < 3; run++)
+        {
+            _clock.Advance(TimeSpan.FromHours(1));
+            runs.Add(await RunAsync(handler, queue, enqueue: false));
+        }
+
+        Assert.Equal([JobStatus.Failed, JobStatus.Failed, JobStatus.Failed, JobStatus.Completed], runs.Select(job => job.Status));
+        Assert.All(runs.Take(3), job => Assert.Equal(1, job.AttemptCount));
+        Assert.Equal(40L, runs[^1].ProcessedCount);
     }
 
     [PostgresFact]

@@ -66,11 +66,14 @@ internal sealed class JobSql
             RETURNING {leasedColumns}
             """;
 
+        // A saved page proves the attempt works: the count starts again at this one, so a long job that fails now and
+        // then, with progress in between, is never abandoned for failures spread over its whole life.
         Checkpoint =
             $"""
             UPDATE {table}
             SET cursor = @cursor,
                 processed_count = processed_count + @processed,
+                attempt_count = 1,
                 heartbeat_at = @now,
                 lease_expires_at = @lease_expires_at,
                 updated_at = @now
