@@ -72,7 +72,7 @@ public sealed partial class RateBudgets
             }
 
             _metrics.BudgetWaited(budget, waited);
-            return new BudgetPermit(budget, key, reservation.Generation);
+            return new BudgetPermit(budget, key, reservation.Generation, reservation.Sequence);
         }
     }
 
@@ -106,6 +106,39 @@ public sealed partial class RateBudgets
         return left;
     }
 
+    /// <summary>
+    /// Tells the permit's budget what the API's answer said is left for its key. The bucket is lowered to that, minus the
+    /// requests that took a token after this one and have not reached the API's count yet; it is never raised above its
+    /// declared rate and burst. When nothing is left and <paramref name="resetsIn"/> is known, every request of the key,
+    /// on every instance, waits until then, and the bucket restarts empty. This is not a throttle: it does not lengthen
+    /// the backoff of later "slow down" answers.
+    /// </summary>
+    /// <param name="permit">The permit the answered request was sent with.</param>
+    /// <param name="remaining">
+    /// How many requests the API said are left. A negative number counts as zero; one that is not a finite number is
+    /// ignored, like a reading that cannot be parsed.
+    /// </param>
+    /// <param name="resetsIn">When the API said more requests become available, if it said.</param>
+    /// <param name="cancellationToken">Stops the call.</param>
+    public async ValueTask ReportRemainingAsync(
+        BudgetPermit permit, double remaining, TimeSpan? resetsIn = null, CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(permit);
+        if (!double.IsFinite(remaining))
+            return;
+
+        var declared = Declared(permit.Budget, permit.Key);
+        var now = _time.GetUtcNow();
+        var resetAt = resetsIn is { } wait && wait > TimeSpan.Zero ? now + Clamp(wait) : (DateTimeOffset?)null;
+        var paused = await _store.ObserveAsync(declared, permit.Key, permit.Sequence, Math.Max(0, remaining), resetAt, now, cancellationToken);
+
+        if (paused is { } until)
+        {
+            _metrics.BudgetExhausted(permit.Budget);
+            LogExhausted(permit.Budget, until - now);
+        }
+    }
+
     private BudgetDescription Declared(string budget, string key)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(budget);
@@ -128,4 +161,7 @@ public sealed partial class RateBudgets
 
     [LoggerMessage(Level = LogLevel.Warning, Message = "Budget {Budget} is paused for {Pause} because the API asked to slow down. Every job that draws from it waits.")]
     private partial void LogPaused(string budget, TimeSpan pause);
+
+    [LoggerMessage(Level = LogLevel.Information, Message = "Budget {Budget} waits {Pause} because the API said nothing is left until then.")]
+    private partial void LogExhausted(string budget, TimeSpan pause);
 }

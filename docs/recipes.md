@@ -86,10 +86,11 @@ Every problem is reported before anything runs. `AddSyncLaneHttp` throws one `Sy
 | Answer | Outcome | Code |
 | --- | --- | --- |
 | 2xx | Records go to the sink; the job completes. | |
-| 429 | The job waits for `Retry-After` (at most `MaxRetryAfter`), or the queue's throttle delay, and continues. With a [rate budget](#rate-budgets), the whole budget pauses for everyone on the key, and the job waits as long as the pause. | `SL5105` |
+| 429 | The job waits for `Retry-After` (at most `MaxRetryAfter`), or for the reset the recipe's [rate headers](#reading-what-the-api-says) give (at least a second), or the queue's throttle delay, and continues. With a [rate budget](#rate-budgets), the whole budget pauses for everyone on the key, and the job waits as long as the pause. | `SL5105` |
+| 403 with `Retry-After`, or whose declared remaining header says 0 | The same as 429. Some APIs answer a spent limit with 403. | `SL5105` |
 | A budget's token is further away than `MaxBudgetWait` | The job gives its slot back without using an attempt and runs again when the token is due. Nothing is sent. | `SL4003` |
 | 401 to an OAuth 2.0 token kept from an earlier page | The token is renewed once and the page sent again. | |
-| 401, 403 | The job is abandoned at once. The same credentials will not work on the next try. | `SL5106` |
+| 401, any other 403 | The job is abandoned at once. The same credentials will not work on the next try. | `SL5106` |
 | 408, 5xx | Retried with the queue's growing delay. | `SL5107` |
 | No answer within `Timeout` | Retried. | `SL5108` |
 | DNS, connection, TLS or proxy failure | Retried. The message says which; the exception's own text is not kept. | `SL5109` |
@@ -272,6 +273,7 @@ lane.AddBudget("example-shop", limit: 2, per: TimeSpan.FromSeconds(1), burst: 40
 | --- | --- | --- |
 | `budget` | yes | The budget's name, as declared with `AddBudget`. A recipe naming an undeclared budget stops the application at start-up (`SL5023`). |
 | `key` | no | Whose bucket. Default `{{owner.key}}`: one bucket per owner. Write a fixed text, such as `"shared-account"`, for owners that share one set of credentials and so one limit. `{{owner.key}}` is the only placeholder allowed. |
+| `headers` | no | Where the API's answers say how many requests are left. See [Reading what the API says](#reading-what-the-api-says). |
 
 - Every request to the API waits for a token: the first request of a page, and the one sent again after an OAuth 2.0 token is renewed. Requests to a token endpoint do not draw from the budget.
 - A `429` pauses the budget for everyone on the key: for `Retry-After` when the API sent it, otherwise for a backoff that starts at one token's time (at least a second) and doubles while `429`s continue, up to five minutes. After the pause the bucket refills from empty, so requests restart at the steady rate. A `429` for a request sent before the pause began does not make the pause longer, unless its `Retry-After` asks for longer.
@@ -281,6 +283,47 @@ lane.AddBudget("example-shop", limit: 2, per: TimeSpan.FromSeconds(1), burst: 40
 - **Choosing the numbers.** Read the API's documentation for its algorithm and scope.
   - For a token or leaky bucket, set `limit` per `per` to its rate and `burst` to its bucket size.
   - For a window that resets on the clock, or when nothing is documented, keep `burst` at 1 and the limit a little under the published one: other apps on the same account draw from it too.
+
+### Reading what the API says
+
+Many APIs say on every answer how many requests are left, and when more come. Name those headers, and the budget stops at zero instead of running into a `429`, and notices when another app on the same account spends the same quota:
+
+```jsonc
+"rate": {
+  "budget": "example-shop",
+  "headers": { "remaining": "X-Rate-Limit-Remaining", "reset": "X-Rate-Limit-Reset", "resetFormat": "seconds" }
+}
+```
+
+| Field | What it is |
+| --- | --- |
+| `headers.remaining` | The header with how many requests are left. |
+| `headers.remainingFormat` | `number` (default, such as `12`), `used/limit` (such as `32/40`: 8 left), or `ietf`: the `RateLimit` field of the IETF draft, such as `"default";r=50;t=30`, which carries its own window. |
+| `headers.reset` | The header with when more requests come. Not with `ietf`. |
+| `headers.resetFormat` | `seconds` from now (default), `unix` seconds, `unix-ms`, or `http-date`. Times are measured against the answer's `Date` header when it has one, so the API's clock and yours need not agree. |
+
+What SyncLane does with them:
+
+- **It only ever lowers.** The bucket drops to what the API says is left, minus the requests that took a token after the one answered and have not reached the API's count yet, on any instance. It never rises above the declared rate and burst.
+- **Nothing left and a reset known:** every request of the key waits for the reset, on every instance, and the bucket restarts empty. This is not a throttle: it does not lengthen later backoffs, and it is counted in `synclane.budget.exhausted`, not `synclane.budget.paused`.
+- **Nothing left, no reset:** the bucket empties and refills at its declared rate.
+- **A value that cannot be read is ignored.** Nothing is read from a header the recipe does not name, the IETF one included.
+
+Examples from public documentation. Check the API's own page: these change.
+
+| API | `headers` |
+| --- | --- |
+| ShipStation v1 | `{ "remaining": "X-Rate-Limit-Remaining", "reset": "X-Rate-Limit-Reset" }` |
+| GitHub | `{ "remaining": "x-ratelimit-remaining", "reset": "x-ratelimit-reset", "resetFormat": "unix" }` |
+| Walmart Marketplace | `{ "remaining": "x-current-token-count" }` |
+| Shopify REST Admin | `{ "remaining": "X-Shopify-Shop-Api-Call-Limit", "remainingFormat": "used/limit" }` |
+| An API following the IETF draft | `{ "remaining": "RateLimit", "remainingFormat": "ietf" }` |
+
+How far it goes:
+
+- **With a reset, a window is exact.** The run in the tests (four jobs, another app spending a quarter of every window) gets no `429`.
+- **Without a reset, the count fixes the bucket's level, not its rate.** If the declared rate is above what the API allows, `429`s become fewer but do not stop: in a measured run against a hidden limit of 6 a second with a budget of 8, they went from 12% of requests to 7 to 10%. Lower the rate; learning it is part 2.4.
+- **A burst larger than a window's quota still overshoots** after a pause. Declare a burst no larger than the quota.
 
 ## Fields
 

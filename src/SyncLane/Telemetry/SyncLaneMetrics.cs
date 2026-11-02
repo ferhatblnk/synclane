@@ -27,6 +27,7 @@ internal sealed class SyncLaneMetrics : IDisposable
     private readonly Counter<long> _planFailures;
     private readonly Histogram<double> _budgetWait;
     private readonly Counter<long> _budgetPaused;
+    private readonly Counter<long> _budgetExhausted;
 
     public SyncLaneMetrics(IMeterFactory? factory = null)
     {
@@ -46,6 +47,7 @@ internal sealed class SyncLaneMetrics : IDisposable
         _planFailures = Meter.CreateCounter<long>("synclane.planner.failed", "{run}", "Planner runs that failed.");
         _budgetWait = Meter.CreateHistogram<double>("synclane.budget.wait", "s", "Time a request waited for a token of a rate budget.");
         _budgetPaused = Meter.CreateCounter<long>("synclane.budget.paused", "{pause}", "Times a rate budget was paused because the API asked to slow down.");
+        _budgetExhausted = Meter.CreateCounter<long>("synclane.budget.exhausted", "{pause}", "Times a rate budget waited for a reset because the API said nothing was left.");
     }
 
     public Meter Meter { get; }
@@ -84,6 +86,8 @@ internal sealed class SyncLaneMetrics : IDisposable
         _budgetWait.Record(wait.TotalSeconds, new KeyValuePair<string, object?>(BudgetTag, budget));
 
     public void BudgetPaused(string budget) => _budgetPaused.Add(1, new KeyValuePair<string, object?>(BudgetTag, budget));
+
+    public void BudgetExhausted(string budget) => _budgetExhausted.Add(1, new KeyValuePair<string, object?>(BudgetTag, budget));
 
     public void Dispose()
     {

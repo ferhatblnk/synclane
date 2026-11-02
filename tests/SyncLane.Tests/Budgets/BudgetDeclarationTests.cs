@@ -38,7 +38,7 @@ public class BudgetDeclarationTests
     [Fact]
     public void A_permit_never_shows_its_key()
     {
-        var permit = new BudgetPermit("shop", "customer-42", 0);
+        var permit = new BudgetPermit("shop", "customer-42", 0, 1);
 
         Assert.DoesNotContain("customer-42", permit.ToString());
     }

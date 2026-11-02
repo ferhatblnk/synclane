@@ -27,7 +27,7 @@ internal sealed class BudgetSql
         Reserve =
             $"""
             WITH current AS (
-                SELECT budget, key, generation,
+                SELECT budget, key, generation, taken,
                        LEAST(@burst, tokens + GREATEST(EXTRACT(EPOCH FROM @now - refilled_at)::double precision, 0) * @per_second) AS tokens,
                        GREATEST(refilled_at, @now) AS refilled_at
                 FROM {table}
@@ -41,14 +41,44 @@ internal sealed class BudgetSql
             )
             UPDATE {table} AS b
             SET tokens = CASE WHEN d.wait <= @max_wait THEN d.tokens - 1 ELSE d.tokens END,
+                taken = CASE WHEN d.wait <= @max_wait THEN d.taken + 1 ELSE d.taken END,
                 refilled_at = d.refilled_at,
                 updated_at = @now
             FROM decided AS d
             WHERE b.budget = d.budget AND b.key = d.key
-            RETURNING d.wait <= @max_wait, d.wait, d.generation
+            RETURNING d.wait <= @max_wait, d.wait, d.generation, d.taken + 1
             """;
 
         Generation = $"SELECT generation FROM {table} WHERE budget = @budget AND key = @key";
+
+        Observe =
+            $"""
+            WITH current AS (
+                SELECT budget, key, generation, taken, refilled_at,
+                       LEAST(@burst, tokens + GREATEST(EXTRACT(EPOCH FROM @now - refilled_at)::double precision, 0) * @per_second) AS tokens
+                FROM {table}
+                WHERE budget = @budget AND key = @key
+                FOR UPDATE
+            ),
+            decided AS (
+                SELECT c.*,
+                       @remaining - (c.taken - @sequence) AS left,
+                       @remaining - (c.taken - @sequence) < 1 AND COALESCE(@reset_at::timestamptz > GREATEST(c.refilled_at, @now), false) AS pause
+                FROM current AS c
+            ),
+            observed AS (
+                UPDATE {table} AS b
+                SET tokens = CASE WHEN d.pause THEN 0 ELSE LEAST(d.tokens, d.left) END,
+                    refilled_at = CASE WHEN d.pause THEN @reset_at::timestamptz ELSE GREATEST(d.refilled_at, @now) END,
+                    generation = CASE WHEN d.pause OR (d.left < 1 AND d.left <= d.tokens - 1) THEN d.generation + 1 ELSE d.generation END,
+                    updated_at = @now
+                FROM decided AS d
+                WHERE b.budget = d.budget AND b.key = d.key
+                  AND (d.pause OR d.left < d.tokens)
+                RETURNING d.pause, b.refilled_at
+            )
+            SELECT pause, refilled_at FROM observed
+            """;
 
         // A throttle answered to a request sent after the last pause began starts a new pause: for @retry_after, or a
         // backoff that doubles while throttles keep coming. One answered to a request sent before it is already
@@ -94,6 +124,15 @@ internal sealed class BudgetSql
     public string Schema { get; }
 
     public string Seed { get; }
+
+    /// <summary>
+    /// What the API said is left, applied to the bucket. Tokens taken after the answered request (<c>@sequence</c>) have
+    /// not reached the API's count yet, so they are subtracted from it. The bucket is only ever lowered. With nothing left
+    /// and a reset ahead, it pauses until the reset and restarts empty; the pause counts a generation, so waiters queue
+    /// again behind it. A lowering that leaves less than one token and takes at least one away also counts a generation,
+    /// because waiters were promised tokens that are gone. Nothing is written when the reading changes nothing.
+    /// </summary>
+    public string Observe { get; }
 
     public string Reserve { get; }
 

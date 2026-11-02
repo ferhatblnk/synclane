@@ -23,6 +23,8 @@ Packed as `0.2.0-preview.1` until the HTTP source has met the APIs of a producti
   - Recipes draw from a budget with `"rate": { "budget": ..., "key": ... }`.
   - A wait longer than `MaxBudgetWait` postpones the job instead of holding its worker.
   - Metrics `synclane.budget.wait` and `synclane.budget.paused`, tagged with the budget's name only.
+  - Part 2.3: a recipe's `rate.headers` names where the API says how many requests are left and when more come (`remaining` as a number, `used/limit` or the IETF draft's `RateLimit` field; `reset` in seconds, Unix seconds or milliseconds, or an HTTP date). Readings only lower the budget, count requests still in flight, and with nothing left pause the key until the reset on every instance. Hand-written handlers use `RateBudgets.ReportRemainingAsync`. New metric `synclane.budget.exhausted`.
+  - A `429` without `Retry-After` waits for the reset the recipe's headers give, at least a second.
   - Codes `SL1008`, `SL1009`, `SL2004`, `SL3005`, `SL4003`, `SL5022` and `SL5023`.
 - `JobPostponedException`: a job gives its slot back without using an attempt and continues from its cursor after a delay. New outcome `postponed`.
 - `SyncLaneOptions.Describe()`: a read-only list of the declared queues and job types with their handlers.
@@ -32,7 +34,8 @@ Packed as `0.2.0-preview.1` until the HTTP source has met the APIs of a producti
 
 ### Changed
 
-- The schema is at version 2: it adds the `rate_buckets` table and changes nothing else. With `CreateSchema` on there is nothing to do. With it off, run `SyncLaneSchema.Script()` before starting this version; until then the host stops at start-up with `SL2001`. An instance of 0.1 keeps working against the new schema.
+- A `403` that carries `Retry-After`, or whose declared remaining header says 0, is a throttle (`SL5105`) instead of refused credentials (`SL5106`). Some APIs answer a spent limit with `403`. The message of `SL5105` names the status it got.
+- The schema is at version 3: it adds the `rate_buckets` table and its `taken` column, and changes nothing else. With `CreateSchema` on there is nothing to do. With it off, run `SyncLaneSchema.Script()` before starting this version; until then the host stops at start-up with `SL2001`. An instance of 0.1 keeps working against the new schema.
 - The README no longer suggests sharing a lane to share a rate limit: a lane runs one job at a time, a rate budget paces requests.
 - `SL5109` (API unreachable) no longer keeps the `HttpRequestException` as its inner exception. Its message, which the engine stores in the `error` column, can hold the URL or a proxy's password; the error now says which kind of failure it was (host name, connection, TLS, proxy, protocol) instead.
 

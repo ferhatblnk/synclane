@@ -9,6 +9,7 @@ internal static class Migrations
     [
         new(1, "jobs table", JobsTable),
         new(2, "rate buckets", RateBucketsTable),
+        new(3, "rate bucket sequence", RateBucketSequence),
     ];
 
     public static int Latest => All[^1].Version;
@@ -92,4 +93,11 @@ internal static class Migrations
             PRIMARY KEY (budget, key)
         );
         """;
+
+    /// <summary>
+    /// Version 3: how many tokens a bucket has given, ever. A token remembers the count it was given at, so a reading of
+    /// what the API has left can subtract the requests that took a token after it and have not been counted yet.
+    /// </summary>
+    private static string RateBucketSequence(string schema) =>
+        $"ALTER TABLE {schema}.{BudgetSql.TableName} ADD COLUMN IF NOT EXISTS taken bigint NOT NULL DEFAULT 0;";
 }

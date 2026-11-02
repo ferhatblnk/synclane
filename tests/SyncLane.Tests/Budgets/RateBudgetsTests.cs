@@ -77,6 +77,20 @@ public class RateBudgetsTests : PostgresTest
     }
 
     [PostgresFact]
+    public async Task When_the_api_says_nothing_is_left_every_instance_waits_for_the_reset()
+    {
+        var first = Instance(options => options.AddBudget("shop", 100, TimeSpan.FromSeconds(1), burst: 10));
+        var second = Instance(options => options.AddBudget("shop", 100, TimeSpan.FromSeconds(1), burst: 10));
+        var permit = await first.WaitAsync("shop", "owner-1");
+
+        await first.ReportRemainingAsync(permit, remaining: 0, resetsIn: TimeSpan.FromMilliseconds(400));
+        var clock = Stopwatch.StartNew();
+        await second.WaitAsync("shop", "owner-1");
+
+        Assert.InRange(clock.Elapsed.TotalSeconds, 0.35, 2);
+    }
+
+    [PostgresFact]
     public async Task A_wait_longer_than_max_budget_wait_postpones_the_job_instead()
     {
         var budgets = Instance(options =>
@@ -129,9 +143,11 @@ public class RateBudgetsTests : PostgresTest
 
         var budgets = Instance(options => options.AddBudget("shop", 100, TimeSpan.FromSeconds(1)));
         await budgets.ThrottledAsync(await budgets.WaitAsync("shop", "customer-42"), TimeSpan.Zero);
+        await budgets.ReportRemainingAsync(await budgets.WaitAsync("shop", "customer-42"), 0, TimeSpan.FromMilliseconds(1));
 
         Assert.Contains("synclane.budget.wait synclane.budget=shop", seen);
         Assert.Contains("synclane.budget.paused synclane.budget=shop", seen);
+        Assert.Contains("synclane.budget.exhausted synclane.budget=shop", seen);
         Assert.All(seen, measurement => Assert.DoesNotContain("customer-42", measurement));
     }
 
