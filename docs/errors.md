@@ -11,6 +11,7 @@ The first digit is the area:
 | `SL3xxx` | Calls to `ISyncLane` | A failed `SyncResult`, never an exception. |
 | `SL4xxx` | Running jobs | Text in the job's `error` column, starting with the code. |
 | `SL5xxx` | The HTTP source (`SyncLane.Http`) | `SL50xx`: a failed result when a recipe is loaded. `SL51xx`: a recipe that does not fit a job or a response, while running. |
+| `SL6xxx` | The `synclane` command (`SyncLane.Cli`) | A curl or a recipe the command cannot work with. |
 
 `SyncErrorCodes` and `HttpErrorCodes` hold every code as a constant. A test checks that each one is listed on this page.
 
@@ -126,3 +127,19 @@ Recipes are checked when they are loaded, and every problem is reported at once.
 - **A `null` argument** throws `ArgumentNullException`. It is a bug in the calling code, not a condition to handle.
 - **A database that cannot be reached** throws the `NpgsqlException` that Npgsql raised. Inside a worker it ends the attempt and the job is retried.
 - **Cancellation** throws `OperationCanceledException`. It is never reported as a failure.
+
+## The synclane command
+
+| Code | Kind | What happened | What to do |
+| --- | --- | --- | --- |
+| `SL6001` | Validation | `synclane init` got no curl command with an http or https URL. | Type `synclane init` and paste the curl after it, as copied from the documentation or the browser's "Copy as cURL"; or pipe it in: `pbpaste \| synclane init`. |
+| `SL6002` | Unavailable | The API refused the request of the curl given to `synclane init`, so there was no answer to learn from. The message says what the status usually means; a redirect is refused because recipes do not follow redirects. | Run the curl itself; copy a fresh one if the credential expired; for a redirect, put the address it redirects to in the curl. |
+| `SL6003` | Validation | The API answered the curl's request with something that is not JSON. | Ask for JSON, for example with `-H 'Accept: application/json'`. |
+| `SL6004` | Unavailable | The curl's request did not reach the API: the host name, the connection or TLS failed, or no answer came in time. The message names which, never the URL. | Check the URL and the connection; run the curl itself. |
+| `SL6005` | Conflict | The file `synclane init` would write exists already. | Name another file with `--out`, or pass `--force` to replace it. |
+| `SL6006` | NotFound | There is no recipe file at the path given to `synclane test`. | Give the path of a recipe file. |
+| `SL6007` | Configuration | The recipe needs a credential, it is not in the environment, and there is no terminal to ask for it in (as in CI). | Set the variables the message names: `SYNCLANE_<CREDENTIAL>_TOKEN`, or `_USERNAME`/`_PASSWORD`, or `_CLIENT_ID`/`_CLIENT_SECRET`/`_REFRESH_TOKEN`. |
+| `SL6008` | Configuration | The recipe signs its requests with an `IRequestSigner` of your application, which `synclane test` cannot load. | Run the job from your application, for example with `EnqueueAsync` and a test owner. |
+| `SL6009` | Validation | The recipe uses the owner's values (`{{owner.key}}`), and no owner was given. | Pass `--owner` with the key of an owner to test with. |
+| `SL6010` | Validation | Page 2 brought the same records as page 1: the API did not read the paging parameter the recipe sends. The test fails. | Check the parameter's name in the API's documentation, correct the recipe's `pagination`, and test again. |
+| `SL6011` | Validation | The value of `--since` is neither a length of time nor a date. | Give a length such as `7d`, `12h` or `30m`, or a date such as `2026-10-01`. |

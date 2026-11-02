@@ -32,6 +32,7 @@ Run the PostgreSQL tests before calling any change to storage, running or the pu
 | `src/SyncLane/Running` | Workers, the page loop, the failure policy. |
 | `src/SyncLane/Telemetry` | Metrics instruments and outcome names. |
 | `src/SyncLane.Http` | The declarative HTTP source: recipes, request building, record paths, paging, authentication, its own codes (`HttpErrorCodes`) and catalog (`HttpErrors`). Uses only the engine's public API. |
+| `src/SyncLane.Cli` | The `synclane` command, a `dotnet tool`: `init` turns a curl into a recipe, `test` runs one for two pages without a database. Its own codes (`CliErrorCodes`, `SL6xxx`) and catalog (`CliErrors`). Uses only the public API of the other packages; `CliHost` is everything it reaches outside itself, so tests replace the terminal and the network. |
 | `tests/SyncLane.Tests` | Unit tests, PostgreSQL tests (`[PostgresFact]`) and `ConventionTests`. |
 | `schemas` | `recipe.schema.json`, generated; embedded in `SyncLane.Http`. |
 | `docs` | User documentation and `errors.md`. Design notes, phase plans and analyses are kept out of the repository, in the git-ignored `private/` folder. |

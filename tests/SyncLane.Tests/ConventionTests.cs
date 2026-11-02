@@ -1,5 +1,6 @@
 using System.Reflection;
 using System.Text.RegularExpressions;
+using SyncLane.Cli;
 using SyncLane.Http;
 
 namespace SyncLane.Tests;
@@ -19,7 +20,7 @@ public partial class ConventionTests
         .ToList();
 
     /// <summary>Every class that lists error codes, one per package.</summary>
-    private static readonly Type[] CodeLists = [typeof(SyncErrorCodes), typeof(HttpErrorCodes)];
+    private static readonly Type[] CodeLists = [typeof(SyncErrorCodes), typeof(HttpErrorCodes), typeof(CliErrorCodes)];
 
     private static IEnumerable<FieldInfo> Codes => CodeLists
         .SelectMany(list => list.GetFields(BindingFlags.Public | BindingFlags.Static))
@@ -31,7 +32,7 @@ public partial class ConventionTests
         var values = Codes.Select(code => (string)code.GetRawConstantValue()!).ToList();
 
         Assert.Equal(values.Count, values.Distinct().Count());
-        Assert.All(values, value => Assert.Matches("^SL[1-5][0-9]{3}$", value));
+        Assert.All(values, value => Assert.Matches("^SL[1-6][0-9]{3}$", value));
     }
 
     [Fact]
