@@ -6,6 +6,7 @@ All notable changes to this project are recorded here. The format follows [Keep 
 
 ### Added
 
+- The packages have an icon: an S drawn as a lane, in `assets/`. The README shows it too.
 - `ISyncLaneMonitor`, registered by `AddSyncLane`, answers what an operator asks for every queue in the schema, declared in this application or not:
   - `GetOverviewAsync`: per queue, open jobs by state, owners, live instances, and the last 24 hours;
   - `GetFreshnessAsync`: owners ranked by how old their completed data is, with the job that explains it;

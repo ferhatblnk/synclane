@@ -1,3 +1,5 @@
+<p align="center"><img src="assets/icon.png" width="112" alt="SyncLane"></p>
+
 # SyncLane
 
 [![CI](https://github.com/ferhatblnk/synclane/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/ferhatblnk/synclane/actions/workflows/ci.yml)
