@@ -7,13 +7,11 @@
     <PackAsTool>true</PackAsTool>
     <ToolCommandName>synclane</ToolCommandName>
     <IncludeSourceRevisionInInformationalVersion>false</IncludeSourceRevisionInInformationalVersion>
+    <IsPackable>true</IsPackable>
     <PackageId>SyncLane.Cli</PackageId>
-    <Authors>The SyncLane Authors</Authors>
     <Description>The synclane command: turns a working curl into a SyncLane recipe by looking at a real answer, and runs a recipe for two pages without a database.</Description>
     <PackageTags>sync;http;rest;api;recipe;curl;cli</PackageTags>
-    <PackageLicenseExpression>Apache-2.0</PackageLicenseExpression>
-    <PackageProjectUrl>https://github.com/ferhatblnk/synclane</PackageProjectUrl>
-    <RepositoryUrl>https://github.com/ferhatblnk/synclane</RepositoryUrl>
+    <PackageReadmeFile>README.md</PackageReadmeFile>
   </PropertyGroup>
 
   <ItemGroup>
@@ -26,6 +24,8 @@
   </ItemGroup>
 
   <ItemGroup>
+    <None Include="README.md" Pack="true" PackagePath="\" />
+    <None Include="..\..\NOTICE" Pack="true" PackagePath="\" />
     <InternalsVisibleTo Include="SyncLane.Tests" />
   </ItemGroup>
 

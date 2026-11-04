@@ -40,6 +40,30 @@ To watch the whole thing work, run the demo described in the [README](README.md#
 - Match the surrounding code: file-scoped namespaces, one type per file, names that say what a thing is, constants instead of magic values.
 - Do not add a runtime dependency to `src/SyncLane` without discussing it first.
 
+## Releasing
+
+Packages are published by [release.yml](.github/workflows/release.yml) when a version tag is pushed. The workflow holds no API key: nuget.org trusts this repository's `release.yml` through trusted publishing.
+
+1. Set `<Version>` in `Directory.Build.props`.
+2. Give the version its section in `CHANGELOG.md`, with the date: `## [0.3.0] - 2026-12-01`. The section becomes the release notes.
+3. Merge to `main`, then tag that commit and push the tag:
+
+   ```bash
+   git tag v0.3.0
+   git push origin v0.3.0
+   ```
+
+The workflow then:
+1. checks that the tag matches the version and that the changelog has its section;
+2. runs every test against PostgreSQL;
+3. packs `SyncLane`, `SyncLane.Http` and `SyncLane.Cli` with their symbol packages;
+4. pushes them to nuget.org;
+5. creates a GitHub release with the packages attached.
+
+A version with a hyphen, such as `0.3.0-preview.1`, is marked as a pre-release.
+
+A version on nuget.org cannot be replaced, only unlisted. If something is wrong after publishing, fix it and release the next version.
+
 ## Three rules the planner must keep
 
 They are explained in [docs/planning.md](docs/planning.md). A change that breaks one of them will not be merged, however convenient:
@@ -53,8 +77,6 @@ They are explained in [docs/planning.md](docs/planning.md). A change that breaks
 - `LISTEN`/`NOTIFY` so an idle slot wakes up when a job is enqueued instead of polling.
 - Enqueueing inside the caller's own transaction.
 - A small JSON payload per job for handlers that need more than owner, type and window.
-- A retention helper that implements the deletes described in [docs/operations.md](docs/operations.md).
-- A package on NuGet, with a release workflow.
 
 ## Never share real data
 

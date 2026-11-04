@@ -2,11 +2,13 @@
 
 All notable changes to this project are recorded here. The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project uses [Semantic Versioning](https://semver.org/).
 
-## [0.2.0] - Unreleased
+## [0.2.0-preview.1] - 2026-11-04
 
-Packed as `0.2.0-preview.1` until the HTTP source has met the APIs of a production integration.
+The first version on NuGet: `SyncLane`, `SyncLane.Http` and the `synclane` tool, `SyncLane.Cli`. It also holds everything listed under 0.1.0 in CHANGELOG.md, which was never published. It stays a preview until the HTTP source has met the APIs of a production integration.
 
 ### Added
+
+- Packages on NuGet with Source Link and symbol packages, so a debugger steps into the exact source of a release. A release is published from a version tag by a workflow that runs the PostgreSQL tests first and holds no API key.
 
 - `SyncLane.Http`: the recipe model. `HttpRecipe.Parse` reads a recipe from JSON and reports every problem at once with codes `SL5001` to `SL5011`; placeholders `{{window.start}}`, `{{window.end}}` and `{{owner.key}}` are escaped for where they land; a recipe can only call the host it names. Requests are built but not sent yet. See `docs/recipes.md`.
 - `SyncLane.Http`: recipes run. `HttpRecipeHandler` sends the request, maps answers to outcomes (429 waits, 401/403 and other 4xx abandon, 408/5xx/timeouts/network errors retry), reads at most `MaxResponseBytes`, and hands the records to an `IRecordSink`. `AddSyncLaneHttp` throws every problem at once; a start-up check stops the host when recipes and declared job types do not match. Codes `SL5012` to `SL5016` and `SL5105` to `SL5113`.
@@ -59,7 +61,7 @@ Packed as `0.2.0-preview.1` until the HTTP source has met the APIs of a producti
 - The README no longer suggests sharing a lane to share a rate limit: a lane runs one job at a time, a rate budget paces requests.
 - `SL5109` (API unreachable) no longer keeps the `HttpRequestException` as its inner exception. Its message, which the engine stores in the `error` column, can hold the URL or a proxy's password; the error now says which kind of failure it was (host name, connection, TLS, proxy, protocol) instead.
 
-## [0.1.0] - Unreleased
+## [0.1.0] - Not published
 
 First version.
 

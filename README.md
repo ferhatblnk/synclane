@@ -75,7 +75,13 @@ public sealed class ConnectedShops(AppDb db) : IOwnerSource
 }
 ```
 
-That is the whole integration. The table is created at start-up, the planner runs once a minute and the workers start pulling. SyncLane is not on NuGet yet; reference the project or run `dotnet pack src/SyncLane`.
+That is the whole integration. The table is created at start-up, the planner runs once a minute and the workers start pulling.
+
+```bash
+dotnet add package SyncLane --prerelease
+dotnet add package SyncLane.Http --prerelease          # recipes instead of handlers
+dotnet tool install --global SyncLane.Cli --prerelease # the synclane command
+```
 
 ## What a job looks like
 
@@ -394,5 +400,7 @@ Anything in this repository that describes a third-party API, including the demo
 ## License
 
 [Apache License 2.0](LICENSE). The software is provided on an "AS IS" basis, without warranties or conditions of any kind, and no contributor is liable for damages arising from its use; sections 7 and 8 of the license state this in full.
+
+SyncLane is free to use, with no registration, account or paid edition, and it calls no host of its own: no telemetry, no license check, no update check.
 
 SyncLane is an independent open-source project. It is not affiliated with, endorsed by or supported by the PostgreSQL project or any API provider.

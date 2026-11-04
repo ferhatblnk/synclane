@@ -41,3 +41,9 @@ jobs:
 
       - name: Test
         run: dotnet test --configuration Release --no-build
+
+      - name: Pack
+        run: |
+          for project in src/SyncLane src/SyncLane.Http src/SyncLane.Cli; do
+            dotnet pack "$project" --configuration Release --no-build --output artifacts
+          done
