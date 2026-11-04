@@ -74,7 +74,6 @@ They are explained in [docs/planning.md](docs/planning.md). A change that breaks
 
 ## Ideas
 
-- `LISTEN`/`NOTIFY` so an idle slot wakes up when a job is enqueued instead of polling.
 - Enqueueing inside the caller's own transaction.
 - A small JSON payload per job for handlers that need more than owner, type and window.
 

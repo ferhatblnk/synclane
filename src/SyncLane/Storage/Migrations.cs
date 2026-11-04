@@ -14,6 +14,7 @@ internal static class Migrations
         new(5, "coverage summary", CoverageSummary),
         new(6, "instances", InstancesTable),
         new(7, "monitoring", Monitoring),
+        new(8, "change notifications", ChangeNotifications),
     ];
 
     public static int Latest => All[^1].Version;
@@ -223,5 +224,44 @@ internal static class Migrations
         WHERE status IN ('completed', 'abandoned') AND completed_at IS NOT NULL
         GROUP BY queue, type, date_trunc('hour', completed_at, 'UTC')
         ON CONFLICT (queue, type, hour) DO NOTHING;
+        """;
+
+    /// <summary>
+    /// Version 8: every job that is created or changes status is announced on the schema's notification channel, after
+    /// its transaction commits, to every connection that listens: the monitor's live view and idle workers. A trigger does
+    /// it, so no writer can forget, older instances included. Saving a page or a heartbeat does not change the status and
+    /// announces nothing. Fields are cut short so a long owner key can never make the announcement fail the write.
+    /// </summary>
+    private static string ChangeNotifications(string schema) =>
+        $"""
+        CREATE OR REPLACE FUNCTION {schema}.announce_job() RETURNS trigger LANGUAGE plpgsql AS $$
+        BEGIN
+            PERFORM pg_notify('{ChangeChannel.For(schema)}', json_build_object(
+                'id', NEW.id,
+                'queue', left(NEW.queue, 200),
+                'owner', left(NEW.owner, 500),
+                'type', left(NEW.type, 200),
+                'status', NEW.status,
+                'at', NEW.updated_at)::text);
+            RETURN NULL;
+        END
+        $$;
+
+        DO $$
+        BEGIN
+            IF NOT EXISTS (SELECT 1 FROM pg_trigger WHERE tgname = 'jobs_announce_insert' AND tgrelid = '{schema}.{JobSql.TableName}'::regclass) THEN
+                CREATE TRIGGER jobs_announce_insert
+                    AFTER INSERT ON {schema}.{JobSql.TableName}
+                    FOR EACH ROW EXECUTE FUNCTION {schema}.announce_job();
+            END IF;
+
+            IF NOT EXISTS (SELECT 1 FROM pg_trigger WHERE tgname = 'jobs_announce_status' AND tgrelid = '{schema}.{JobSql.TableName}'::regclass) THEN
+                CREATE TRIGGER jobs_announce_status
+                    AFTER UPDATE OF status ON {schema}.{JobSql.TableName}
+                    FOR EACH ROW WHEN (OLD.status IS DISTINCT FROM NEW.status)
+                    EXECUTE FUNCTION {schema}.announce_job();
+            END IF;
+        END
+        $$;
         """;
 }

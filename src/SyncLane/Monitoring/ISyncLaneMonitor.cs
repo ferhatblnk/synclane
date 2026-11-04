@@ -40,6 +40,14 @@ public interface ISyncLaneMonitor
     /// </summary>
     Task<SyncResult<IReadOnlyList<VolumeBucket>>> GetVolumeAsync(VolumeQuery query, CancellationToken cancellationToken = default);
 
+    /// <summary>
+    /// Jobs as they are created and change status, from every instance of every application on the schema, a moment
+    /// after each change commits. Only the queue or owner given, if any. It reads until <paramref name="cancellationToken"/>
+    /// is cancelled. Changes made while the connection was broken are not replayed, and a reader more than 1,000 changes
+    /// behind loses the oldest: read the current state with the other calls after a gap.
+    /// </summary>
+    IAsyncEnumerable<JobChange> WatchAsync(string? queue = null, string? owner = null, CancellationToken cancellationToken = default);
+
     /// <summary>Gives one failed, deferred or abandoned job a fresh set of attempts. Its cursor is kept, so it continues where it stopped.</summary>
     /// <returns>1. Fails with <see cref="SyncErrorCodes.JobNotFound"/> or, for a job in another status, <see cref="SyncErrorCodes.JobStatusNotAllowed"/>.</returns>
     Task<SyncResult<int>> RequeueJobAsync(long id, CancellationToken cancellationToken = default);
