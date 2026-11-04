@@ -33,9 +33,9 @@ jobs:
       SYNCLANE_TEST_DB: Host=localhost;Username=postgres;Database=synclane_test
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
-      - uses: actions/setup-dotnet@v4
+      - uses: actions/setup-dotnet@v6
         with:
           global-json-file: global.json
 
@@ -86,14 +86,35 @@ jobs:
         with:
           user: ferhat_bulanik
 
-      # Symbol packages (.snupkg) next to the packages are pushed with them.
+      # Symbol packages (.snupkg) next to the packages are pushed with them. A version already on nuget.org is skipped,
+      # so trying again after a failure halfway, here or in a re-run of the job, pushes only what is missing.
       - name: Push
-        run: dotnet nuget push "artifacts/*.nupkg" --api-key "${{ steps.login.outputs.NUGET_API_KEY }}" --source https://api.nuget.org/v3/index.json --skip-duplicate
+        env:
+          NUGET_API_KEY: ${{ steps.login.outputs.NUGET_API_KEY }}
+        run: |
+          for attempt in 1 2 3; do
+            dotnet nuget push "artifacts/*.nupkg" --api-key "$NUGET_API_KEY" --source https://api.nuget.org/v3/index.json --skip-duplicate && exit 0
+            echo "::warning::Push attempt $attempt failed; trying again in $((attempt * 15)) seconds."
+            sleep $((attempt * 15))
+          done
+          exit 1
 
+      # GitHub's API answers with a server error now and then, and the packages are on nuget.org by now, so this step
+      # tries again rather than leave the release half done. A release that an earlier try or run created gets the
+      # packages added instead of failing.
       - name: GitHub release
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
           prerelease=""
           case "$GITHUB_REF_NAME" in *-*) prerelease="--prerelease" ;; esac
-          gh release create "$GITHUB_REF_NAME" artifacts/* --title "$GITHUB_REF_NAME" --notes-file release-notes.md $prerelease
+          for attempt in 1 2 3 4 5; do
+            if gh release view "$GITHUB_REF_NAME" > /dev/null 2>&1; then
+              gh release upload "$GITHUB_REF_NAME" artifacts/* --clobber && exit 0
+            else
+              gh release create "$GITHUB_REF_NAME" artifacts/* --title "$GITHUB_REF_NAME" --notes-file release-notes.md $prerelease && exit 0
+            fi
+            echo "::warning::GitHub release attempt $attempt failed; trying again in $((attempt * 10)) seconds."
+            sleep $((attempt * 10))
+          done
+          exit 1

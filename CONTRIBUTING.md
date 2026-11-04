@@ -62,6 +62,8 @@ The workflow then:
 
 A version with a hyphen, such as `0.3.0-preview.1`, is marked as a pre-release.
 
+The push and the GitHub release try again a few times when GitHub or nuget.org answers with a server error. If the job still fails, use "Re-run failed jobs": versions already on nuget.org are skipped, and an existing GitHub release gets the packages added.
+
 A version on nuget.org cannot be replaced, only unlisted. If something is wrong after publishing, fix it and release the next version.
 
 ## Three rules the planner must keep
