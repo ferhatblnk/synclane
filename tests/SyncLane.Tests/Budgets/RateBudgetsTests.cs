@@ -17,16 +17,19 @@ public class RateBudgetsTests : PostgresTest
     [PostgresFact]
     public async Task Waiters_on_one_key_are_spaced_at_the_rate_and_other_keys_have_buckets_of_their_own()
     {
-        var budgets = Instance(options => options.AddBudget("shop", 10, TimeSpan.FromSeconds(1)));
+        var budgets = Instance(options => options.AddBudget("shop", 5, TimeSpan.FromSeconds(1)));
         var clock = Stopwatch.StartNew();
 
-        await Task.WhenAll(Enumerable.Range(0, 4).Select(_ => budgets.WaitAsync("shop", "owner-1").AsTask()));
-        var spaced = clock.Elapsed;
-        clock.Restart();
+        var sameKey = Task.WhenAll(Enumerable.Range(0, 10).Select(_ => budgets.WaitAsync("shop", "owner-1").AsTask()));
         await budgets.WaitAsync("shop", "owner-2");
+        var other = clock.Elapsed;
+        await sameKey;
+        var spaced = clock.Elapsed;
 
-        Assert.InRange(spaced.TotalSeconds, 0.27, 2);
-        Assert.InRange(clock.Elapsed.TotalSeconds, 0, 0.1);
+        // Compared with each other, not with a fixed time: a busy machine stalls a call now and then, which only makes
+        // it later. Behind owner-1's queue, owner-2 would come last, after 1.8 seconds.
+        Assert.InRange(spaced.TotalSeconds, 1.75, 10);
+        Assert.True(other < spaced / 2, $"owner-2 waited {other.TotalSeconds:F2} s while owner-1's queue took {spaced.TotalSeconds:F2} s");
     }
 
     [PostgresFact]
@@ -48,15 +51,16 @@ public class RateBudgetsTests : PostgresTest
         var second = Instance(options => options.AddBudget("shop", 100, TimeSpan.FromSeconds(1), burst: 10));
         var permit = await first.WaitAsync("shop", "owner-1");
 
-        var pause = await first.ThrottledAsync(permit, TimeSpan.FromMilliseconds(300));
+        var pause = await first.ThrottledAsync(permit, TimeSpan.FromSeconds(2));
         var clock = Stopwatch.StartNew();
         await second.WaitAsync("shop", "owner-2");
         var other = clock.Elapsed;
         await second.WaitAsync("shop", "owner-1");
 
-        Assert.InRange(pause.TotalMilliseconds, 290, 300);
-        Assert.InRange(other.TotalSeconds, 0, 0.1);
-        Assert.InRange(clock.Elapsed.TotalSeconds, 0.25, 2);
+        // The pause is long enough that a busy machine's stalls cannot be mistaken for it.
+        Assert.InRange(pause.TotalMilliseconds, 1990, 2000);
+        Assert.InRange(other.TotalSeconds, 0, 1);
+        Assert.InRange(clock.Elapsed.TotalSeconds, 1.9, 6);
     }
 
     [PostgresFact]

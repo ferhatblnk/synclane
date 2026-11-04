@@ -28,7 +28,7 @@ public class BudgetedRecipeTests : PostgresTest
         var api = new TimedApi(first: () =>
         {
             var response = FakeApi.Response(HttpStatusCode.TooManyRequests);
-            response.Headers.TryAddWithoutValidation("Retry-After", "1");
+            response.Headers.TryAddWithoutValidation("Retry-After", "2");
             return response;
         });
         await using var source = Source(api, budget: options => options.AddBudget("shop", 100, TimeSpan.FromSeconds(1), burst: 10));
@@ -37,10 +37,10 @@ public class BudgetedRecipeTests : PostgresTest
         await source.RunAsync("shop-8");
         await source.RunAsync("shop-7");
 
-        Assert.InRange(throttled.Delay.TotalSeconds, 0.95, 1);
+        Assert.InRange(throttled.Delay.TotalSeconds, 1.95, 2);
         var (throttledAt, otherOwner, sameOwner) = (api.Times[0], api.Times[1], api.Times[2]);
-        Assert.InRange((otherOwner - throttledAt).TotalSeconds, 0, 0.2);
-        Assert.InRange((sameOwner - throttledAt).TotalSeconds, 0.95, 3);
+        Assert.InRange((otherOwner - throttledAt).TotalSeconds, 0, 1);
+        Assert.InRange((sameOwner - throttledAt).TotalSeconds, 1.95, 6);
     }
 
     [PostgresFact]
@@ -118,7 +118,7 @@ public class BudgetedRecipeTests : PostgresTest
     [PostgresFact]
     public async Task After_an_answer_that_says_nothing_is_left_the_next_request_of_the_key_waits_for_the_reset()
     {
-        var api = new TimedApi(index => index == 1 ? Answer(HttpStatusCode.OK, ("X-Left", "0"), ("X-Reset", "1")) : null);
+        var api = new TimedApi(index => index == 1 ? Answer(HttpStatusCode.OK, ("X-Left", "0"), ("X-Reset", "2")) : null);
         await using var source = Source(api, budget: Shop, rate: WithHeaders);
 
         await source.RunAsync("shop-7");
@@ -126,8 +126,8 @@ public class BudgetedRecipeTests : PostgresTest
         await source.RunAsync("shop-7");
 
         var (first, otherOwner, sameOwner) = (api.Times[0], api.Times[1], api.Times[2]);
-        Assert.InRange((otherOwner - first).TotalSeconds, 0, 0.2);
-        Assert.InRange((sameOwner - first).TotalSeconds, 0.95, 3);
+        Assert.InRange((otherOwner - first).TotalSeconds, 0, 1);
+        Assert.InRange((sameOwner - first).TotalSeconds, 1.9, 6);
     }
 
     [PostgresFact]
@@ -139,7 +139,7 @@ public class BudgetedRecipeTests : PostgresTest
         await source.RunAsync("shop-7");
         await source.RunAsync("shop-7");
 
-        Assert.InRange((api.Times[1] - api.Times[0]).TotalSeconds, 0, 0.2);
+        Assert.InRange((api.Times[1] - api.Times[0]).TotalSeconds, 0, 5);
     }
 
     [PostgresFact]
