@@ -2,7 +2,9 @@
 
 All notable changes to this project are recorded here. The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project uses [Semantic Versioning](https://semver.org/).
 
-## [Unreleased]
+## [0.3.0-preview.1] - 2026-11-04
+
+Operations: an emergency stop for a queue or one owner, temporary limits on rate budgets, budgets that follow the limit the API reports, and a log of who did what and why, in C# and over HTTP.
 
 ### Added
 
