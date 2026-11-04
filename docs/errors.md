@@ -149,3 +149,12 @@ Recipes are checked when they are loaded, and every problem is reported at once.
 | `SL6009` | Validation | The recipe uses the owner's values (`{{owner.key}}`), and no owner was given. | Pass `--owner` with the key of an owner to test with. |
 | `SL6010` | Validation | Page 2 brought the same records as page 1: the API did not read the paging parameter the recipe sends. The test fails. | Check the parameter's name in the API's documentation, correct the recipe's `pagination`, and test again. |
 | `SL6011` | Validation | The value of `--since` is neither a length of time nor a date. | Give a length such as `7d`, `12h` or `30m`, or a date such as `2026-10-01`. |
+
+## The HTTP endpoints
+
+Codes of `SyncLane.AspNetCore`. They come back as problem details, with the code as `title` and in `code`.
+
+| Code | Kind | What happened | What to do |
+| --- | --- | --- | --- |
+| `SL7001` | Unauthorized | A request from another machine reached endpoints mapped by `MapSyncLane` that do not require authorization. They answer only local requests until they do, and a request that came through a proxy is not local. The answer is 403. | Add `.RequireAuthorization(...)` to `MapSyncLane(...)`, with the policy your operators sign in with. |
+| `SL7002` | Validation | A repair was posted without the `X-SyncLane-Action` header. The header shows the request came from your own script or page: another site cannot make a browser send it. | Send the header with any value. |

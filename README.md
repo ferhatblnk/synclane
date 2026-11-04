@@ -81,6 +81,7 @@ That is the whole integration. The table is created at start-up, the planner run
 dotnet add package SyncLane --prerelease
 dotnet add package SyncLane.Http --prerelease          # recipes instead of handlers
 dotnet tool install --global SyncLane.Cli --prerelease # the synclane command
+dotnet add package SyncLane.AspNetCore --prerelease    # the monitor over HTTP
 ```
 
 ## What a job looks like
@@ -333,6 +334,14 @@ foreach (var row in behind.Items)
 await foreach (var change in monitor.WatchAsync("shops", cancellationToken: stopping))
     await hub.Clients.All.SendAsync("job", change.Id, change.Owner, change.Status.ToString(), stopping);
 ```
+
+Over HTTP, `SyncLane.AspNetCore` maps all of it in one line, with the stream as server-sent events. The endpoints show up in your OpenAPI (Swagger) document under `SyncLane`, and answer only requests from the same machine until you require authorization:
+
+```csharp
+app.MapSyncLane("/synclane").RequireAuthorization("ops");
+```
+
+See [the package's readme](src/SyncLane.AspNetCore/README.md) for the routes.
 
 It also has the repairs those answers call for: `RequeueJobAsync(id)`, `RestartJobAsync(id)` to fetch a window again, `RequeueByCodeAsync(queue, code)` after fixing what a problem group shows, and `PrioritizeOwnerAsync(queue, owner)` for an account that should load first. None of them touches a running job; see [docs/operations.md](docs/operations.md#changing).
 

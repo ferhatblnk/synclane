@@ -44,6 +44,6 @@ jobs:
 
       - name: Pack
         run: |
-          for project in src/SyncLane src/SyncLane.Http src/SyncLane.Cli; do
+          for project in src/SyncLane src/SyncLane.Http src/SyncLane.Cli src/SyncLane.AspNetCore; do
             dotnet pack "$project" --configuration Release --no-build --output artifacts
           done

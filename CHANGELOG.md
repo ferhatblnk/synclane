@@ -21,6 +21,12 @@ All notable changes to this project are recorded here. The format follows [Keep 
   Codes `SL3008` and `SL3102`.
 - `ISyncLaneMonitor.WatchAsync(queue?, owner?)` streams jobs as they are created and change status, from every instance, a moment after each change commits. A trigger announces every change with `NOTIFY` (migration 8), and one connection per process listens, reconnecting after a break.
 
+- `SyncLane.AspNetCore`, a new package: `app.MapSyncLane("/synclane")` maps the monitor's reads, repairs and live stream (server-sent events) as Minimal API endpoints, listed in the host's OpenAPI document, and returns the group for `.RequireAuthorization(...)`.
+  - Until the group requires authorization, the endpoints answer only requests from the same machine that did not come through a proxy.
+  - Repairs need the `X-SyncLane-Action` header; `ReadOnly` leaves them out.
+  - Answers are never cached and never show a job's cursor.
+  - Codes `SL7001` and `SL7002`.
+
 ### Changed
 
 - An idle worker slot wakes as soon as a job of its queue is created, requeued or handed back, on any instance, instead of waiting for `PollInterval`. Behind a pooler in transaction mode it polls as before.

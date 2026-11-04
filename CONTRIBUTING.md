@@ -56,7 +56,7 @@ Packages are published by [release.yml](.github/workflows/release.yml) when a ve
 The workflow then:
 1. checks that the tag matches the version and that the changelog has its section;
 2. runs every test against PostgreSQL;
-3. packs `SyncLane`, `SyncLane.Http` and `SyncLane.Cli` with their symbol packages;
+3. packs `SyncLane`, `SyncLane.Http`, `SyncLane.Cli` and `SyncLane.AspNetCore` with their symbol packages;
 4. pushes them to nuget.org;
 5. creates a GitHub release with the packages attached.
 

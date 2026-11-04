@@ -1,0 +1,28 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <RootNamespace>SyncLane.AspNetCore</RootNamespace>
+    <AssemblyName>SyncLane.AspNetCore</AssemblyName>
+    <GenerateDocumentationFile>true</GenerateDocumentationFile>
+    <IsPackable>true</IsPackable>
+    <PackageId>SyncLane.AspNetCore</PackageId>
+    <Description>HTTP endpoints for SyncLane's monitor: queue overview, freshness, problems, budgets, instances, volume, jobs, repairs and a live stream of job changes, in one MapSyncLane call. They appear in the application's OpenAPI document and answer only local requests until they require authorization.</Description>
+    <PackageTags>sync;jobs;monitoring;aspnetcore;minimal-api;openapi;server-sent-events;postgres</PackageTags>
+    <PackageReadmeFile>README.md</PackageReadmeFile>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <FrameworkReference Include="Microsoft.AspNetCore.App" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\SyncLane\SyncLane.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <None Include="README.md" Pack="true" PackagePath="\" />
+    <None Include="..\..\NOTICE" Pack="true" PackagePath="\" />
+    <InternalsVisibleTo Include="SyncLane.Tests" />
+  </ItemGroup>
+
+</Project>

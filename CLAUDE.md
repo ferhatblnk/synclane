@@ -35,6 +35,7 @@ Run the PostgreSQL tests before calling any change to storage, running or the pu
 | `src/SyncLane/Telemetry` | Metrics instruments and outcome names. |
 | `src/SyncLane.Http` | The declarative HTTP source: recipes, request building, record paths, paging, authentication, its own codes (`HttpErrorCodes`) and catalog (`HttpErrors`). Uses only the engine's public API. |
 | `src/SyncLane.Cli` | The `synclane` command, a `dotnet tool`: `init` turns a curl into a recipe, `test` runs one for two pages without a database. Its own codes (`CliErrorCodes`, `SL6xxx`) and catalog (`CliErrors`). Uses only the public API of the other packages; `CliHost` is everything it reaches outside itself, so tests replace the terminal and the network. |
+| `src/SyncLane.AspNetCore` | `MapSyncLane`: the monitor over HTTP and server-sent events, listed in the host's OpenAPI document. Local requests only until the group requires authorization. Its own codes (`EndpointErrorCodes`, `SL7xxx`) and catalog (`EndpointErrors`). Uses only the engine's public API. |
 | `tests/SyncLane.Tests` | Unit tests, PostgreSQL tests (`[PostgresFact]`) and `ConventionTests`. |
 | `schemas` | `recipe.schema.json`, generated; embedded in `SyncLane.Http`. |
 | `docs` | User documentation and `errors.md`. Design notes, phase plans and analyses are kept out of the repository, in the git-ignored `private/` folder. |
@@ -45,7 +46,7 @@ Each rule has a reason. If a rule is in your way, change the rule here first, wi
 
 ### 1. Dependencies
 
-- The engine depends on the BCL, `Npgsql` and `Microsoft.Extensions.*.Abstractions`. Nothing else. `SyncLane.Http` adds `Microsoft.Extensions.Http` (decision D13).
+- The engine depends on the BCL, `Npgsql` and `Microsoft.Extensions.*.Abstractions`. Nothing else. `SyncLane.Http` adds `Microsoft.Extensions.Http` (decision D13). `SyncLane.AspNetCore` adds the ASP.NET Core shared framework and nothing else (D48).
 - No platform is named in `src`: not in code, not in comments. Platform knowledge belongs in recipes. **(checked)**
 - **No in-house or company packages in this solution.** Nothing private, from any employer or client. SyncLane is public and must build for anyone. An adapter to such a package (for example mapping `SyncResult<T>` to `ApiResult<T>`) lives in a separate solution that references SyncLane, never the other way round.
 - `SyncLane.Http` uses only the engine's public API. If it needs something internal, make a small, read-only public API in the engine instead (as `SyncLaneOptions.Describe()`).
@@ -68,7 +69,7 @@ Every failure falls into exactly one category. Pick the mechanism from the categ
 - **All messages come from `SyncLaneErrors`.** Never write an error message in place: no `new XException("...")` anywhere in `src`. **(checked)**
 - Every message says what went wrong and how to fix it, in plain English, naming the setting, queue or type involved.
 - Never put a secret, a token, a header value or a response body in a message.
-- To add an error: add a constant to the package's code list (`SyncErrorCodes` or `HttpErrorCodes`) with the next free number in its range, a factory to its catalog (`SyncLaneErrors` or `HttpErrors`), and a row to `docs/errors.md` with cause and fix. **(checked: every code has a factory and a row, and every row has a code)**
+- To add an error: add a constant to the package's code list (`SyncErrorCodes`, `HttpErrorCodes`, `CliErrorCodes` or `EndpointErrorCodes`) with the next free number in its range, a factory to its catalog (`SyncLaneErrors`, `HttpErrors`, `CliErrors` or `EndpointErrors`), and a row to `docs/errors.md` with cause and fix. **(checked: every code has a factory and a row, and every row has a code)**
 - Codes are public contract. Never renumber, reuse or remove one. Rewording a message is fine.
 - `catch (Exception)` only where the exception is turned into state (a job's status) or logged and the loop continues. Never swallow silently. Use `when` filters to keep cancellation out.
 
