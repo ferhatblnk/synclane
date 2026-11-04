@@ -28,6 +28,8 @@ The first digit is the area:
 | `SL1007` | Configuration | A job type setting cannot work, such as a zero `slice` or an `offset` longer than `every`. | Change the setting as the message says. |
 | `SL1008` | Configuration | A rate budget is declared twice with `AddBudget`. | Declare each budget once; every queue can draw from it. |
 | `SL1009` | Configuration | A rate budget's setting is out of range: the name, `limit` or `burst` below 1, or `per` not longer than zero. | Change the setting the message names. |
+| `SL1010` | Configuration | `options.Application`, or the host's application name it defaults to, is empty, longer than 100 characters, or holds a character other than letters, digits, dots, underscores, colons, slashes or hyphens. | Set `options.Application` to a name that fits. |
+| `SL1011` | Configuration | At start-up, a live instance of another application already runs a queue this one runs, with its planner or its workers. Two applications on one queue would take each other's jobs and abandon the types they do not know. The message names the queue, the application and the instance. | Rename the queue in one of the applications, or give both the same `options.Application` if they are one application. An instance that stopped without removing itself stops counting two minutes after its last heartbeat. |
 
 ## Schema and stored data
 

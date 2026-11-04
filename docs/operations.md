@@ -215,6 +215,26 @@ Rate budgets are shared through `rate_buckets`: every instance takes its tokens 
 
 Keep the clocks of your instances in sync. Leases, due times and token refills are computed with the clock of the instance that asks. For leases a skew of seconds does not matter; for a budget, an instance whose clock runs one second ahead can let one second's worth of extra tokens through.
 
+## Several applications on one schema
+
+Applications can share one database and one SyncLane schema. Each declares its own queues, so jobs, planning and clean-up stay separate, and a budget declared by several applications is shared by all of them. One table then shows every sync of every application.
+
+Each process registers in `instances` at start-up and every half minute after. Its row holds:
+- its application;
+- its host;
+- the SyncLane version;
+- the queues it runs with its planner or workers;
+- its budgets.
+
+The application is `options.Application`. It defaults to the host's application name, which is the entry assembly's unless the host sets another. Copies of one application share their queues.
+
+**A queue belongs to one application at a time.** A worker takes any job of a queue it declares, so two applications on one queue would take each other's jobs and abandon the types they do not know (`SL4001`). An instance that would run a queue a live instance of another application runs does not start, and says which one (`SL1011`). Rename the queue in one of them, or give both the same `Application` if they are one application.
+
+- An instance that runs neither the planner nor workers claims no queue. It can declare any queue to call `ISyncLane` on it, for example from an admin application.
+- An instance removes its row when it stops. One that dies without stopping counts as gone two minutes after its last heartbeat, and its row is deleted after a day.
+- A budget that another live instance declares with another limit, period or burst is logged as a warning at start-up: instances that disagree pace a shared budget differently. During a deploy that changes a limit this passes by itself.
+- Instances of SyncLane versions before the instances table do not register, so they are not seen by this check.
+
 ## Upgrading the schema
 
 The schema is a numbered list of migrations. `synclane.migrations` records which ones a database has. With `CreateSchema` on, each instance applies what is missing at start-up, in one transaction, behind a lock; instances that start together wait for each other, and the second one finds nothing to do.

@@ -12,6 +12,7 @@ internal static class Migrations
         new(3, "rate bucket sequence", RateBucketSequence),
         new(4, "learned rates", LearnedRates),
         new(5, "coverage summary", CoverageSummary),
+        new(6, "instances", InstancesTable),
     ];
 
     public static int Latest => All[^1].Version;
@@ -153,5 +154,24 @@ internal static class Migrations
 
         CREATE INDEX IF NOT EXISTS jobs_finished
             ON {schema}.{JobSql.TableName} (queue, completed_at) WHERE status = 'completed' AND mode <> 'initial';
+        """;
+
+    /// <summary>
+    /// Version 6: one row per running process, written at start-up and every half minute: its application, the queues it
+    /// runs and the budgets it declares. Start-up reads it to keep two applications off one queue. Older instances do not
+    /// write it, and nothing they do reads it.
+    /// </summary>
+    private static string InstancesTable(string schema) =>
+        $"""
+        CREATE TABLE IF NOT EXISTS {schema}.{InstanceSql.TableName} (
+            id           text        PRIMARY KEY,
+            application  text        NOT NULL,
+            host         text        NOT NULL,
+            version      text        NOT NULL,
+            queues       text[]      NOT NULL,
+            budgets      jsonb       NOT NULL,
+            started_at   timestamptz NOT NULL,
+            heartbeat_at timestamptz NOT NULL
+        );
         """;
 }

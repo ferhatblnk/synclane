@@ -39,6 +39,13 @@ public sealed partial class SyncLaneOptions
     public TimeSpan MaxBudgetWait { get; set; } = TimeSpan.FromSeconds(30);
 
     /// <summary>
+    /// The name instances register under. Instances of one application share their queues; a live instance of another
+    /// application that runs one of them stops this one at start-up. Defaults to the host's application name, which is
+    /// the entry assembly's name unless the host sets another.
+    /// </summary>
+    public string? Application { get; set; }
+
+    /// <summary>
     /// How long completed recurring and manual jobs stay in the table before instances that run the planner delete them.
     /// Initial jobs, and jobs that have not completed, are never deleted. Default 7 days; <c>null</c> keeps every job.
     /// </summary>
@@ -124,12 +131,15 @@ public sealed partial class SyncLaneOptions
         if (MaxBudgetWait <= TimeSpan.Zero)
             throw new SyncLaneException(SyncLaneErrors.IntervalNotPositive(nameof(MaxBudgetWait)));
 
+        if (Application is not null && !IsValidName(Application))
+            throw new SyncLaneException(SyncLaneErrors.ApplicationNameInvalid(Application));
+
         if (KeepCompletedJobs <= TimeSpan.Zero)
             throw new SyncLaneException(SyncLaneErrors.IntervalNotPositive(nameof(KeepCompletedJobs)));
 
         foreach (var budget in _budgets)
         {
-            if (!BudgetName().IsMatch(budget.Name))
+            if (!IsValidName(budget.Name))
                 throw new SyncLaneException(SyncLaneErrors.BudgetSettingInvalid(budget.Name, "the name must be 1 to 100 letters, digits, dots, underscores, colons, slashes or hyphens"));
 
             if (budget.Limit < 1)
@@ -149,6 +159,9 @@ public sealed partial class SyncLaneOptions
             queue.Validate();
     }
 
+    /// <summary>A budget or application name: 1 to 100 letters, digits, dots, underscores, colons, slashes or hyphens.</summary>
+    internal static bool IsValidName(string name) => Name().IsMatch(name);
+
     [GeneratedRegex("^[A-Za-z0-9._:/-]{1,100}$")]
-    private static partial Regex BudgetName();
+    private static partial Regex Name();
 }

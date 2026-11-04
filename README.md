@@ -325,6 +325,7 @@ Every run of a job is a `synclane.job` span and every page a `synclane.page` spa
 | `PlanInterval` | 1 minute | How often the planner looks for missing jobs. |
 | `PollInterval` | 5 seconds | How long an idle worker slot waits before it looks again. |
 | `AddBudget(name, limit, per, burst, start)` | none | A rate budget: at most `limit` requests per `per`, at most `burst` at once (default 1, evenly spaced). It starts at `start` times the limit (default 1) and learns below it. |
+| `Application` | the host's application name | The name instances register under. Copies of one application share its queues; another application that runs one of them is refused at start-up. See [Several applications on one schema](docs/operations.md#several-applications-on-one-schema). |
 | `KeepCompletedJobs` | 7 days | How long completed recurring and manual jobs stay before instances that run the planner delete them. Initial jobs and unfinished jobs stay. `null` keeps everything. |
 | `MaxBudgetWait` | 30 seconds | The longest a request waits for a budget's token inside a job; a longer wait postpones the job. |
 | `queue.Concurrency` | `1` | Jobs of the queue one process runs at once. `1` makes the queue strictly sequential. |

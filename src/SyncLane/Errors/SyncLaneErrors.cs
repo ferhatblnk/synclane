@@ -45,6 +45,19 @@ internal static class SyncLaneErrors
         SyncErrorCodes.BudgetSettingInvalid, SyncErrorKind.Configuration,
         $"Budget '{budget}': {rule}.");
 
+    public static SyncError ApplicationNameInvalid(string application) => new(
+        SyncErrorCodes.ApplicationNameInvalid, SyncErrorKind.Configuration,
+        $"Application '{application}' is not usable as a name. Set options.Application in AddSyncLane to 1 to 100 letters, " +
+        "digits, dots, underscores, colons, slashes or hyphens.");
+
+    public static SyncError QueueRunByAnotherApplication(string queue, string application, string instance, TimeSpan seenAgo, TimeSpan goneAfter) => new(
+        SyncErrorCodes.QueueRunByAnotherApplication, SyncErrorKind.Configuration,
+        $"Queue '{queue}' is already run by application '{application}' (instance '{instance}', heard from " +
+        $"{Math.Max(0, (int)seenAgo.TotalSeconds)} seconds ago). Two applications on one queue take each other's jobs and give up the " +
+        $"types they do not know. Give the queue another name in one of them, or give both the same options.Application if they " +
+        $"are one application. An instance that stopped without removing itself no longer counts {(int)goneAfter.TotalMinutes} minutes " +
+        "after its last heartbeat.");
+
     // 2xxx: schema and stored data.
 
     public static SyncError MigrationMissing(string schema, IEnumerable<int> versions) => new(
