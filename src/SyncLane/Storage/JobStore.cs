@@ -80,15 +80,53 @@ internal sealed class JobStore(NpgsqlDataSource dataSource, JobSql sql) : IAsync
         if (jobs.Count == 0)
             return 0;
 
-        await using var command = EnqueueCommand(queue, jobs, now);
-        return await command.ExecuteNonQueryAsync(cancellationToken);
+        await using var command = EnqueueCommand(sql.Enqueue, queue, jobs, now);
+        return await command.ExecuteScalarAsync(cancellationToken) is int created ? created : 0;
     }
 
     /// <summary>Inserts one job. Returns its id, or <c>null</c> when a job with the same dedup key exists.</summary>
     public async Task<long?> EnqueueOneAsync(string queue, PlannedJob job, DateTimeOffset now, CancellationToken cancellationToken)
     {
-        await using var command = EnqueueCommand(queue, [job], now);
+        await using var command = EnqueueCommand(sql.EnqueueOne, queue, [job], now);
         return await command.ExecuteScalarAsync(cancellationToken) is long id ? id : null;
+    }
+
+    /// <summary>Records ranges of history as loaded, in one statement. Returns how many were new.</summary>
+    public async Task<int> MarkLoadedAsync(string queue, IReadOnlyList<PlannedJob> loaded, DateTimeOffset now, CancellationToken cancellationToken)
+    {
+        if (loaded.Count == 0)
+            return 0;
+
+        await using var command = dataSource.CreateCommand(sql.MarkLoaded);
+        command.Parameters.AddWithValue("queue", queue);
+        command.Parameters.AddWithValue("now", now.ToUniversalTime());
+        command.Parameters.AddWithValue("owners", loaded.Select(job => job.Owner).ToArray());
+        command.Parameters.AddWithValue("lanes", loaded.Select(job => job.Lane).ToArray());
+        command.Parameters.AddWithValue("types", loaded.Select(job => job.Type).ToArray());
+        command.Parameters.AddWithValue("priorities", loaded.Select(job => job.Priority).ToArray());
+        command.Parameters.Add(Moments("window_starts", loaded.Select(job => job.WindowStart)));
+        command.Parameters.Add(Moments("window_ends", loaded.Select(job => job.WindowEnd)));
+        command.Parameters.Add(Texts("dedup_keys", loaded.Select(job => job.DedupKey)));
+        return await command.ExecuteScalarAsync(cancellationToken) is int created ? created : 0;
+    }
+
+    /// <summary>Deletes every job of the owner on the queue, and what planning knows about it. Returns how many jobs.</summary>
+    public async Task<int> ForgetOwnerAsync(string queue, string owner, CancellationToken cancellationToken)
+    {
+        await using var command = dataSource.CreateCommand(sql.ForgetOwner);
+        command.Parameters.AddWithValue("queue", queue);
+        command.Parameters.AddWithValue("owner", owner);
+        return await command.ExecuteNonQueryAsync(cancellationToken);
+    }
+
+    /// <summary>Deletes up to <paramref name="batch"/> completed recurring and manual jobs that completed before <paramref name="before"/>.</summary>
+    public async Task<int> DeleteCompletedAsync(IReadOnlyList<string> queues, DateTimeOffset before, int batch, CancellationToken cancellationToken)
+    {
+        await using var command = dataSource.CreateCommand(sql.DeleteCompleted);
+        command.Parameters.AddWithValue("queues", queues.ToArray());
+        command.Parameters.AddWithValue("before", before.ToUniversalTime());
+        command.Parameters.AddWithValue("batch", batch);
+        return await command.ExecuteNonQueryAsync(cancellationToken);
     }
 
     /// <summary>
@@ -211,7 +249,9 @@ internal sealed class JobStore(NpgsqlDataSource dataSource, JobSql sql) : IAsync
                 reader.GetBoolean(5),
                 reader.GetBoolean(6),
                 Moment(reader, 7),
-                Moment(reader, 8));
+                Moment(reader, 8),
+                Moment(reader, 9),
+                reader.IsDBNull(10) ? null : reader.GetFieldValue<long[]>(10));
         }
 
         return coverage;
@@ -289,9 +329,9 @@ internal sealed class JobStore(NpgsqlDataSource dataSource, JobSql sql) : IAsync
         return command;
     }
 
-    private NpgsqlCommand EnqueueCommand(string queue, IReadOnlyList<PlannedJob> jobs, DateTimeOffset now)
+    private NpgsqlCommand EnqueueCommand(string statement, string queue, IReadOnlyList<PlannedJob> jobs, DateTimeOffset now)
     {
-        var command = dataSource.CreateCommand(sql.Enqueue);
+        var command = dataSource.CreateCommand(statement);
         command.Parameters.AddWithValue("queue", queue);
         command.Parameters.AddWithValue("now", now.ToUniversalTime());
         command.Parameters.AddWithValue("owners", jobs.Select(job => job.Owner).ToArray());
@@ -301,13 +341,14 @@ internal sealed class JobStore(NpgsqlDataSource dataSource, JobSql sql) : IAsync
         command.Parameters.AddWithValue("priorities", jobs.Select(job => job.Priority).ToArray());
         command.Parameters.Add(Moments("window_starts", jobs.Select(job => job.WindowStart)));
         command.Parameters.Add(Moments("window_ends", jobs.Select(job => job.WindowEnd)));
-        command.Parameters.Add(new NpgsqlParameter("dedup_keys", NpgsqlDbType.Array | NpgsqlDbType.Text)
-        {
-            Value = jobs.Select(job => job.DedupKey).ToArray()
-        });
+        command.Parameters.Add(Texts("dedup_keys", jobs.Select(job => job.DedupKey)));
+        command.Parameters.AddWithValue("replaced", jobs.SelectMany(job => job.Replaces ?? []).ToArray());
 
         return command;
     }
+
+    private static NpgsqlParameter Texts(string name, IEnumerable<string?> values) =>
+        new(name, NpgsqlDbType.Array | NpgsqlDbType.Text) { Value = values.ToArray() };
 
     private static NpgsqlParameter Text(string name, string? value) =>
         new(name, NpgsqlDbType.Text) { Value = (object?)value ?? DBNull.Value };

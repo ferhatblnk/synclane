@@ -5,6 +5,8 @@ internal sealed class JobSql
 {
     public const string TableName = "jobs";
 
+    public const string CoverageTableName = "coverage";
+
     private const string Outstanding = "('pending', 'running', 'failed', 'deferred')";
 
     private static readonly string[] ColumnNames =
@@ -22,15 +24,89 @@ internal sealed class JobSql
         var leasedColumns = string.Join(", ", ColumnNames.Select(column => $"j.{column}"));
         const string held = "id = @id AND status = 'running' AND leased_by = @worker";
 
-        Enqueue =
+        var coverage = $"{schema}.{CoverageTableName}";
+
+        // Planning facts are fixed when a job is created, so the statement that creates jobs also keeps the summary the
+        // planner reads. Proposals that already exist are counted too: a job an older instance inserted during a rolling
+        // deploy reaches the summary the next time it is proposed.
+        string Summarize() =>
             $"""
-            INSERT INTO {table}
-                (queue, owner, lane, type, mode, priority, window_start, window_end, dedup_key, next_run_at, created_at, updated_at)
-            SELECT @queue, t.owner, t.lane, t.type, t.mode, t.priority, t.window_start, t.window_end, t.dedup_key, @now, @now, @now
-            FROM unnest(@owners, @lanes, @types, @modes, @priorities, @window_starts, @window_ends, @dedup_keys)
-                AS t(owner, lane, type, mode, priority, window_start, window_end, dedup_key)
-            ON CONFLICT (queue, owner, type, dedup_key) DO NOTHING
-            RETURNING id
+            existing AS (
+                SELECT j.owner, j.type, j.mode, j.window_start, j.window_end, j.created_at
+                FROM {table} AS j
+                JOIN proposed AS p ON j.owner = p.owner AND j.type = p.type AND j.dedup_key = p.dedup_key
+                WHERE j.queue = @queue AND p.mode IN ('initial', 'recurring')
+            ),
+            summarized AS (
+                INSERT INTO {coverage} AS c
+                    (queue, owner, type, has_initial, initial_from, covered_to, last_planned_at, last_recurring_at)
+                SELECT @queue, s.owner, s.type,
+                       bool_or(s.mode = 'initial'),
+                       min(s.window_start) FILTER (WHERE s.mode = 'initial'),
+                       max(s.window_end),
+                       max(s.created_at),
+                       max(s.created_at) FILTER (WHERE s.mode = 'recurring')
+                FROM (SELECT owner, type, mode, window_start, window_end, created_at FROM inserted
+                      UNION ALL
+                      SELECT owner, type, mode, window_start, window_end, created_at FROM existing) AS s
+                WHERE s.mode IN ('initial', 'recurring')
+                GROUP BY s.owner, s.type
+                ON CONFLICT (queue, owner, type) DO UPDATE
+                SET has_initial = c.has_initial OR excluded.has_initial,
+                    initial_from = LEAST(c.initial_from, excluded.initial_from),
+                    covered_to = GREATEST(c.covered_to, excluded.covered_to),
+                    last_planned_at = GREATEST(c.last_planned_at, excluded.last_planned_at),
+                    last_recurring_at = GREATEST(c.last_recurring_at, excluded.last_recurring_at)
+            )
+            """;
+
+        // A recurring job that was given up is replaced by the next one, whose window reaches back over it. The delete
+        // only takes rows still abandoned, so a job someone requeued in the meantime survives.
+        string Insert(string result) =>
+            $"""
+            WITH proposed AS (
+                SELECT *
+                FROM unnest(@owners, @lanes, @types, @modes, @priorities, @window_starts, @window_ends, @dedup_keys)
+                    AS t(owner, lane, type, mode, priority, window_start, window_end, dedup_key)
+            ),
+            replaced AS (
+                DELETE FROM {table}
+                WHERE id = ANY(@replaced) AND queue = @queue AND mode = 'recurring' AND status = 'abandoned'
+            ),
+            inserted AS (
+                INSERT INTO {table}
+                    (queue, owner, lane, type, mode, priority, window_start, window_end, dedup_key, next_run_at, created_at, updated_at)
+                SELECT @queue, owner, lane, type, mode, priority, window_start, window_end, dedup_key, @now, @now, @now
+                FROM proposed
+                ON CONFLICT (queue, owner, type, dedup_key) DO NOTHING
+                RETURNING id, owner, type, mode, window_start, window_end, created_at
+            ),
+            {Summarize()}
+            {result}
+            """;
+
+        Enqueue = Insert("SELECT count(*)::int FROM inserted");
+        EnqueueOne = Insert("SELECT id FROM inserted");
+
+        MarkLoaded =
+            $"""
+            WITH proposed AS (
+                SELECT t.*, 'initial'::text AS mode
+                FROM unnest(@owners, @lanes, @types, @priorities, @window_starts, @window_ends, @dedup_keys)
+                    AS t(owner, lane, type, priority, window_start, window_end, dedup_key)
+            ),
+            inserted AS (
+                INSERT INTO {table}
+                    (queue, owner, lane, type, mode, status, priority, window_start, window_end, dedup_key,
+                     next_run_at, created_at, completed_at, updated_at)
+                SELECT @queue, owner, lane, type, mode, 'completed', priority, window_start, window_end, dedup_key,
+                       @now, @now, @now, @now
+                FROM proposed
+                ON CONFLICT (queue, owner, type, dedup_key) DO NOTHING
+                RETURNING id, owner, type, mode, window_start, window_end, created_at
+            ),
+            {Summarize()}
+            SELECT count(*)::int FROM inserted
             """;
 
         Lease =
@@ -161,20 +237,53 @@ internal sealed class JobSql
             WHERE queue = @queue AND owner = @owner AND status IN ('pending', 'failed', 'deferred')
             """;
 
+        // The summary answers what was planned; only the open rows, which retention never deletes, say what is still
+        // under way. Those are few, and the jobs_open index finds them per owner and type.
         Coverage =
             $"""
-            SELECT owner,
-                   type,
-                   bool_or(mode = 'initial'),
-                   min(window_start) FILTER (WHERE mode = 'initial'),
-                   max(window_end),
-                   bool_or(status IN {Outstanding}),
-                   bool_or(mode = 'recurring' AND status IN {Outstanding}),
-                   max(created_at),
-                   max(created_at) FILTER (WHERE mode = 'recurring')
-            FROM {table}
-            WHERE queue = @queue AND owner = ANY(@owners) AND mode IN ('initial', 'recurring')
-            GROUP BY owner, type
+            SELECT c.owner,
+                   c.type,
+                   c.has_initial,
+                   c.initial_from,
+                   c.covered_to,
+                   coalesce(o.any_outstanding, false),
+                   coalesce(o.recurring_outstanding, false),
+                   c.last_planned_at,
+                   c.last_recurring_at,
+                   o.abandoned_from,
+                   o.abandoned
+            FROM {coverage} AS c
+            LEFT JOIN LATERAL (
+                SELECT bool_or(j.status IN {Outstanding}) AS any_outstanding,
+                       bool_or(j.mode = 'recurring' AND j.status IN {Outstanding}) AS recurring_outstanding,
+                       min(j.window_start) FILTER (WHERE j.mode = 'recurring' AND j.status = 'abandoned') AS abandoned_from,
+                       array_agg(j.id) FILTER (WHERE j.mode = 'recurring' AND j.status = 'abandoned') AS abandoned
+                FROM {table} AS j
+                WHERE j.queue = c.queue AND j.owner = c.owner AND j.type = c.type
+                  AND j.status <> 'completed' AND j.mode IN ('initial', 'recurring')
+            ) AS o ON true
+            WHERE c.queue = @queue AND c.owner = ANY(@owners)
+            """;
+
+        ForgetOwner =
+            $"""
+            WITH forgotten AS (
+                DELETE FROM {coverage} WHERE queue = @queue AND owner = @owner
+            )
+            DELETE FROM {table} WHERE queue = @queue AND owner = @owner
+            """;
+
+        // Initial jobs stay: they are bounded by the horizon, progress counts them, and they record what history was
+        // loaded. Recurring and manual jobs are what grows with time.
+        DeleteCompleted =
+            $"""
+            DELETE FROM {table}
+            WHERE id IN (
+                SELECT id
+                FROM {table}
+                WHERE queue = ANY(@queues) AND status = 'completed' AND mode <> 'initial' AND completed_at < @before
+                LIMIT @batch
+                FOR UPDATE SKIP LOCKED)
             """;
 
         Progress =
@@ -215,7 +324,14 @@ internal sealed class JobSql
 
     public string Schema { get; }
 
+    /// <summary>Inserts planned jobs, replaces abandoned recurring ones and updates the summary. Returns how many were created.</summary>
     public string Enqueue { get; }
+
+    /// <summary>The same as <see cref="Enqueue"/> for one job. Returns its id, or nothing when it exists.</summary>
+    public string EnqueueOne { get; }
+
+    /// <summary>Records history loaded elsewhere as completed initial jobs, and updates the summary.</summary>
+    public string MarkLoaded { get; }
 
     public string Lease { get; }
 
@@ -237,6 +353,10 @@ internal sealed class JobSql
     public string Cancel { get; }
 
     public string Coverage { get; }
+
+    public string ForgetOwner { get; }
+
+    public string DeleteCompleted { get; }
 
     public string Progress { get; }
 

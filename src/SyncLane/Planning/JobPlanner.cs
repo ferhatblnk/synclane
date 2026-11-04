@@ -38,7 +38,7 @@ internal static class JobPlanner
 
         var period = Slots.Period(now, every, rule.Offset);
         if (IsBefore(seen.LastPlannedAt, period))
-            missing.Add(Planned(owner, type, JobMode.Recurring, null, DedupKeys.Recurring(period)));
+            missing.Add(Planned(owner, type, JobMode.Recurring, null, DedupKeys.Recurring(period)) with { Replaces = seen.Abandoned });
     }
 
     private static void PlanWindowed(List<PlannedJob> missing, JobOwner owner, JobType type, WindowedRule rule, TypeCoverage seen, DateTimeOffset now)
@@ -60,8 +60,13 @@ internal static class JobPlanner
         var from = coveredTo ?? now - every;
         var until = Slots.WholeSeconds(now);
 
+        // Windows that were given up are loaded again by this one, so the data they missed is not lost.
+        var start = from - rule.Overlap;
+        if (seen.AbandonedFrom is { } missed && missed < start)
+            start = missed;
+
         if (IsBefore(seen.LastRecurringAt, period) && until > from)
-            missing.Add(Planned(owner, type, JobMode.Recurring, new JobWindow(from - rule.Overlap, until), DedupKeys.Recurring(period)));
+            missing.Add(Planned(owner, type, JobMode.Recurring, new JobWindow(start, until), DedupKeys.Recurring(period)) with { Replaces = seen.Abandoned });
     }
 
     private static bool IsBefore(DateTimeOffset? last, DateTimeOffset period) =>

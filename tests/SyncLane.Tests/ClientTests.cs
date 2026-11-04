@@ -19,7 +19,9 @@ public class ClientTests : PostgresTest
             await client.EnqueueAsync(new NewJob { Queue = "missing", Owner = owner, Type = "orders" }),
             await client.RequeueAsync("missing"),
             await client.CancelAsync("missing", "a", "gone"),
-            await client.GetProgressAsync("missing", "a")
+            await client.GetProgressAsync("missing", "a"),
+            await client.MarkLoadedAsync("missing", []),
+            await client.ForgetOwnerAsync("missing", "a")
         ];
 
         Assert.All(results, result =>

@@ -6,7 +6,7 @@ Planning decides which jobs exist. It is the part of a sync system that looks ea
 
 > Planning compares the jobs that should exist with the jobs that exist, and adds only what is missing. It can be called at any time, any number of times.
 
-Nothing in the planner remembers that it ran. There is no "already planned" flag, no early exit, no last-run timestamp. The table is the only memory.
+Nothing in the planner remembers that it ran. There is no "already planned" flag, no early exit, no last-run timestamp. The tables are the only memory: the jobs, and `coverage`, a summary of what has been planned per owner and type. The statement that inserts jobs also writes the summary, so the two never disagree, and the planner reads one row per owner and type instead of every job ever created. Old jobs can then be deleted without changing what is planned.
 
 ## Two questions, two owners
 
@@ -18,6 +18,8 @@ Most planning bugs come from mixing these up:
 | A row exists but the job **stopped** (failed, deferred, abandoned) | Retry and requeue | The row goes back to `pending`. |
 
 This is why **coverage does not look at status**. A slice of history that was abandoned is still "planned". Bringing it back is the job of a requeue, which keeps its cursor. If the planner counted only healthy rows, it would insert a second row for the same slice while the first one is waiting for its retry, and the two would then fetch the same range.
+
+**One exception: a recurring job that was abandoned is replaced by the next one.** When the next period comes, the planner deletes the abandoned recurring jobs of that owner and type in the same statement that inserts the new one, and the new window starts where the oldest of them started. An account whose credentials were revoked would otherwise add an abandoned row every period, and the windows they missed would stay missed after the credentials are fixed. The newest job always carries the current error. A requeue that comes first still wins: only rows that are still abandoned are deleted.
 
 ## What should exist
 
@@ -42,9 +44,12 @@ for each slice from covered back to horizon:      # stops exactly at the horizon
     insert initial job (slice.start, slice.end)
 
 if no recurring job of this type is outstanding and none was created in the current period:
-    from = the newest window_end among all the owner's jobs of this type
-    insert recurring job (from - Overlap, now)
+    from  = the newest window_end among all the owner's jobs of this type
+    start = from - Overlap, or the oldest start of abandoned recurring jobs if that is earlier
+    insert recurring job (start, now), deleting those abandoned recurring jobs
 ```
+
+`covered`, `from` and the creation times come from the summary; whether a job is outstanding or abandoned comes from the open rows, which clean-up never deletes.
 
 The inserts go through `INSERT ... ON CONFLICT DO NOTHING` on the unique index `(queue, owner, type, dedup_key)`. The key is `initial` for a snapshot, `initial:<window start>` for a slice of history and `recurring:<period start>` for a recurring job. So even if two instances compute the same plan at the same moment, each job is created once.
 
@@ -116,4 +121,5 @@ And the window of a recurring job is derived from the jobs table (where coverage
 - **Do not add an early return to the planner.** It is the one thing that breaks repeatability.
 - **Do not filter coverage by status.** It collides with retry and requeue.
 - **Do not deduplicate recurring jobs by window.** It can lock an owner out for good.
-- **Do not delete initial rows** unless you want that history loaded again. They are the record of what has been planned. See [operations.md](operations.md#keeping-the-table-small).
+- **Moving from another system**: call `MarkLoadedAsync` with the ranges it already loaded, before the planner runs for those owners. Only what is older and what came after is fetched. See [operations.md](operations.md#moving-from-another-system).
+- **An owner that is gone for good**: call `ForgetOwnerAsync`. Deleting its rows by hand leaves the summary behind, and if the owner came back its history would never be loaded again.

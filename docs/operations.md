@@ -110,27 +110,55 @@ Do not set a row to `running` by hand, and do not change `leased_by`. Those two 
 
 ## Keeping the table small
 
-Completed rows are never deleted by SyncLane. How long you keep them is your decision, with one thing to know first:
+SyncLane deletes old jobs itself. Instances that run the planner do it at start-up and then every hour, in batches of 1,000, for their own queues only:
 
-**Initial rows are the record of what has been planned.** The planner works out what is missing by looking at them. If you delete the initial rows of an owner, the next planning round sees a new owner and plans the whole history again.
+| Kept | Deleted |
+| --- | --- |
+| Initial jobs. They are bounded by the horizon, `GetProgressAsync` counts them, and they record what history was loaded. | Completed recurring and manual jobs older than `KeepCompletedJobs` (default 7 days). |
+| Jobs that have not completed: pending, running, failed, deferred and abandoned. | |
 
-Recurring rows are different. Only the newest one per owner and type matters to the planner, because it marks where coverage ends. Older ones are history you may or may not want to keep:
+Set `KeepCompletedJobs = null` to keep every job. Deleting is safe at any age: the planner reads `coverage`, not the history.
 
-```sql
-DELETE FROM synclane.jobs AS old
-WHERE old.mode = 'recurring'
-  AND old.status = 'completed'
-  AND old.completed_at < now() - interval '30 days'
-  AND EXISTS (
-      SELECT 1
-      FROM synclane.jobs AS newer
-      WHERE newer.queue = old.queue AND newer.owner = old.owner AND newer.type = old.type
-        AND newer.mode = 'recurring' AND newer.id > old.id);
-```
+An abandoned recurring job does not pile up: the next period's job replaces it and reaches back over its window. An abandoned slice of history waits for `RequeueAsync`.
 
 `rate_buckets` holds one small row per budget and key, updated in place. Rows of keys you no longer use can be deleted; a key that is used again starts with a full bucket.
 
-When an account is removed for good, delete all its rows. When it only disconnects, call `CancelAsync` and stop returning it from your `IOwnerSource`. If it connects again, call `RequeueAsync` for it: its abandoned slices are still planned and come back with their cursors.
+When an account only disconnects, call `CancelAsync` and stop returning it from your `IOwnerSource`. If it connects again, call `RequeueAsync` for it: its abandoned slices are still planned and come back with their cursors.
+
+When an account is removed for good, stop returning it from your `IOwnerSource`, then call `ForgetOwnerAsync`, then delete its data. A job running at that moment stops at its next page, and that page may still reach your handler. Do not delete its rows by hand: the summary would stay, and if the account came back its history would never be loaded again.
+
+## Moving from another system
+
+If another system already loaded an account's history, record it with `MarkLoadedAsync` before the planner runs for that account. Each range becomes a completed initial job. The planner then fetches only what is older, back to the horizon, and what came after, with the next recurring window.
+
+```csharp
+var ranges = oldJobs
+    .GroupBy(job => (job.StoreId, job.Type))
+    .Select(group => new LoadedRange
+    {
+        Owner = new JobOwner(group.Key.StoreId.ToString()),
+        Type = group.Key.Type,
+        Start = group.Min(job => job.WindowStart),
+        End = group.Max(job => job.WindowEnd)
+    })
+    .ToList();
+
+var result = await syncLane.MarkLoadedAsync("orders", ranges);
+result.ThrowIfFailed();
+```
+
+Mark only ranges without holes: a hole inside a marked range is never fetched. If the old system's history has gaps, mark each unbroken run as its own range.
+
+- It is safe to run twice: the same range is recorded once.
+- One bad range marks nothing, and every problem is returned at once (`SL3006`, `SL3007`).
+- Only windowed types can be marked. A snapshot type reads everything on each run anyway.
+- A range must end by now. For a type without `every` it must reach today (UTC), because such a type never loads what came after its history.
+
+A safe order:
+1. Deploy with `RunPlanner` and `RunWorkers` off.
+2. Mark the history.
+3. Stop the old system.
+4. Turn SyncLane on.
 
 ## Choosing the numbers
 
@@ -194,6 +222,15 @@ The schema is a numbered list of migrations. `synclane.migrations` records which
 Migrations are only ever added, and each one only adds. An instance still running the previous version keeps working against the upgraded table, so you can roll a deploy one instance at a time.
 
 A table created by SyncLane 0.1, before the migrations table existed, is adopted as it is: migration 1 finds the table and indexes in place and only records itself.
+
+Migration 5 builds two indexes on `jobs`, and a plain `CREATE INDEX` blocks writes to the table while it runs. On a large table, create them first without blocking. The migration then finds them and skips them:
+
+```sql
+CREATE INDEX CONCURRENTLY IF NOT EXISTS jobs_open
+    ON synclane.jobs (queue, owner, type) WHERE status <> 'completed';
+CREATE INDEX CONCURRENTLY IF NOT EXISTS jobs_finished
+    ON synclane.jobs (queue, completed_at) WHERE status = 'completed' AND mode <> 'initial';
+```
 
 ## Running the schema yourself
 

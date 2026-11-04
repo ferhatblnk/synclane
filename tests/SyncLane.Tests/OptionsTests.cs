@@ -95,6 +95,24 @@ public class OptionsTests
     }
 
     [Fact]
+    public void Keeping_completed_jobs_for_no_time_is_refused_and_null_keeps_them_all()
+    {
+        var failure = Assert.Throws<SyncLaneException>(() => new ServiceCollection().AddSyncLane(options =>
+        {
+            options.ConnectionString = AnyConnection;
+            options.KeepCompletedJobs = TimeSpan.Zero;
+        }));
+        var keepAll = new ServiceCollection().AddSyncLane(options =>
+        {
+            options.ConnectionString = AnyConnection;
+            options.KeepCompletedJobs = null;
+        });
+
+        Assert.StartsWith("SL1003: KeepCompletedJobs", failure.Message);
+        Assert.Contains(keepAll, service => service.ImplementationType?.Name == "RetentionService");
+    }
+
+    [Fact]
     public void Handlers_and_owner_sources_are_registered_as_scoped_services()
     {
         var services = new ServiceCollection().AddSyncLane(options =>

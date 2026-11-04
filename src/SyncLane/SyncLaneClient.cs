@@ -53,6 +53,31 @@ internal sealed class SyncLaneClient(SyncLaneOptions options, JobStore store, Qu
         return SyncResult<int>.Success(await store.CancelAsync(declared.Name, owner, reason, time.GetUtcNow(), cancellationToken));
     }
 
+    public async Task<SyncResult<int>> MarkLoadedAsync(string queue, IReadOnlyList<LoadedRange> ranges, CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(queue);
+        ArgumentNullException.ThrowIfNull(ranges);
+        if (options.Find(queue) is not { } declared)
+            return SyncResult<int>.Failure(SyncLaneErrors.QueueNotDeclared(queue));
+
+        var now = time.GetUtcNow();
+        var loaded = LoadedHistory.Plan(declared, ranges, now);
+        if (!loaded.Succeeded)
+            return SyncResult<int>.Failure(loaded.Errors);
+
+        return SyncResult<int>.Success(await store.MarkLoadedAsync(declared.Name, loaded.Value!, now, cancellationToken));
+    }
+
+    public async Task<SyncResult<int>> ForgetOwnerAsync(string queue, string owner, CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(queue);
+        ArgumentNullException.ThrowIfNull(owner);
+        if (options.Find(queue) is not { } declared)
+            return SyncResult<int>.Failure(SyncLaneErrors.QueueNotDeclared(queue));
+
+        return SyncResult<int>.Success(await store.ForgetOwnerAsync(declared.Name, owner, cancellationToken));
+    }
+
     public async Task<SyncListResult<Job>> GetJobsAsync(JobQuery query, CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(query);

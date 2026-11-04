@@ -4,7 +4,7 @@ SyncLane is four pieces around one table: a planner that inserts rows, worker sl
 
 ## The table
 
-Everything is in `synclane.jobs`. The full definition is in [schema.sql](schema.sql); `synclane.migrations` beside it only records which schema version the database has.
+Jobs are in `synclane.jobs`. The full definition is in [schema.sql](schema.sql). Beside it, `synclane.coverage` keeps what the planner needs per owner and type, `synclane.rate_buckets` the rate budgets, and `synclane.migrations` which schema version the database has.
 
 | Column | Meaning |
 | --- | --- |
@@ -29,7 +29,7 @@ Status and mode are stored as text, so the table reads without a legend.
 
 ## Planning
 
-Covered in [planning.md](planning.md). In short: one query reads what exists for all owners, a pure function works out what is missing, one insert adds it.
+Covered in [planning.md](planning.md). In short: one query reads the summary and the open jobs of all owners, a pure function works out what is missing, one insert adds it and updates the summary.
 
 ## Taking a job
 
@@ -119,8 +119,8 @@ Three things happen around that loop.
 | `JobThrottledException` | `failed` | After the wait it named, or `ThrottleBaseDelay` doubled per attempt, capped at `ThrottleMaxDelay` |
 | `JobPostponedException` | `pending`, the attempt not counted | After the wait it named. A rate budget throws it when a token is far away, and a recipe with a budget when the API says "slow down" |
 | Exception on attempt `MaxAttempts` | `deferred` | When nothing else is pending, running or waiting for a retry in its lane |
-| Exception on the deferred attempt | `abandoned` | After a requeue |
-| `JobAbandonedException` | `abandoned` | After a requeue |
+| Exception on the deferred attempt | `abandoned` | After a requeue. A recurring job is replaced by the next period's, which covers its window too |
+| `JobAbandonedException` | `abandoned` | The same |
 | No handler for the type | `abandoned` | After a requeue |
 
 The cursor and the processed count are never reset by a failure. Whatever status a job leaves `running` with, it comes back at the page it stopped on.

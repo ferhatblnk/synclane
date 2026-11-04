@@ -13,6 +13,8 @@ internal static class DedupKeys
 
     public static string Recurring(DateTimeOffset periodStart) => $"recurring:{Format(periodStart)}";
 
+    public static string Loaded(DateTimeOffset start, DateTimeOffset end) => $"loaded:{Format(start)}/{Format(end)}";
+
     private static string Format(DateTimeOffset moment) =>
         moment.UtcDateTime.ToString(TimestampFormat, CultureInfo.InvariantCulture);
 }

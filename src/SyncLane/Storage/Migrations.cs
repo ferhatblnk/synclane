@@ -11,6 +11,7 @@ internal static class Migrations
         new(2, "rate buckets", RateBucketsTable),
         new(3, "rate bucket sequence", RateBucketSequence),
         new(4, "learned rates", LearnedRates),
+        new(5, "coverage summary", CoverageSummary),
     ];
 
     public static int Latest => All[^1].Version;
@@ -112,5 +113,45 @@ internal static class Migrations
             ADD COLUMN IF NOT EXISTS rate double precision,
             ADD COLUMN IF NOT EXISTS rate_max double precision,
             ADD COLUMN IF NOT EXISTS taken_at_pause bigint NOT NULL DEFAULT 0;
+        """;
+
+    /// <summary>
+    /// Version 5: what planning knows per queue, owner and type, so that it reads one row instead of every job ever
+    /// created and old jobs can be deleted. It is filled from the existing jobs once. An older instance that keeps
+    /// running ignores it, and the jobs it creates reach it the next time a newer planner proposes them. Two indexes
+    /// come with it: open jobs per owner and type for the planner, and completed jobs by age for retention.
+    /// </summary>
+    private static string CoverageSummary(string schema) =>
+        $"""
+        CREATE TABLE IF NOT EXISTS {schema}.{JobSql.CoverageTableName} (
+            queue             text        NOT NULL,
+            owner             text        NOT NULL,
+            type              text        NOT NULL,
+            has_initial       boolean     NOT NULL DEFAULT false,
+            initial_from      timestamptz,
+            covered_to        timestamptz,
+            last_planned_at   timestamptz,
+            last_recurring_at timestamptz,
+            PRIMARY KEY (queue, owner, type)
+        );
+
+        INSERT INTO {schema}.{JobSql.CoverageTableName}
+            (queue, owner, type, has_initial, initial_from, covered_to, last_planned_at, last_recurring_at)
+        SELECT queue, owner, type,
+               bool_or(mode = 'initial'),
+               min(window_start) FILTER (WHERE mode = 'initial'),
+               max(window_end),
+               max(created_at),
+               max(created_at) FILTER (WHERE mode = 'recurring')
+        FROM {schema}.{JobSql.TableName}
+        WHERE mode IN ('initial', 'recurring')
+        GROUP BY queue, owner, type
+        ON CONFLICT (queue, owner, type) DO NOTHING;
+
+        CREATE INDEX IF NOT EXISTS jobs_open
+            ON {schema}.{JobSql.TableName} (queue, owner, type) WHERE status <> 'completed';
+
+        CREATE INDEX IF NOT EXISTS jobs_finished
+            ON {schema}.{JobSql.TableName} (queue, completed_at) WHERE status = 'completed' AND mode <> 'initial';
         """;
 }

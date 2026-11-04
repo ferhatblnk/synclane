@@ -38,6 +38,12 @@ public sealed partial class SyncLaneOptions
     /// </summary>
     public TimeSpan MaxBudgetWait { get; set; } = TimeSpan.FromSeconds(30);
 
+    /// <summary>
+    /// How long completed recurring and manual jobs stay in the table before instances that run the planner delete them.
+    /// Initial jobs, and jobs that have not completed, are never deleted. Default 7 days; <c>null</c> keeps every job.
+    /// </summary>
+    public TimeSpan? KeepCompletedJobs { get; set; } = TimeSpan.FromDays(7);
+
     internal IReadOnlyList<QueueOptions> Queues => _queues;
 
     /// <summary>
@@ -117,6 +123,9 @@ public sealed partial class SyncLaneOptions
 
         if (MaxBudgetWait <= TimeSpan.Zero)
             throw new SyncLaneException(SyncLaneErrors.IntervalNotPositive(nameof(MaxBudgetWait)));
+
+        if (KeepCompletedJobs <= TimeSpan.Zero)
+            throw new SyncLaneException(SyncLaneErrors.IntervalNotPositive(nameof(KeepCompletedJobs)));
 
         foreach (var budget in _budgets)
         {

@@ -60,7 +60,10 @@ public static class ServiceCollectionExtensions
             services.AddHostedService<SchemaCheck>();
 
         if (options.RunPlanner)
+        {
             services.AddHostedService<PlannerService>();
+            services.AddHostedService<RetentionService>();
+        }
 
         if (options.RunWorkers)
             services.AddHostedService<JobWorker>();

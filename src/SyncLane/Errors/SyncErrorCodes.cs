@@ -61,6 +61,12 @@ public static class SyncErrorCodes
     /// <summary>A rate budget is used that was never declared.</summary>
     public const string BudgetNotDeclared = "SL3005";
 
+    /// <summary>History is marked as loaded for a job type that has no windows.</summary>
+    public const string JobTypeNotWindowed = "SL3006";
+
+    /// <summary>A range of history marked as loaded is not usable as it is.</summary>
+    public const string LoadedRangeInvalid = "SL3007";
+
     /// <summary>A job with the same owner, type and dedup key already exists.</summary>
     public const string JobAlreadyExists = "SL3101";
 
