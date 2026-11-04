@@ -57,4 +57,7 @@ public sealed record OwnerFreshness
 
     /// <summary>Slices of history completed.</summary>
     public int HistoryCompleted { get; init; }
+
+    /// <summary>A pause of the queue or of this owner holds its jobs back.</summary>
+    public bool Paused { get; init; }
 }

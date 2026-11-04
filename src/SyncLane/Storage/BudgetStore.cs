@@ -110,6 +110,17 @@ internal sealed class BudgetStore(NpgsqlDataSource dataSource, BudgetSql sql)
         return seed;
     }
 
+    /// <summary>Stores the limit the API reported for a key, as a rate a second. Returns whether it changed.</summary>
+    public async Task<bool> ReportLimitAsync(string budget, string key, double rate, DateTimeOffset now, CancellationToken cancellationToken)
+    {
+        await using var command = dataSource.CreateCommand(sql.ReportLimit);
+        command.Parameters.AddWithValue("budget", budget);
+        command.Parameters.AddWithValue("key", key);
+        command.Parameters.AddWithValue("rate", rate);
+        command.Parameters.AddWithValue("now", now.ToUniversalTime());
+        return await command.ExecuteNonQueryAsync(cancellationToken) == 1;
+    }
+
     /// <summary>Up to <paramref name="limit"/> buckets after the given budget and key.</summary>
     public async Task<List<BudgetState>> ListAsync(
         string? budget, (string Budget, string Key)? after, int limit, DateTimeOffset now, CancellationToken cancellationToken)
@@ -119,6 +130,7 @@ internal sealed class BudgetStore(NpgsqlDataSource dataSource, BudgetSql sql)
         command.Parameters.Add(new NpgsqlParameter("after_budget", NpgsqlTypes.NpgsqlDbType.Text) { Value = (object?)after?.Budget ?? DBNull.Value });
         command.Parameters.Add(new NpgsqlParameter("after_key", NpgsqlTypes.NpgsqlDbType.Text) { Value = (object?)after?.Key ?? DBNull.Value });
         command.Parameters.AddWithValue("limit", limit);
+        command.Parameters.AddWithValue("now", now.ToUniversalTime());
 
         await using var reader = await command.ExecuteReaderAsync(cancellationToken);
         var states = new List<BudgetState>(limit);
@@ -135,7 +147,9 @@ internal sealed class BudgetStore(NpgsqlDataSource dataSource, BudgetSql sql)
                 RefusedRate = reader.IsDBNull(4) ? null : reader.GetDouble(4),
                 PausedUntil = refilledAt > now ? refilledAt : null,
                 LastThrottledAt = reader.IsDBNull(6) ? null : reader.GetFieldValue<DateTimeOffset>(6),
-                Taken = reader.GetInt64(7)
+                Taken = reader.GetInt64(7),
+                ReportedRate = reader.IsDBNull(8) ? null : reader.GetDouble(8),
+                LimitedTo = reader.IsDBNull(9) ? null : reader.GetDouble(9)
             });
         }
 
@@ -155,7 +169,7 @@ internal sealed class BudgetStore(NpgsqlDataSource dataSource, BudgetSql sql)
 
     private static void AddRates(NpgsqlParameterCollection parameters, BudgetDescription budget)
     {
-        parameters.AddWithValue("ceiling", Ceiling(budget));
+        parameters.AddWithValue("declared_ceiling", Ceiling(budget));
         parameters.AddWithValue("start_rate", Ceiling(budget) * budget.Start);
     }
 }

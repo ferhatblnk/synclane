@@ -11,7 +11,7 @@ namespace SyncLane.Running;
 /// Runs one leased job to an end: page by page, saving the cursor after each page and renewing the lease while it works.
 /// </summary>
 internal sealed partial class JobRunner(
-    JobStore store, IServiceScopeFactory scopes, TimeProvider time, SyncLaneMetrics metrics, ILogger<JobRunner> logger)
+    JobStore store, RunningJobs running, IServiceScopeFactory scopes, TimeProvider time, SyncLaneMetrics metrics, ILogger<JobRunner> logger)
 {
     private const int HeartbeatsPerLease = 3;
 
@@ -41,8 +41,9 @@ internal sealed partial class JobRunner(
         if (job.AttemptCount > queue.MaxAttempts + 1)
             return await AbandonAsync(job, worker, SyncLaneErrors.TooManyPickups(), activity);
 
-        using var held = CancellationTokenSource.CreateLinkedTokenSource(stopping);
-        var heartbeat = KeepLeaseAsync(queue, job, worker, held);
+        using var tracked = running.Track(job);
+        using var held = CancellationTokenSource.CreateLinkedTokenSource(stopping, tracked.Paused);
+        var heartbeat = KeepLeaseAsync(queue, job, worker, held, tracked);
         var progress = new Progress(job);
 
         try
@@ -54,6 +55,11 @@ internal sealed partial class JobRunner(
             await store.ReleaseAsync(job.Id, worker, time.GetUtcNow(), CancellationToken.None);
             LogReleased(job.Id, job.Type);
             return JobOutcome.Released;
+        }
+        catch (Exception) when (tracked.IsPaused)
+        {
+            // Cut by a pause. Whatever the handler threw on the way out is the cut, not a failure: no attempt is used.
+            return await HandBackPausedAsync(progress.Job, worker);
         }
         catch (OperationCanceledException) when (held.IsCancellationRequested)
         {
@@ -88,7 +94,8 @@ internal sealed partial class JobRunner(
             var cursor = string.IsNullOrEmpty(page.NextCursor) ? null : page.NextCursor;
             var now = time.GetUtcNow();
 
-            if (!await store.CheckpointAsync(current.Id, worker, cursor, page.Processed, now, now + queue.LeaseDuration, cancellationToken))
+            var hold = await store.CheckpointAsync(current.Id, worker, cursor, page.Processed, now, now + queue.LeaseDuration, cancellationToken);
+            if (hold == Hold.Lost)
             {
                 LogLeaseLost(current.Id, current.Type, worker);
                 return JobOutcome.LeaseLost;
@@ -96,6 +103,10 @@ internal sealed partial class JobRunner(
 
             current = current with { Cursor = cursor, ProcessedCount = current.ProcessedCount + page.Processed, AttemptCount = 1 };
             progress.Job = current;
+
+            // A pause whose announcement this process missed: the page is saved, so the job stops here.
+            if (hold == Hold.Paused)
+                return await HandBackPausedAsync(current, worker);
         }
         while (current.Cursor is not null);
 
@@ -122,7 +133,7 @@ internal sealed partial class JobRunner(
         return page;
     }
 
-    private async Task KeepLeaseAsync(QueueOptions queue, Job job, string worker, CancellationTokenSource held)
+    private async Task KeepLeaseAsync(QueueOptions queue, Job job, string worker, CancellationTokenSource held, RunningJobs.Tracked tracked)
     {
         var interval = queue.LeaseDuration / HeartbeatsPerLease;
 
@@ -134,10 +145,15 @@ internal sealed partial class JobRunner(
                 await Task.Delay(interval, time, held.Token);
 
                 var now = time.GetUtcNow();
-                if (await store.HeartbeatAsync(job.Id, worker, now, now + queue.LeaseDuration, held.Token))
+                var hold = await store.HeartbeatAsync(job.Id, worker, now, now + queue.LeaseDuration, held.Token);
+                if (hold == Hold.Held)
                     continue;
 
-                await held.CancelAsync();
+                if (hold == Hold.Paused)
+                    tracked.Pause();
+                else
+                    await held.CancelAsync();
+
                 return;
             }
             catch (OperationCanceledException)
@@ -186,6 +202,19 @@ internal sealed partial class JobRunner(
         return JobOutcome.Abandoned;
     }
 
+    /// <summary>Hands a job back because a pause covers it: pending again, the attempt not counted, the cursor kept.</summary>
+    private async Task<string> HandBackPausedAsync(Job job, string worker)
+    {
+        if (!await store.ReleaseAsync(job.Id, worker, time.GetUtcNow(), CancellationToken.None))
+        {
+            LogLeaseLost(job.Id, job.Type, worker);
+            return JobOutcome.LeaseLost;
+        }
+
+        LogPaused(job.Id, job.Type);
+        return JobOutcome.Paused;
+    }
+
     private async Task<string> PostponeAsync(Job job, string worker, string reason, DateTimeOffset nextRunAt, DateTimeOffset now)
     {
         if (!await store.PostponeAsync(job.Id, worker, reason, nextRunAt, now, CancellationToken.None))
@@ -216,6 +245,9 @@ internal sealed partial class JobRunner(
     {
         public Job Job { get; set; } = job;
     }
+
+    [LoggerMessage(Level = LogLevel.Information, Message = "Job {JobId} ({JobType}) was stopped by a pause and waits for the resume, without using an attempt.")]
+    private partial void LogPaused(long jobId, string jobType);
 
     [LoggerMessage(Level = LogLevel.Information, Message = "Job {JobId} ({JobType}) completed with {Processed} records.")]
     private partial void LogCompleted(long jobId, string jobType, long processed);

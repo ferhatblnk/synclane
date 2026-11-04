@@ -1,4 +1,5 @@
 using System.Collections.Concurrent;
+using SyncLane.Storage;
 using SyncLane.Tests.Support;
 
 namespace SyncLane.Tests;
@@ -133,13 +134,13 @@ public class LeaseTests : PostgresTest
         Assert.Equal(Noon, takenOver.StartedAt);
 
         var later = Noon.AddMinutes(7);
-        Assert.False(await Store.CheckpointAsync(original.Id, "w1", "stale", 50, later, later + FiveMinutes, CancellationToken.None));
-        Assert.False(await Store.HeartbeatAsync(original.Id, "w1", later, later + FiveMinutes, CancellationToken.None));
+        Assert.Equal(Hold.Lost, await Store.CheckpointAsync(original.Id, "w1", "stale", 50, later, later + FiveMinutes, CancellationToken.None));
+        Assert.Equal(Hold.Lost, await Store.HeartbeatAsync(original.Id, "w1", later, later + FiveMinutes, CancellationToken.None));
         Assert.False(await Store.CompleteAsync(original.Id, "w1", later, CancellationToken.None));
         Assert.False(await Store.SettleAsync(original.Id, "w1", JobStatus.Failed, "late", later, later, CancellationToken.None));
         Assert.False(await Store.ReleaseAsync(original.Id, "w1", later, CancellationToken.None));
 
-        Assert.True(await Store.CheckpointAsync(original.Id, "w2", "page-2", 50, later, later + FiveMinutes, CancellationToken.None));
+        Assert.Equal(Hold.Held, await Store.CheckpointAsync(original.Id, "w2", "page-2", 50, later, later + FiveMinutes, CancellationToken.None));
         var current = await JobAsync(original.Id);
         Assert.Equal(("page-2", 50L, JobStatus.Running), (current.Cursor, current.ProcessedCount, current.Status));
     }
@@ -163,7 +164,7 @@ public class LeaseTests : PostgresTest
 
         var renewed = await Store.HeartbeatAsync(job!.Id, "w1", Noon.AddMinutes(4), Noon.AddMinutes(9), CancellationToken.None);
 
-        Assert.True(renewed);
+        Assert.Equal(Hold.Held, renewed);
         Assert.Null(await LeaseAsync("w2", Noon.AddMinutes(6), FiveMinutes));
         Assert.NotNull(await LeaseAsync("w2", Noon.AddMinutes(9), FiveMinutes));
     }

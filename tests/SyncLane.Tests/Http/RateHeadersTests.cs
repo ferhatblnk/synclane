@@ -117,7 +117,13 @@ public class RateHeadersTests
     }
 
     [Theory]
-    [InlineData("""{ }""", "headers must name remaining, reset or both")]
+    [InlineData("""{ }""", "headers must name remaining, reset, limit or several")]
+    [InlineData("""{ "limit": "X-Limit" }""", "headers.limitWindow must be the seconds the limit counts over")]
+    [InlineData("""{ "limit": "X-Limit", "limitWindow": 0 }""", "headers.limitWindow must be the seconds the limit counts over")]
+    [InlineData("""{ "limit": "X-Limit", "limitWindow": 86401 }""", "headers.limitWindow must be the seconds the limit counts over")]
+    [InlineData("""{ "limit": "RateLimit-Policy", "limitFormat": "ietf", "limitWindow": 60 }""", "headers.limitWindow must be left out with limitFormat ietf")]
+    [InlineData("""{ "remaining": "X-Left", "limitWindow": 60 }""", "headers.limitWindow needs headers.limit")]
+    [InlineData("""{ "remaining": "X-Left", "limitFormat": "ietf" }""", "headers.limitFormat needs headers.limit")]
     [InlineData("""{ "remaining": "X Left" }""", "headers.remaining must be a header name")]
     [InlineData("""{ "reset": "X-Reset", "remainingFormat": "number" }""", "headers.remainingFormat needs headers.remaining")]
     [InlineData("""{ "remaining": "X-Left", "resetFormat": "unix" }""", "headers.resetFormat needs headers.reset")]
@@ -128,6 +134,70 @@ public class RateHeadersTests
 
         Assert.Equal(HttpErrorCodes.RateInvalid, error.Code);
         Assert.Contains(expected, error.Message);
+    }
+
+    [Theory]
+    [InlineData("40", 40.0)]
+    [InlineData(" 0.5 ", 0.5)]
+    public void A_limit_given_as_a_number_counts_over_the_window_the_recipe_states(string value, double expected)
+    {
+        using var response = Response(("X-Limit", value));
+
+        var reading = Headers(limit: "X-Limit", limitWindow: 60).ReadLimit(response);
+
+        Assert.Equal(new RateLimitReading(expected, TimeSpan.FromMinutes(1)), reading);
+    }
+
+    [Theory]
+    [InlineData("0")]
+    [InlineData("-5")]
+    [InlineData("many")]
+    [InlineData("NaN")]
+    public void A_limit_that_is_not_a_positive_number_is_ignored(string value)
+    {
+        using var response = Response(("X-Limit", value));
+
+        Assert.Null(Headers(limit: "X-Limit", limitWindow: 60).ReadLimit(response));
+    }
+
+    [Fact]
+    public void No_limit_is_read_when_the_recipe_names_no_limit_header_or_the_answer_lacks_it()
+    {
+        using var response = Response(("X-Limit", "40"), ("RateLimit-Policy", "\"default\";q=100;w=60"));
+        using var empty = Response();
+
+        Assert.Null(Headers(remaining: "X-Left").ReadLimit(response));
+        Assert.Null(Headers(limit: "X-Limit", limitWindow: 60).ReadLimit(empty));
+    }
+
+    [Theory]
+    [InlineData("\"default\";q=100;w=60", 100.0, 60)]
+    [InlineData("\"burst\";q=10;w=1, \"daily\";q=5000;w=86400", 5000.0, 86400)]
+    [InlineData("\"burst\";q=100;w=1, \"minute\";q=30;w=60", 30.0, 60)]
+    [InlineData("100;w=60", 100.0, 60)]
+    [InlineData("\"no-window\";q=1, \"default\";q=20;w=10", 20.0, 10)]
+    [InlineData("\"a;b,c\";q=3;w=9", 3.0, 9)]
+    public void The_ietf_policy_field_gives_its_tightest_policy(string field, double limit, int window)
+    {
+        using var response = Response(("RateLimit-Policy", field));
+
+        var reading = Headers(limit: "RateLimit-Policy", limitFormat: RateLimitFormat.Ietf).ReadLimit(response);
+
+        Assert.Equal(new RateLimitReading(limit, TimeSpan.FromSeconds(window)), reading);
+    }
+
+    [Theory]
+    [InlineData("\"default\";q=100")]
+    [InlineData("\"default\";q=0;w=60")]
+    [InlineData("\"default\";q=-1;w=60")]
+    [InlineData("\"default\";q=1.5;w=60")]
+    [InlineData("\"default\";q=10;w=86401")]
+    [InlineData("limit=100, window=60")]
+    public void A_policy_field_without_a_usable_policy_is_ignored(string field)
+    {
+        using var response = Response(("RateLimit-Policy", field));
+
+        Assert.Null(Headers(limit: "RateLimit-Policy", limitFormat: RateLimitFormat.Ietf).ReadLimit(response));
     }
 
     [Fact]
@@ -157,7 +227,10 @@ public class RateHeadersTests
         string? remaining = null,
         RateRemainingFormat? remainingFormat = null,
         string? reset = null,
-        RateResetFormat? resetFormat = null)
+        RateResetFormat? resetFormat = null,
+        string? limit = null,
+        RateLimitFormat? limitFormat = null,
+        int? limitWindow = null)
     {
         var errors = new List<SyncError>();
         var headers = RateHeaders.Compile("test", new HttpRecipeRateHeaders
@@ -165,7 +238,10 @@ public class RateHeadersTests
             Remaining = remaining,
             RemainingFormat = remainingFormat,
             Reset = reset,
-            ResetFormat = resetFormat
+            ResetFormat = resetFormat,
+            Limit = limit,
+            LimitFormat = limitFormat,
+            LimitWindow = limitWindow
         }, errors);
 
         Assert.Empty(errors);

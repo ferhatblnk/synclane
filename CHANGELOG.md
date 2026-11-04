@@ -2,6 +2,37 @@
 
 All notable changes to this project are recorded here. The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project uses [Semantic Versioning](https://semver.org/).
 
+## [Unreleased]
+
+### Added
+
+- An emergency stop on `ISyncLaneMonitor`: `PauseAsync(queue, owner?, reason, by, until?)` and `ResumeAsync`.
+  - Nothing of a paused queue or owner is taken.
+  - Jobs of it running on any instance are cut at once and handed back without using an attempt.
+  - A checkpoint or heartbeat stops a job whose instance missed the announcement.
+  - Planning goes on, so nothing is lost; the cut page runs again on resume.
+  - `GetPausesAsync` lists the pauses in force. `GetOverviewAsync` and `GetFreshnessAsync` show them.
+  - Code `SL3009`. New job outcome `paused`.
+- An actions log: every pause, resume and repair is written with who asked (`by`), why and how many jobs it changed, in the same statement as the change. `GetActionsAsync` lists it for 400 days.
+- Temporary budget limits on `ISyncLaneMonitor`: `LimitBudgetAsync(budget, key?, limit, per, reason, by, until?)`, `ClearBudgetLimitAsync` and `GetBudgetLimitsAsync`.
+  - For "the API answers slowly, halve our rate for an hour", without a deploy. Every instance obeys from its next request.
+  - A limit only lowers a budget, never raises it. It ends at `until` or when cleared, and the rate then climbs back as it learns.
+  - Logged in the actions log. Code `SL3010`.
+- A budget follows the limit the API reports.
+  - A recipe names the header in `rate.headers.limit` with its window in `limitWindow` (seconds), or sets `limitFormat: "ietf"` for the IETF `RateLimit-Policy` field, which carries its own window.
+  - A hand-written handler calls `RateBudgets.ReportLimitAsync(permit, limit, per)`.
+  - While the API reports a limit it is the budget's ceiling in place of the declared one, up or down. A repeated value writes nothing.
+  - `synclane init` fills in `RateLimit-Policy` and, for a bare limit header, writes a note asking for its window.
+- `GetBudgetsAsync` shows each key's reported limit (`ReportedRate`) and the operator's limit on it (`LimitedTo`).
+- `SyncLane.AspNetCore` maps `POST /pause`, `POST /resume`, `GET /pauses`, `GET /actions`, `POST /budgets/limit`, `POST /budgets/clear-limit` and `GET /budget-limits`, and passes the signed-in user as `by`.
+
+### Changed
+
+- The repairs on `ISyncLaneMonitor` take an optional `by` before the cancellation token.
+- A declared budget limit is no longer the ceiling once the API reports its own: the reported one takes its place, higher or lower. Readings of how many requests are left still only lower a budget.
+- The schema is at version 9. Migration 9 adds the `pauses`, `actions` and `budget_limits` tables, and `reported_rate` and `reported_at` to `rate_buckets`. An instance of an older version does not obey pauses or limits.
+- Clean-up also deletes pauses and budget limits that have ended.
+
 ## [0.2.0-preview.2] - 2026-11-04
 
 The monitor: what every queue is doing, whose data is old and why, failures grouped by code, repairs, and a live stream of job changes, in C# and over HTTP with the new `SyncLane.AspNetCore`. Idle workers wake as soon as work arrives.

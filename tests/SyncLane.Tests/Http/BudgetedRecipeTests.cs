@@ -142,6 +142,33 @@ public class BudgetedRecipeTests : PostgresTest
         Assert.InRange((api.Times[1] - api.Times[0]).TotalSeconds, 0, 0.2);
     }
 
+    [PostgresFact]
+    public async Task A_limit_the_api_reports_becomes_the_ceiling_of_the_key_and_a_policy_field_is_read_with_its_window()
+    {
+        var api = new TimedApi(index => index == 1
+            ? Answer(HttpStatusCode.OK, ("X-Limit", "40"))
+            : Answer(HttpStatusCode.OK, ("RateLimit-Policy", "\"burst\";q=10;w=1, \"minute\";q=120;w=60")));
+        await using (var numbered = Source(api, budget: Shop, rate: """{ "budget": "shop", "headers": { "limit": "X-Limit", "limitWindow": 60 } }"""))
+            await numbered.RunAsync("shop-7");
+
+        await using (var policy = Source(api, budget: Shop, rate: """{ "budget": "shop", "headers": { "limit": "RateLimit-Policy", "limitFormat": "ietf" } }"""))
+            await policy.RunAsync("shop-8");
+
+        Assert.Equal(40d / 60, await ScalarAsync<double>($"SELECT reported_rate FROM {Schema}.rate_buckets WHERE key = 'shop-7'"), precision: 9);
+        Assert.Equal(2d, await ScalarAsync<double>($"SELECT reported_rate FROM {Schema}.rate_buckets WHERE key = 'shop-8'"), precision: 9);
+    }
+
+    [PostgresFact]
+    public async Task A_limit_header_the_recipe_does_not_name_is_not_read()
+    {
+        var api = new TimedApi(_ => Answer(HttpStatusCode.OK, ("X-Limit", "40"), ("RateLimit-Policy", "\"default\";q=1;w=60")));
+        await using var source = Source(api, budget: Shop, rate: WithHeaders);
+
+        await source.RunAsync("shop-7");
+
+        Assert.Equal(1L, await ScalarAsync<long>($"SELECT count(*) FROM {Schema}.rate_buckets WHERE reported_rate IS NULL"));
+    }
+
     private const string WithHeaders = """{ "budget": "shop", "headers": { "remaining": "X-Left", "reset": "X-Reset" } }""";
 
     private static void Shop(SyncLaneOptions options) => options.AddBudget("shop", 100, TimeSpan.FromSeconds(1), burst: 10);

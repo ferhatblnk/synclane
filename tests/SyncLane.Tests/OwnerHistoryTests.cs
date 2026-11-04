@@ -95,7 +95,7 @@ public class OwnerHistoryTests : PostgresTest
         await client.ForgetOwnerAsync(Queue, Owner.Key);
         var saved = await Store.CheckpointAsync(running.Id, "w", "page-2", 10, _clock.GetUtcNow(), _clock.GetUtcNow().AddMinutes(5), CancellationToken.None);
 
-        Assert.False(saved);
+        Assert.Equal(Storage.Hold.Lost, saved);
     }
 
     private SyncLaneClient Client()

@@ -155,6 +155,9 @@ public sealed class HttpRecipeHandler : IJobHandler
             if (permit is not null && reading.Remaining is { } remaining)
                 await budget!.Budgets.ReportRemainingAsync(permit, remaining, reading.ResetsIn, cancellationToken);
 
+            if (permit is not null && budget!.Headers?.ReadLimit(response) is { } reported)
+                await budget.Budgets.ReportLimitAsync(permit, reported.Limit, reported.Per, cancellationToken);
+
             var links = response.Headers.TryGetValues("Link", out var values) ? values.ToArray() : [];
             var (document, tooLarge) = await JsonBody.ReadAsync(response.Content, _options.MaxResponseBytes, linked.Token);
             if (tooLarge)

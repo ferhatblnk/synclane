@@ -15,6 +15,7 @@ internal static class Migrations
         new(6, "instances", InstancesTable),
         new(7, "monitoring", Monitoring),
         new(8, "change notifications", ChangeNotifications),
+        new(9, "operations", Operations),
     ];
 
     public static int Latest => All[^1].Version;
@@ -263,5 +264,61 @@ internal static class Migrations
             END IF;
         END
         $$;
+        """;
+
+    /// <summary>
+    /// Version 9: what operators and APIs change while SyncLane runs.
+    /// <list type="bullet">
+    /// <item><c>pauses</c>: pauses an operator sets on a queue or an owner, which workers obey.</item>
+    /// <item><c>actions</c>: a log of every operator action, with who did it and why, kept for 400 days.</item>
+    /// <item><c>budget_limits</c>: temporary limits an operator sets below a budget's ceiling.</item>
+    /// <item><c>rate_buckets.reported_rate</c>: the limit the API last reported in a header, which becomes the
+    /// budget's ceiling in place of the declared one.</item>
+    /// </list>
+    /// An older instance reads none of it: it keeps working a paused queue and pacing at the declared limit until it is
+    /// upgraded.
+    /// </summary>
+    private static string Operations(string schema) =>
+        $"""
+        CREATE TABLE IF NOT EXISTS {schema}.{JobSql.PausesTableName} (
+            queue     text        NOT NULL,
+            owner     text        NOT NULL DEFAULT '',
+            paused_by text        NOT NULL,
+            reason    text        NOT NULL,
+            paused_at timestamptz NOT NULL,
+            until     timestamptz,
+            PRIMARY KEY (queue, owner)
+        );
+
+        CREATE TABLE IF NOT EXISTS {schema}.{JobSql.ActionsTableName} (
+            id      bigint GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+            at      timestamptz NOT NULL,
+            by      text        NOT NULL,
+            action  text        NOT NULL,
+            queue   text,
+            owner   text,
+            target  text,
+            reason  text,
+            changed integer     NOT NULL DEFAULT 0
+        );
+
+        CREATE INDEX IF NOT EXISTS actions_queue ON {schema}.{JobSql.ActionsTableName} (queue, id);
+
+        CREATE INDEX IF NOT EXISTS actions_at ON {schema}.{JobSql.ActionsTableName} (at);
+
+        CREATE TABLE IF NOT EXISTS {schema}.{BudgetSql.LimitsTableName} (
+            budget  text             NOT NULL,
+            key     text             NOT NULL DEFAULT '',
+            rate    double precision NOT NULL,
+            until   timestamptz,
+            set_by  text             NOT NULL,
+            reason  text             NOT NULL,
+            set_at  timestamptz      NOT NULL,
+            PRIMARY KEY (budget, key)
+        );
+
+        ALTER TABLE {schema}.{BudgetSql.TableName}
+            ADD COLUMN IF NOT EXISTS reported_rate double precision,
+            ADD COLUMN IF NOT EXISTS reported_at timestamptz;
         """;
 }

@@ -15,6 +15,9 @@ internal sealed class MonitorSql
         var coverage = $"{schema}.{JobSql.CoverageTableName}";
         var stats = $"{schema}.{JobSql.StatsTableName}";
         var instances = $"{schema}.{InstanceSql.TableName}";
+        var pauses = $"{schema}.{JobSql.PausesTableName}";
+        var actions = $"{schema}.{JobSql.ActionsTableName}";
+        Channel = ChangeChannel.For(schema);
 
         Overview =
             $"""
@@ -44,16 +47,23 @@ internal sealed class MonitorSql
                 FROM {instances}, unnest(queues) AS q
                 WHERE heartbeat_at > @alive_since
                 GROUP BY q
+            ),
+            paused AS (
+                SELECT queue, paused_by, reason, paused_at, until
+                FROM {pauses}
+                WHERE owner = '' AND (until IS NULL OR until > @now)
             )
             SELECT queue,
                    coalesce(owners, 0)::int, coalesce(instances, 0)::int,
                    coalesce(due, 0)::int, coalesce(postponed, 0)::int, coalesce(running, 0)::int,
                    coalesce(retrying, 0)::int, coalesce(deferred, 0)::int, coalesce(abandoned, 0)::int,
-                   coalesce(completed, 0)::int, coalesce(records, 0)::bigint, coalesce(failures, 0)::int
+                   coalesce(completed, 0)::int, coalesce(records, 0)::bigint, coalesce(failures, 0)::int,
+                   paused_by, reason, paused_at, until
             FROM open
             FULL JOIN owners USING (queue)
             FULL JOIN day USING (queue)
             FULL JOIN live USING (queue)
+            FULL JOIN paused USING (queue)
             ORDER BY queue
             """;
 
@@ -63,7 +73,8 @@ internal sealed class MonitorSql
             SELECT c.queue, c.owner, c.type, c.completed_to, c.completed_at,
                    o.status, {CodeOf("o.error")}, o.error, o.next_run_at,
                    coalesce(h.total, 0), coalesce(h.completed, 0),
-                   c.sort_key
+                   c.sort_key,
+                   {JobSql.PausedOver(schema, "c")}
             FROM (
                 SELECT queue, owner, type, completed_to, completed_at, coalesce(completed_to, completed_at, @never) AS sort_key
                 FROM {coverage}
@@ -121,6 +132,16 @@ internal sealed class MonitorSql
                     updated_at = @now
             """;
 
+        // Every repair writes who asked for it into the actions log, in the same statement as the change.
+        string Logged(string action, string queue, string owner, string target, string changed) =>
+            $"""
+            logged AS (
+                INSERT INTO {actions} (at, by, action, queue, owner, target, reason, changed)
+                SELECT @now, @by, '{action}', {queue}, {owner}, {target}, @reason, {changed}
+                WHERE {changed} > 0
+            )
+            """;
+
         RequeueJob =
             $"""
             WITH target AS (SELECT status FROM {jobs} WHERE id = @id),
@@ -128,8 +149,9 @@ internal sealed class MonitorSql
                 UPDATE {jobs}
                 SET {fresh}
                 WHERE id = @id AND status IN ('failed', 'deferred', 'abandoned')
-                RETURNING id
-            )
+                RETURNING queue, owner
+            ),
+            {Logged("requeue job", "(SELECT queue FROM changed)", "(SELECT owner FROM changed)", "@id::text", "(SELECT count(*) FROM changed)")}
             SELECT t.status, (SELECT count(*)::int FROM changed) FROM target AS t
             """;
 
@@ -143,28 +165,118 @@ internal sealed class MonitorSql
                     processed_count = 0,
                     started_at = NULL
                 WHERE id = @id AND status <> 'running'
-                RETURNING id
-            )
+                RETURNING queue, owner
+            ),
+            {Logged("restart job", "(SELECT queue FROM changed)", "(SELECT owner FROM changed)", "@id::text", "(SELECT count(*) FROM changed)")}
             SELECT t.status, (SELECT count(*)::int FROM changed) FROM target AS t
             """;
 
         RequeueByCode =
             $"""
-            UPDATE {jobs}
-            SET {fresh}
-            WHERE queue = @queue
-              AND status <> 'completed' AND status IN ('failed', 'deferred', 'abandoned')
-              AND coalesce({CodeOf("error")}, 'unknown') = @code
+            WITH changed AS (
+                UPDATE {jobs}
+                SET {fresh}
+                WHERE queue = @queue
+                  AND status <> 'completed' AND status IN ('failed', 'deferred', 'abandoned')
+                  AND coalesce({CodeOf("error")}, 'unknown') = @code
+                RETURNING 1
+            ),
+            {Logged("requeue by code", "@queue", "NULL", "@code", "(SELECT count(*) FROM changed)")}
+            SELECT count(*)::int FROM changed
             """;
 
         // Jobs already moved forward are skipped, so asking twice changes nothing.
         PrioritizeOwner =
             $"""
-            UPDATE {jobs}
-            SET priority = priority - @boost, updated_at = @now
-            WHERE queue = @queue AND owner = @owner
-              AND status <> 'completed' AND status IN ('pending', 'failed', 'deferred', 'abandoned')
-              AND priority >= 0
+            WITH changed AS (
+                UPDATE {jobs}
+                SET priority = priority - @boost, updated_at = @now
+                WHERE queue = @queue AND owner = @owner
+                  AND status <> 'completed' AND status IN ('pending', 'failed', 'deferred', 'abandoned')
+                  AND priority >= 0
+                RETURNING 1
+            ),
+            {Logged("prioritize owner", "@queue", "@owner", "NULL", "(SELECT count(*) FROM changed)")}
+            SELECT count(*)::int FROM changed
+            """;
+
+        // A pause is announced to every instance in the same statement, so running jobs are cut at once.
+        Pause =
+            $"""
+            WITH paused AS (
+                INSERT INTO {pauses} AS p (queue, owner, paused_by, reason, paused_at, until)
+                VALUES (@queue, @owner, @by, @reason, @now, @until)
+                ON CONFLICT (queue, owner) DO UPDATE
+                SET paused_by = excluded.paused_by, reason = excluded.reason, paused_at = excluded.paused_at, until = excluded.until
+                RETURNING p.queue
+            ),
+            {Logged("pause", "@queue", "nullif(@owner, '')", "@until::text", "1")}
+            SELECT count(*)::int
+            FROM (SELECT pg_notify(@channel, json_build_object('control', 'pause', 'queue', @queue, 'owner', @owner)::text) FROM paused) AS announced
+            """;
+
+        Resume =
+            $"""
+            WITH resumed AS (
+                DELETE FROM {pauses} WHERE queue = @queue AND owner = @owner
+                RETURNING queue
+            ),
+            {Logged("resume", "@queue", "nullif(@owner, '')", "NULL", "(SELECT count(*) FROM resumed)")}
+            SELECT count(*)::int
+            FROM (SELECT pg_notify(@channel, json_build_object('control', 'resume', 'queue', @queue, 'owner', @owner)::text) FROM resumed) AS announced
+            """;
+
+        var limits = $"{schema}.{BudgetSql.LimitsTableName}";
+
+        // An operator's limit only lowers a budget: the ceiling is the least of it and the budget's own.
+        LimitBudget =
+            $"""
+            WITH limited AS (
+                INSERT INTO {limits} AS l (budget, key, rate, until, set_by, reason, set_at)
+                VALUES (@budget, @key, @rate, @until, @by, @reason, @now)
+                ON CONFLICT (budget, key) DO UPDATE
+                SET rate = excluded.rate, until = excluded.until, set_by = excluded.set_by, reason = excluded.reason, set_at = excluded.set_at
+                RETURNING l.budget
+            ),
+            {Logged("limit budget", "NULL", "NULL", "@budget || ':' || @key || ' ' || @rate::text || '/s'", "(SELECT count(*) FROM limited)")}
+            SELECT count(*)::int FROM limited
+            """;
+
+        ClearBudgetLimit =
+            $"""
+            WITH cleared AS (
+                DELETE FROM {limits} WHERE budget = @budget AND key = @key
+                RETURNING budget
+            ),
+            {Logged("clear budget limit", "NULL", "NULL", "@budget || ':' || @key", "(SELECT count(*) FROM cleared)")}
+            SELECT count(*)::int FROM cleared
+            """;
+
+        BudgetLimits =
+            $"""
+            SELECT budget, key, rate, until, set_by, reason, set_at
+            FROM {limits}
+            WHERE until IS NULL OR until > @now
+            ORDER BY budget, key
+            """;
+
+        Pauses =
+            $"""
+            SELECT queue, owner, paused_by, reason, paused_at, until
+            FROM {pauses}
+            WHERE until IS NULL OR until > @now
+            ORDER BY queue, owner
+            """;
+
+        Actions =
+            $"""
+            SELECT id, at, by, action, queue, owner, target, reason, changed
+            FROM {actions}
+            WHERE (@queue::text IS NULL OR queue = @queue)
+              AND (@owner::text IS NULL OR owner = @owner)
+              AND (@before::bigint IS NULL OR id < @before)
+            ORDER BY id DESC
+            LIMIT @limit
             """;
 
         Volume =
@@ -196,6 +308,23 @@ internal sealed class MonitorSql
     public string Problems { get; }
 
     public string Volume { get; }
+
+    public string Pause { get; }
+
+    public string LimitBudget { get; }
+
+    public string ClearBudgetLimit { get; }
+
+    public string BudgetLimits { get; }
+
+    public string Resume { get; }
+
+    public string Pauses { get; }
+
+    public string Actions { get; }
+
+    /// <summary>The channel pauses and resumes are announced on.</summary>
+    public string Channel { get; }
 
     /// <summary>A job's error code: the first SyncLane code in its error, else the exception type before the first colon.</summary>
     private static string CodeOf(string column) =>

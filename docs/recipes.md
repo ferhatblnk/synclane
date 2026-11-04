@@ -479,7 +479,7 @@ lane.AddBudget("example-shop", limit: 2, per: TimeSpan.FromSeconds(1), burst: 40
 | `headers` | no | Where the API's answers say how many requests are left. See [Reading what the API says](#reading-what-the-api-says). |
 
 - Every request to the API waits for a token: the first request of a page, and the one sent again after an OAuth 2.0 token is renewed. Requests to a token endpoint do not draw from the budget.
-- A `429` pauses the budget for everyone on the key: for `Retry-After` when the API sent it, otherwise for one token's time, at least a second. After the pause the bucket refills from empty at 0.7 times its rate, and the rate climbs back while requests go through, never above the declared limit. The pause doubles, up to five minutes, only while the first request after each pause is refused again. A `429` for a request sent before the pause began does not count again, unless its `Retry-After` asks for longer.
+- A `429` pauses the budget for everyone on the key: for `Retry-After` when the API sent it, otherwise for one token's time, at least a second. After the pause the bucket refills from empty at 0.7 times its rate, and the rate climbs back while requests go through, never above the ceiling: the declared limit, or the one the API reports. The pause doubles, up to five minutes, only while the first request after each pause is refused again. A `429` for a request sent before the pause began does not count again, unless its `Retry-After` asks for longer.
 - A token further away than `MaxBudgetWait` (30 seconds) postpones the job: it gives its slot back without using an attempt.
 - Several recipes can name one budget: an account's limit is usually shared by all its endpoints. An API that limits each operation separately gets one budget per operation.
 - Buckets live in the database, so every instance draws from the same one. A `429` heard by one instance pauses the key on all of them.
@@ -506,13 +506,17 @@ Many APIs say on every answer how many requests are left, and when more come. Na
 | `headers.remainingFormat` | `number` (default, such as `12`), `used/limit` (such as `32/40`: 8 left), or `ietf`: the `RateLimit` field of the IETF draft, such as `"default";r=50;t=30`, which carries its own window. |
 | `headers.reset` | The header with when more requests come. Not with `ietf`. |
 | `headers.resetFormat` | `seconds` from now (default), `unix` seconds, `unix-ms`, or `http-date`. Times are measured against the answer's `Date` header when it has one, so the API's clock and yours need not agree. |
+| `headers.limit` | The header with the API's limit, such as `X-Rate-Limit-Limit`. |
+| `headers.limitFormat` | `number` (default, such as `40`), or `ietf`: the `RateLimit-Policy` field of the IETF draft, such as `"default";q=100;w=60` (100 requests per 60 seconds). Of several policies the tightest counts. |
+| `headers.limitWindow` | The seconds the limit counts over, 1 to 86,400, from the API's documentation: `60` for "40 a minute", `1` for "0.5 a second". Required with `number`, since a bare number does not say its window. Not with `ietf`, which carries its own. |
 
 What SyncLane does with them:
 
-- **It only ever lowers.** The bucket drops to what the API says is left, minus the requests that took a token after the one answered and have not reached the API's count yet, on any instance. It never rises above the declared rate and burst.
+- **What is left only ever lowers.** The bucket drops to what the API says is left, minus the requests that took a token after the one answered and have not reached the API's count yet, on any instance. It never rises above the bucket's rate and burst.
 - **Nothing left and a reset known:** every request of the key waits for the reset, on every instance, and the bucket restarts empty. This is not a throttle: it does not lengthen later backoffs, and it is counted in `synclane.budget.exhausted`, not `synclane.budget.paused`.
 - **Nothing left, no reset:** the bucket empties and refills at its declared rate.
-- **A value that cannot be read is ignored.** Nothing is read from a header the recipe does not name, the IETF one included.
+- **The limit the API reports is the ceiling.** It takes the place of the declared limit, higher or lower, on every instance, from the next request, for as long as the API keeps reporting it. The rate climbs to a higher one as it learns; it does not jump. A value that repeats the known one writes nothing. An operator's temporary limit (`LimitBudgetAsync`) still holds below it.
+- **A value that cannot be read is ignored.** Nothing is read from a header the recipe does not name, the IETF ones included.
 
 Examples from public documentation. Check the API's own page: these change.
 
@@ -522,7 +526,8 @@ Examples from public documentation. Check the API's own page: these change.
 | GitHub | `{ "remaining": "x-ratelimit-remaining", "reset": "x-ratelimit-reset", "resetFormat": "unix" }` |
 | Walmart Marketplace | `{ "remaining": "x-current-token-count" }` |
 | Shopify REST Admin | `{ "remaining": "X-Shopify-Shop-Api-Call-Limit", "remainingFormat": "used/limit" }` |
-| An API following the IETF draft | `{ "remaining": "RateLimit", "remainingFormat": "ietf" }` |
+| ShipStation v1, with its limit | `{ "remaining": "X-Rate-Limit-Remaining", "reset": "X-Rate-Limit-Reset", "limit": "X-Rate-Limit-Limit", "limitWindow": 60 }` |
+| An API following the IETF draft | `{ "remaining": "RateLimit", "remainingFormat": "ietf", "limit": "RateLimit-Policy", "limitFormat": "ietf" }` |
 
 How far it goes:
 

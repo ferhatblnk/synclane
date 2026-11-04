@@ -38,4 +38,7 @@ public sealed record QueueOverview
 
     /// <summary>Failed attempts in the last 24 hours.</summary>
     public int FailuresLastDay { get; init; }
+
+    /// <summary>The pause of the whole queue, or <c>null</c> when it runs. Pauses of single owners are in <see cref="ISyncLaneMonitor.GetPausesAsync"/>.</summary>
+    public PauseInfo? Pause { get; init; }
 }

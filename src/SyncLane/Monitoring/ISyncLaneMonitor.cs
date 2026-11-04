@@ -49,15 +49,21 @@ public interface ISyncLaneMonitor
     IAsyncEnumerable<JobChange> WatchAsync(string? queue = null, string? owner = null, CancellationToken cancellationToken = default);
 
     /// <summary>Gives one failed, deferred or abandoned job a fresh set of attempts. Its cursor is kept, so it continues where it stopped.</summary>
+    /// <param name="id">The job.</param>
+    /// <param name="by">Who asks, for the actions log. Endpoints fill in the signed-in user.</param>
+    /// <param name="cancellationToken">Cancels the call.</param>
     /// <returns>1. Fails with <see cref="SyncErrorCodes.JobNotFound"/> or, for a job in another status, <see cref="SyncErrorCodes.JobStatusNotAllowed"/>.</returns>
-    Task<SyncResult<int>> RequeueJobAsync(long id, CancellationToken cancellationToken = default);
+    Task<SyncResult<int>> RequeueJobAsync(long id, string? by = null, CancellationToken cancellationToken = default);
 
     /// <summary>
     /// Runs one job again from its first page, with its cursor and record count cleared: for a window whose data has to be
     /// fetched again. Any job that is not running can be restarted, a completed one too.
     /// </summary>
+    /// <param name="id">The job.</param>
+    /// <param name="by">Who asks, for the actions log.</param>
+    /// <param name="cancellationToken">Cancels the call.</param>
     /// <returns>1. Fails with <see cref="SyncErrorCodes.JobNotFound"/> or, for a running job, <see cref="SyncErrorCodes.JobStatusNotAllowed"/>.</returns>
-    Task<SyncResult<int>> RestartJobAsync(long id, CancellationToken cancellationToken = default);
+    Task<SyncResult<int>> RestartJobAsync(long id, string? by = null, CancellationToken cancellationToken = default);
 
     /// <summary>
     /// Gives every failed, deferred and abandoned job of the queue with this error code a fresh set of attempts, for
@@ -65,15 +71,80 @@ public interface ISyncLaneMonitor
     /// </summary>
     /// <param name="queue">The queue.</param>
     /// <param name="code">A code as <see cref="ProblemGroup.Code"/> gives it, such as <c>SL5106</c>.</param>
+    /// <param name="by">Who asks, for the actions log.</param>
     /// <param name="cancellationToken">Cancels the call.</param>
     /// <returns>How many jobs were requeued.</returns>
-    Task<SyncResult<int>> RequeueByCodeAsync(string queue, string code, CancellationToken cancellationToken = default);
+    Task<SyncResult<int>> RequeueByCodeAsync(string queue, string code, string? by = null, CancellationToken cancellationToken = default);
 
     /// <summary>
     /// Moves the owner's waiting jobs on the queue ahead of every other owner's, for example for an account that has just
     /// connected and is waiting for its history. Among its own jobs the order of the types stays. Jobs planned later get
     /// the usual priority. Asking again changes nothing.
     /// </summary>
+    /// <param name="queue">The queue.</param>
+    /// <param name="owner">The owner.</param>
+    /// <param name="by">Who asks, for the actions log.</param>
+    /// <param name="cancellationToken">Cancels the call.</param>
     /// <returns>How many jobs were moved forward.</returns>
-    Task<SyncResult<int>> PrioritizeOwnerAsync(string queue, string owner, CancellationToken cancellationToken = default);
+    Task<SyncResult<int>> PrioritizeOwnerAsync(string queue, string owner, string? by = null, CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Stops a queue, or one owner on it, at once: an emergency stop. No job of it is taken, and jobs of it running on any
+    /// instance are cut where they are and handed back without using an attempt. The page that was cut runs again on
+    /// resume, so handlers must write idempotently, as they must anyway. Planning goes on, and new jobs wait; nothing is
+    /// lost. Pausing what is paused replaces the reason and the end.
+    /// </summary>
+    /// <param name="queue">The queue.</param>
+    /// <param name="owner">One owner on the queue, or <c>null</c> for the whole queue.</param>
+    /// <param name="reason">Why, for whoever sees the pause. Required.</param>
+    /// <param name="by">Who asks, for the pause and the actions log.</param>
+    /// <param name="until">When the pause ends by itself, or <c>null</c> to keep it until <see cref="ResumeAsync"/>.</param>
+    /// <param name="cancellationToken">Cancels the call.</param>
+    /// <returns>1. Fails with <see cref="SyncErrorCodes.PauseEndInvalid"/> when <paramref name="until"/> is not in the future.</returns>
+    Task<SyncResult<int>> PauseAsync(
+        string queue, string? owner, string reason, string? by = null, DateTimeOffset? until = null, CancellationToken cancellationToken = default);
+
+    /// <summary>Lifts the pause of a queue, or of one owner on it. Idle workers on every instance wake at once.</summary>
+    /// <param name="queue">The queue.</param>
+    /// <param name="owner">The owner whose pause to lift, or <c>null</c> for the queue's own pause.</param>
+    /// <param name="by">Who asks, for the actions log.</param>
+    /// <param name="cancellationToken">Cancels the call.</param>
+    /// <returns>1, or 0 when nothing was paused.</returns>
+    Task<SyncResult<int>> ResumeAsync(string queue, string? owner = null, string? by = null, CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Lowers a rate budget for a while, without a deploy: for example "the API answers slowly, halve our rate for an
+    /// hour". Every instance obeys from its next request. The limit only lowers the ceiling, never raises it: the budget's
+    /// declared limit, or the limit the API reports, stays the upper bound. Setting a limit where one is replaces it.
+    /// </summary>
+    /// <param name="budget">The budget, as declared with <c>AddBudget</c>.</param>
+    /// <param name="key">One key of the budget (one account or token), or <c>null</c> for every key.</param>
+    /// <param name="limit">Requests allowed per <paramref name="per"/>; at least 1.</param>
+    /// <param name="per">The period of <paramref name="limit"/>; positive.</param>
+    /// <param name="reason">Why, for whoever sees the limit. Required.</param>
+    /// <param name="by">Who asks, for the limit and the actions log.</param>
+    /// <param name="until">When the limit ends by itself, or <c>null</c> to keep it until <see cref="ClearBudgetLimitAsync"/>.</param>
+    /// <param name="cancellationToken">Cancels the call.</param>
+    /// <returns>1. Fails with <see cref="SyncErrorCodes.BudgetLimitInvalid"/> when the limit, period or end cannot be used.</returns>
+    Task<SyncResult<int>> LimitBudgetAsync(
+        string budget, string? key, int limit, TimeSpan per, string reason, string? by = null, DateTimeOffset? until = null,
+        CancellationToken cancellationToken = default);
+
+    /// <summary>Lifts a temporary limit set with <see cref="LimitBudgetAsync"/>.</summary>
+    /// <param name="budget">The budget.</param>
+    /// <param name="key">The key whose limit to lift, or <c>null</c> for the limit on every key.</param>
+    /// <param name="by">Who asks, for the actions log.</param>
+    /// <param name="cancellationToken">Cancels the call.</param>
+    /// <returns>1, or 0 when there was no such limit.</returns>
+    Task<SyncResult<int>> ClearBudgetLimitAsync(string budget, string? key = null, string? by = null, CancellationToken cancellationToken = default);
+
+    /// <summary>The temporary budget limits in force: who set what, why, and until when.</summary>
+    Task<SyncResult<IReadOnlyList<BudgetLimitInfo>>> GetBudgetLimitsAsync(CancellationToken cancellationToken = default);
+
+    /// <summary>The pauses in force: who paused what, why, and until when.</summary>
+    Task<SyncResult<IReadOnlyList<PauseInfo>>> GetPausesAsync(CancellationToken cancellationToken = default);
+
+    /// <summary>What operators did through the monitor, newest first, with who did it and why. Kept for 400 days.</summary>
+    /// <returns>One page. Fails with <see cref="SyncErrorCodes.LimitOutOfRange"/> or <see cref="SyncErrorCodes.CursorInvalid"/>.</returns>
+    Task<SyncListResult<OperatorAction>> GetActionsAsync(ActionQuery query, CancellationToken cancellationToken = default);
 }

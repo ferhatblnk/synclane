@@ -66,26 +66,35 @@ WHERE refilled_at > now()
 ORDER BY refilled_at DESC;
 ```
 
-What each bucket has learned. `rate` is the current rate in requests a second, never above the declared limit; `rate_max` is the rate that last caused a `429`. A rate far below the declared limit means the API, or another app on the account, allows less than you declared:
+What each bucket has learned. `rate` is the current rate in requests a second, never above the ceiling; `rate_max` is the rate that last caused a `429`; `reported_rate` is the limit the API last reported, which is the ceiling in place of the declared limit when it is there. A rate far below the ceiling means the API, or another app on the account, allows less than it says:
 
 ```sql
-SELECT budget, key, round(rate::numeric, 3) AS rate, round(rate_max::numeric, 3) AS rate_max, throttled_at
+SELECT budget, key, round(rate::numeric, 3) AS rate, round(rate_max::numeric, 3) AS rate_max,
+       round(reported_rate::numeric, 3) AS reported_rate, throttled_at
 FROM synclane.rate_buckets
 ORDER BY budget, rate;
 ```
 
 ## Changing
 
-`ISyncLaneMonitor` has the usual repairs, for any queue in the schema:
+`ISyncLaneMonitor` has an emergency stop and the usual repairs, for any queue in the schema:
 
 | Call | What it does |
 | --- | --- |
+| `PauseAsync(queue, owner?, reason, by, until?)` | Stops a queue, or one owner on it, at once. Running jobs of it are cut on every instance and handed back without using an attempt; nothing of it is taken until `ResumeAsync` or `until`. Planning goes on, and the next window reaches back over the pause, so nothing is lost. The page that was cut runs again on resume, which is why handlers write idempotently. |
+| `ResumeAsync(queue, owner?, by)` | Lifts it. Idle workers wake at once. |
+| `LimitBudgetAsync(budget, key?, limit, per, reason, by, until?)` | Lowers a rate budget, or one key of it, for a while: "the API answers slowly, halve our rate for an hour". Every instance obeys from its next request. It only ever lowers: the declared limit, or the one the API reports, stays the upper bound. When it ends, the rate climbs back as it learns. Permanent changes belong in the budget's declaration. |
+| `ClearBudgetLimitAsync(budget, key?, by)` | Lifts it. |
 | `RequeueJobAsync(id)` | Gives one failed, deferred or abandoned job fresh attempts, keeping its cursor. |
 | `RestartJobAsync(id)` | Runs one job again from its first page, a completed one too, for a window whose data has to be fetched again. |
 | `RequeueByCodeAsync(queue, code)` | Requeues every failing, deferred and abandoned job of the queue with that error code, after you fixed the cause. |
 | `PrioritizeOwnerAsync(queue, owner)` | Moves the owner's waiting jobs ahead of every other owner's, keeping its own type order. |
 
-None of them touches a running job. A call about one job that cannot act says why (`SL3008`, `SL3102`); the others return how many jobs they changed.
+Apart from the pause, none of them touches a running job. A call about one job that cannot act says why (`SL3008`, `SL3102`); the others return how many jobs they changed.
+
+Every one of them is written to the `actions` table with who asked (`by`, which the HTTP endpoints fill in from the signed-in user), why, and how many jobs it changed. `GetActionsAsync` lists them, newest first, for 400 days. `GetPausesAsync` lists the pauses in force; `GetOverviewAsync` and `GetFreshnessAsync` show them too. `GetBudgetLimitsAsync` lists the budget limits in force, and `GetBudgetsAsync` shows on each key the limit it obeys.
+
+An instance of a version before pauses keeps taking jobs of a paused queue, and paces at the declared limit whatever an operator or the API sets. Upgrade every instance before relying on either.
 
 Everything SyncLane does is a plain update, so you can do the same from `psql` when you need something it does not offer.
 
@@ -197,7 +206,7 @@ All metrics belong to the meter `SyncLane` (`SyncLaneTelemetry.MeterName`). Ever
 | --- | --- | --- |
 | `synclane.job.taken` | `{job}` | Jobs a worker took. |
 | `synclane.job.wait` | `s` | Time between a job becoming due and a worker taking it. Rising wait with idle CPU means too few worker slots, or lanes that are always busy. |
-| `synclane.job.finished` | `{job}` | Runs that ended, with `synclane.job.outcome`: `completed`, `failed`, `deferred`, `abandoned`, `released` (worker stopping), `postponed` (waiting, attempt not counted) or `lease_lost`. |
+| `synclane.job.finished` | `{job}` | Runs that ended, with `synclane.job.outcome`: `completed`, `failed`, `deferred`, `abandoned`, `released` (worker stopping), `postponed` (waiting, attempt not counted), `paused` (cut by a pause, attempt not counted) or `lease_lost`. |
 | `synclane.job.duration` | `s` | Time from taking a job to the end of the run, with the same outcome tag. |
 | `synclane.page.completed` | `{page}` | Pages a handler returned. |
 | `synclane.page.duration` | `s` | Time a handler took for a page it returned. |

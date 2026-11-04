@@ -60,6 +60,13 @@ public static partial class SyncLaneEndpoints
             .Produces<IReadOnlyList<VolumeBucket>>().WithName("SyncLane_Volume").WithSummary("Completed jobs, records, failures and give-ups per hour or day.");
         group.MapGet("/jobs", GetJobsAsync)
             .Produces<PageOf<JobView>>().ProducesProblem(StatusCodes.Status400BadRequest).WithName("SyncLane_Jobs").WithSummary("Jobs by queue, owner or status, newest first. Cursors of jobs are never shown.");
+        group.MapGet("/pauses", GetPausesAsync)
+            .Produces<IReadOnlyList<PauseInfo>>().WithName("SyncLane_Pauses").WithSummary("The pauses in force: who paused what, why, and until when.");
+        group.MapGet("/budget-limits", GetBudgetLimitsAsync)
+            .Produces<IReadOnlyList<BudgetLimitInfo>>().WithName("SyncLane_BudgetLimits").WithSummary("Temporary limits on rate budgets: who set what, why, and until when.");
+        group.MapGet("/actions", GetActionsAsync)
+            .Produces<PageOf<OperatorAction>>().ProducesProblem(StatusCodes.Status400BadRequest)
+            .WithName("SyncLane_Actions").WithSummary("What operators did, newest first, with who did it and why.");
         group.MapGet("/stream", Stream)
             .Produces(StatusCodes.Status200OK, contentType: "text/event-stream").WithName("SyncLane_Stream").WithSummary("Server-sent events: 'ready' once connected, then one 'job' event per created job or status change, from every instance.");
 
@@ -72,6 +79,16 @@ public static partial class SyncLaneEndpoints
                 .Produces<int>().ProducesProblem(StatusCodes.Status404NotFound).ProducesProblem(StatusCodes.Status409Conflict).WithName("SyncLane_RestartJob").WithSummary("Runs one job that is not running again from its first page.");
             repairs.MapPost("/requeue-by-code", RequeueByCodeAsync)
                 .Produces<int>().WithName("SyncLane_RequeueByCode").WithSummary("Fresh attempts for every failing job of a queue with one error code.");
+            repairs.MapPost("/pause", PauseAsync)
+                .Produces<int>().ProducesProblem(StatusCodes.Status400BadRequest)
+                .WithName("SyncLane_Pause").WithSummary("Emergency stop of a queue, or one owner on it: running jobs are cut and handed back.");
+            repairs.MapPost("/resume", ResumeAsync)
+                .Produces<int>().WithName("SyncLane_Resume").WithSummary("Lifts the pause of a queue, or one owner on it.");
+            repairs.MapPost("/budgets/limit", LimitBudgetAsync)
+                .Produces<int>().ProducesProblem(StatusCodes.Status400BadRequest)
+                .WithName("SyncLane_LimitBudget").WithSummary("Lowers a rate budget, or one key of it, for a while. It never raises one.");
+            repairs.MapPost("/budgets/clear-limit", ClearBudgetLimitAsync)
+                .Produces<int>().WithName("SyncLane_ClearBudgetLimit").WithSummary("Lifts a temporary limit on a rate budget.");
             repairs.MapPost("/prioritize", PrioritizeOwnerAsync)
                 .Produces<int>().WithName("SyncLane_PrioritizeOwner").WithSummary("Moves an owner's waiting jobs ahead of every other owner's.");
         }
@@ -138,29 +155,70 @@ public static partial class SyncLaneEndpoints
 
     private static async Task<IResult> RequeueJobAsync(long id, ISyncLaneMonitor monitor, HttpContext http, ILoggerFactory loggers)
     {
-        var result = await monitor.RequeueJobAsync(id, http.RequestAborted);
+        var result = await monitor.RequeueJobAsync(id, Who(http), http.RequestAborted);
         LogRepair(loggers.CreateLogger(Producer), Who(http), "requeued job", id.ToString(System.Globalization.CultureInfo.InvariantCulture), result.Succeeded);
         return Answer(result);
     }
 
     private static async Task<IResult> RestartJobAsync(long id, ISyncLaneMonitor monitor, HttpContext http, ILoggerFactory loggers)
     {
-        var result = await monitor.RestartJobAsync(id, http.RequestAborted);
+        var result = await monitor.RestartJobAsync(id, Who(http), http.RequestAborted);
         LogRepair(loggers.CreateLogger(Producer), Who(http), "restarted job", id.ToString(System.Globalization.CultureInfo.InvariantCulture), result.Succeeded);
         return Answer(result);
     }
 
     private static async Task<IResult> RequeueByCodeAsync(string queue, string code, ISyncLaneMonitor monitor, HttpContext http, ILoggerFactory loggers)
     {
-        var result = await monitor.RequeueByCodeAsync(queue, code, http.RequestAborted);
+        var result = await monitor.RequeueByCodeAsync(queue, code, Who(http), http.RequestAborted);
         LogRepair(loggers.CreateLogger(Producer), Who(http), "requeued by code", $"{queue} {code}", result.Succeeded);
         return Answer(result);
     }
 
     private static async Task<IResult> PrioritizeOwnerAsync(string queue, string owner, ISyncLaneMonitor monitor, HttpContext http, ILoggerFactory loggers)
     {
-        var result = await monitor.PrioritizeOwnerAsync(queue, owner, http.RequestAborted);
+        var result = await monitor.PrioritizeOwnerAsync(queue, owner, Who(http), http.RequestAborted);
         LogRepair(loggers.CreateLogger(Producer), Who(http), "prioritized owner", $"{queue} {owner}", result.Succeeded);
+        return Answer(result);
+    }
+
+    private static async Task<IResult> GetPausesAsync(ISyncLaneMonitor monitor, CancellationToken cancellationToken) =>
+        Answer(await monitor.GetPausesAsync(cancellationToken));
+
+    private static async Task<IResult> GetActionsAsync(
+        ISyncLaneMonitor monitor, string? queue, string? owner, int? limit, string? cursor, CancellationToken cancellationToken) =>
+        Answer(await monitor.GetActionsAsync(new ActionQuery { Queue = queue, Owner = owner, Limit = limit ?? 50, Cursor = cursor }, cancellationToken));
+
+    private static async Task<IResult> PauseAsync(
+        string queue, string? owner, string reason, DateTimeOffset? until, ISyncLaneMonitor monitor, HttpContext http, ILoggerFactory loggers)
+    {
+        var result = await monitor.PauseAsync(queue, owner, reason, Who(http), until, http.RequestAborted);
+        LogRepair(loggers.CreateLogger(Producer), Who(http), "paused", $"{queue} {owner}", result.Succeeded);
+        return Answer(result);
+    }
+
+    private static async Task<IResult> ResumeAsync(string queue, string? owner, ISyncLaneMonitor monitor, HttpContext http, ILoggerFactory loggers)
+    {
+        var result = await monitor.ResumeAsync(queue, owner, Who(http), http.RequestAborted);
+        LogRepair(loggers.CreateLogger(Producer), Who(http), "resumed", $"{queue} {owner}", result.Succeeded);
+        return Answer(result);
+    }
+
+    private static async Task<IResult> GetBudgetLimitsAsync(ISyncLaneMonitor monitor, CancellationToken cancellationToken) =>
+        Answer(await monitor.GetBudgetLimitsAsync(cancellationToken));
+
+    private static async Task<IResult> LimitBudgetAsync(
+        string budget, string? key, int limit, TimeSpan per, string reason, DateTimeOffset? until,
+        ISyncLaneMonitor monitor, HttpContext http, ILoggerFactory loggers)
+    {
+        var result = await monitor.LimitBudgetAsync(budget, key, limit, per, reason, Who(http), until, http.RequestAborted);
+        LogRepair(loggers.CreateLogger(Producer), Who(http), "limited budget", $"{budget} {key}", result.Succeeded);
+        return Answer(result);
+    }
+
+    private static async Task<IResult> ClearBudgetLimitAsync(string budget, string? key, ISyncLaneMonitor monitor, HttpContext http, ILoggerFactory loggers)
+    {
+        var result = await monitor.ClearBudgetLimitAsync(budget, key, Who(http), http.RequestAborted);
+        LogRepair(loggers.CreateLogger(Producer), Who(http), "cleared budget limit", $"{budget} {key}", result.Succeeded);
         return Answer(result);
     }
 

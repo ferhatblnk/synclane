@@ -108,6 +108,28 @@ public class ProbeTests
         Assert.Contains(probed.Notes, note => note.Contains("lane.AddBudget(\"example-shop\"", StringComparison.Ordinal));
     }
 
+    [Fact]
+    public void A_policy_field_becomes_the_limit_header_since_it_says_its_own_window()
+    {
+        var probed = Probe("curl https://api.example-shop.com/v1/orders", """[{ "id": 1 }]""",
+            ("RateLimit", "\"default\";r=50;t=30"), ("RateLimit-Policy", "\"default\";q=100;w=60"));
+
+        var headers = probed.Recipe.Rate!.Headers!;
+        Assert.Equal(("RateLimit", "RateLimit-Policy", RateLimitFormat.Ietf, (int?)null), (headers.Remaining, headers.Limit, headers.LimitFormat, headers.LimitWindow));
+        Assert.Contains("the limit in RateLimit-Policy", probed.Comments["rate"]);
+    }
+
+    [Theory]
+    [InlineData("X-Rate-Limit-Limit")]
+    [InlineData("x-vendor-RateLimit-Limit")]
+    public void A_bare_limit_number_is_left_out_with_a_note_since_its_window_is_only_in_the_documentation(string name)
+    {
+        var probed = Probe("curl https://api.example-shop.com/v1/orders", """[{ "id": 1 }]""", ("X-Rate-Limit-Remaining", "39"), (name, "40"));
+
+        Assert.Null(probed.Recipe.Rate!.Headers!.Limit);
+        Assert.Contains(probed.Notes, note => note.Contains($"\"limit\": \"{name}\"", StringComparison.Ordinal) && note.Contains("limitWindow", StringComparison.Ordinal));
+    }
+
     [Theory]
     [InlineData("from=2026-10-01&to=2026-10-02", WindowFormat.Date)]
     [InlineData("created_after=1790000000&created_before=1790086400", WindowFormat.Unix)]

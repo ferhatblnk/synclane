@@ -59,6 +59,7 @@ public static class ServiceCollectionExtensions
             provider.GetRequiredService<Microsoft.Extensions.Logging.ILogger<JobChangeFeed>>()));
         services.AddSingleton<ISyncLaneMonitor, SyncLaneMonitor>();
         services.AddSingleton<QueuePlanner>();
+        services.AddSingleton<RunningJobs>();
         services.AddSingleton<JobRunner>();
         services.AddSingleton<ISyncLane, SyncLaneClient>();
 

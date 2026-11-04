@@ -9,5 +9,6 @@ internal static class JobOutcome
     public const string Abandoned = "abandoned";
     public const string Released = "released";
     public const string Postponed = "postponed";
+    public const string Paused = "paused";
     public const string LeaseLost = "lease_lost";
 }

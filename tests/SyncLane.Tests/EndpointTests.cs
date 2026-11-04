@@ -87,6 +87,24 @@ public class EndpointTests : PostgresTest
     }
 
     [PostgresFact]
+    public async Task A_budget_limit_is_set_listed_and_cleared_over_http_and_a_bad_one_is_a_400()
+    {
+        await using var app = await StartAsync();
+        (string, string) action = (SyncLaneEndpointOptions.ActionHeader, "1");
+
+        var set = await SendAsync(app, "POST", "/synclane/budgets/limit?budget=shop&limit=30&per=00:01:00&reason=slow", IPAddress.Loopback, action);
+        var listed = await SendAsync(app, "GET", "/synclane/budget-limits", IPAddress.Loopback);
+        var bad = await SendAsync(app, "POST", "/synclane/budgets/limit?budget=shop&limit=0&per=00:01:00&reason=slow", IPAddress.Loopback, action);
+        var cleared = await SendAsync(app, "POST", "/synclane/budgets/clear-limit?budget=shop", IPAddress.Loopback, action);
+
+        Assert.Equal((200, "1"), (set.Status, set.Body));
+        Assert.Contains("\"rate\":0.5", listed.Body);
+        Assert.Equal(400, bad.Status);
+        Assert.Contains("\"code\":\"SL3010\"", bad.Body);
+        Assert.Equal((200, "1"), (cleared.Status, cleared.Body));
+    }
+
+    [PostgresFact]
     public async Task A_refusal_comes_back_as_problem_details_with_its_code_and_status()
     {
         await using var app = await StartAsync();
@@ -110,7 +128,7 @@ public class EndpointTests : PostgresTest
             .Where(description => description.RelativePath!.StartsWith("synclane/", StringComparison.Ordinal))
             .ToList();
 
-        Assert.Equal(12, descriptions.Count);
+        Assert.Equal(19, descriptions.Count);
         Assert.All(descriptions, description => Assert.Contains(
             description.ActionDescriptor.EndpointMetadata.OfType<ITagsMetadata>(), tags => tags.Tags.Contains("SyncLane")));
         var overview = Assert.Single(descriptions, description => description.RelativePath == "synclane/overview");

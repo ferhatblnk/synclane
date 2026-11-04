@@ -108,6 +108,14 @@ internal static class SyncLaneErrors
         SyncErrorCodes.JobStatusNotAllowed, SyncErrorKind.Conflict,
         $"Job {id} is {status}, and {action} takes only {allowed} jobs. Nothing was changed.");
 
+    public static SyncError PauseEndInvalid(string queue, DateTimeOffset until, DateTimeOffset now) => new(
+        SyncErrorCodes.PauseEndInvalid, SyncErrorKind.Validation,
+        $"A pause of queue '{queue}' cannot end at {until:u}, which is not after now ({now:u}). Give a later end, or none to pause until resumed.");
+
+    public static SyncError BudgetLimitInvalid(string budget, string problem) => new(
+        SyncErrorCodes.BudgetLimitInvalid, SyncErrorKind.Validation,
+        $"The limit on budget '{budget}' was not set: {problem} Give at least 1 request per a positive period, and an end after now or none.");
+
     public static SyncError JobAlreadyExists(string queue, string owner, string type, string? dedupKey) => new(
         SyncErrorCodes.JobAlreadyExists, SyncErrorKind.Conflict,
         $"A '{type}' job of owner '{owner}' with dedup key '{dedupKey}' already exists on queue '{queue}'. Requeue it, or use another key.");
