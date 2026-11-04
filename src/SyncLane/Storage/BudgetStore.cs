@@ -110,6 +110,38 @@ internal sealed class BudgetStore(NpgsqlDataSource dataSource, BudgetSql sql)
         return seed;
     }
 
+    /// <summary>Up to <paramref name="limit"/> buckets after the given budget and key.</summary>
+    public async Task<List<BudgetState>> ListAsync(
+        string? budget, (string Budget, string Key)? after, int limit, DateTimeOffset now, CancellationToken cancellationToken)
+    {
+        await using var command = dataSource.CreateCommand(sql.List);
+        command.Parameters.Add(new NpgsqlParameter("budget", NpgsqlTypes.NpgsqlDbType.Text) { Value = (object?)budget ?? DBNull.Value });
+        command.Parameters.Add(new NpgsqlParameter("after_budget", NpgsqlTypes.NpgsqlDbType.Text) { Value = (object?)after?.Budget ?? DBNull.Value });
+        command.Parameters.Add(new NpgsqlParameter("after_key", NpgsqlTypes.NpgsqlDbType.Text) { Value = (object?)after?.Key ?? DBNull.Value });
+        command.Parameters.AddWithValue("limit", limit);
+
+        await using var reader = await command.ExecuteReaderAsync(cancellationToken);
+        var states = new List<BudgetState>(limit);
+        // Sequential: reading rows of one data reader.
+        while (await reader.ReadAsync(cancellationToken))
+        {
+            var refilledAt = reader.GetFieldValue<DateTimeOffset>(5);
+            states.Add(new BudgetState
+            {
+                Budget = reader.GetString(0),
+                Key = reader.GetString(1),
+                Tokens = reader.GetDouble(2),
+                Rate = reader.IsDBNull(3) ? null : reader.GetDouble(3),
+                RefusedRate = reader.IsDBNull(4) ? null : reader.GetDouble(4),
+                PausedUntil = refilledAt > now ? refilledAt : null,
+                LastThrottledAt = reader.IsDBNull(6) ? null : reader.GetFieldValue<DateTimeOffset>(6),
+                Taken = reader.GetInt64(7)
+            });
+        }
+
+        return states;
+    }
+
     private static NpgsqlBatchCommand Command(string statement, string budget, string key)
     {
         var command = new NpgsqlBatchCommand(statement);

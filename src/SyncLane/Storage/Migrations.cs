@@ -13,6 +13,7 @@ internal static class Migrations
         new(4, "learned rates", LearnedRates),
         new(5, "coverage summary", CoverageSummary),
         new(6, "instances", InstancesTable),
+        new(7, "monitoring", Monitoring),
     ];
 
     public static int Latest => All[^1].Version;
@@ -173,5 +174,54 @@ internal static class Migrations
             started_at   timestamptz NOT NULL,
             heartbeat_at timestamptz NOT NULL
         );
+        """;
+
+    /// <summary>
+    /// Version 7: what the monitor reads without scanning jobs. <c>coverage</c> learns how far each owner's completed
+    /// data reaches; <c>job_stats</c> counts completed jobs, their records, failed attempts and abandoned jobs per queue,
+    /// type and hour, and keeps them after clean-up deletes the jobs. Both are filled from the existing jobs once. An
+    /// older instance does not update them, so its work shows up late or not at all until it is upgraded. An index on
+    /// initial jobs lets progress be counted without reading an owner's recurring history.
+    /// </summary>
+    private static string Monitoring(string schema) =>
+        $"""
+        ALTER TABLE {schema}.{JobSql.CoverageTableName}
+            ADD COLUMN IF NOT EXISTS completed_to timestamptz,
+            ADD COLUMN IF NOT EXISTS completed_at timestamptz;
+
+        UPDATE {schema}.{JobSql.CoverageTableName} AS c
+        SET completed_to = d.completed_to, completed_at = d.completed_at
+        FROM (SELECT queue, owner, type, max(window_end) AS completed_to, max(completed_at) AS completed_at
+              FROM {schema}.{JobSql.TableName}
+              WHERE status = 'completed' AND mode IN ('initial', 'recurring')
+              GROUP BY queue, owner, type) AS d
+        WHERE c.queue = d.queue AND c.owner = d.owner AND c.type = d.type AND c.completed_at IS NULL;
+
+        CREATE TABLE IF NOT EXISTS {schema}.{JobSql.StatsTableName} (
+            queue     text        NOT NULL,
+            type      text        NOT NULL,
+            hour      timestamptz NOT NULL,
+            completed integer     NOT NULL DEFAULT 0,
+            records   bigint      NOT NULL DEFAULT 0,
+            failures  integer     NOT NULL DEFAULT 0,
+            abandoned integer     NOT NULL DEFAULT 0,
+            PRIMARY KEY (queue, type, hour)
+        );
+
+        CREATE INDEX IF NOT EXISTS job_stats_hour ON {schema}.{JobSql.StatsTableName} (hour);
+
+        CREATE INDEX IF NOT EXISTS jobs_initial
+            ON {schema}.{JobSql.TableName} (queue, owner, type) INCLUDE (status) WHERE mode = 'initial';
+
+        INSERT INTO {schema}.{JobSql.StatsTableName} (queue, type, hour, completed, records, failures, abandoned)
+        SELECT queue, type, date_trunc('hour', completed_at, 'UTC'),
+               count(*) FILTER (WHERE status = 'completed'),
+               coalesce(sum(processed_count) FILTER (WHERE status = 'completed'), 0),
+               count(*) FILTER (WHERE status = 'abandoned'),
+               count(*) FILTER (WHERE status = 'abandoned')
+        FROM {schema}.{JobSql.TableName}
+        WHERE status IN ('completed', 'abandoned') AND completed_at IS NOT NULL
+        GROUP BY queue, type, date_trunc('hour', completed_at, 'UTC')
+        ON CONFLICT (queue, type, hour) DO NOTHING;
         """;
 }

@@ -7,6 +7,8 @@ internal sealed class JobSql
 
     public const string CoverageTableName = "coverage";
 
+    public const string StatsTableName = "job_stats";
+
     private const string Outstanding = "('pending', 'running', 'failed', 'deferred')";
 
     private static readonly string[] ColumnNames =
@@ -25,6 +27,7 @@ internal sealed class JobSql
         const string held = "id = @id AND status = 'running' AND leased_by = @worker";
 
         var coverage = $"{schema}.{CoverageTableName}";
+        var stats = $"{schema}.{StatsTableName}";
 
         // Planning facts are fixed when a job is created, so the statement that creates jobs also keeps the summary the
         // planner reads. Proposals that already exist are counted too: a job an older instance inserted during a rolling
@@ -32,23 +35,26 @@ internal sealed class JobSql
         string Summarize() =>
             $"""
             existing AS (
-                SELECT j.owner, j.type, j.mode, j.window_start, j.window_end, j.created_at
+                SELECT j.owner, j.type, j.mode, j.status, j.window_start, j.window_end, j.created_at, j.completed_at
                 FROM {table} AS j
                 JOIN proposed AS p ON j.owner = p.owner AND j.type = p.type AND j.dedup_key = p.dedup_key
                 WHERE j.queue = @queue AND p.mode IN ('initial', 'recurring')
             ),
             summarized AS (
                 INSERT INTO {coverage} AS c
-                    (queue, owner, type, has_initial, initial_from, covered_to, last_planned_at, last_recurring_at)
+                    (queue, owner, type, has_initial, initial_from, covered_to, last_planned_at, last_recurring_at,
+                     completed_to, completed_at)
                 SELECT @queue, s.owner, s.type,
                        bool_or(s.mode = 'initial'),
                        min(s.window_start) FILTER (WHERE s.mode = 'initial'),
                        max(s.window_end),
                        max(s.created_at),
-                       max(s.created_at) FILTER (WHERE s.mode = 'recurring')
-                FROM (SELECT owner, type, mode, window_start, window_end, created_at FROM inserted
+                       max(s.created_at) FILTER (WHERE s.mode = 'recurring'),
+                       max(s.window_end) FILTER (WHERE s.status = 'completed'),
+                       max(s.completed_at) FILTER (WHERE s.status = 'completed')
+                FROM (SELECT owner, type, mode, status, window_start, window_end, created_at, completed_at FROM inserted
                       UNION ALL
-                      SELECT owner, type, mode, window_start, window_end, created_at FROM existing) AS s
+                      SELECT owner, type, mode, status, window_start, window_end, created_at, completed_at FROM existing) AS s
                 WHERE s.mode IN ('initial', 'recurring')
                 GROUP BY s.owner, s.type
                 ON CONFLICT (queue, owner, type) DO UPDATE
@@ -56,7 +62,9 @@ internal sealed class JobSql
                     initial_from = LEAST(c.initial_from, excluded.initial_from),
                     covered_to = GREATEST(c.covered_to, excluded.covered_to),
                     last_planned_at = GREATEST(c.last_planned_at, excluded.last_planned_at),
-                    last_recurring_at = GREATEST(c.last_recurring_at, excluded.last_recurring_at)
+                    last_recurring_at = GREATEST(c.last_recurring_at, excluded.last_recurring_at),
+                    completed_to = GREATEST(c.completed_to, excluded.completed_to),
+                    completed_at = GREATEST(c.completed_at, excluded.completed_at)
             )
             """;
 
@@ -79,7 +87,7 @@ internal sealed class JobSql
                 SELECT @queue, owner, lane, type, mode, priority, window_start, window_end, dedup_key, @now, @now, @now
                 FROM proposed
                 ON CONFLICT (queue, owner, type, dedup_key) DO NOTHING
-                RETURNING id, owner, type, mode, window_start, window_end, created_at
+                RETURNING id, owner, type, mode, status, window_start, window_end, created_at, completed_at
             ),
             {Summarize()}
             {result}
@@ -103,7 +111,7 @@ internal sealed class JobSql
                        @now, @now, @now, @now
                 FROM proposed
                 ON CONFLICT (queue, owner, type, dedup_key) DO NOTHING
-                RETURNING id, owner, type, mode, window_start, window_end, created_at
+                RETURNING id, owner, type, mode, status, window_start, window_end, created_at, completed_at
             ),
             {Summarize()}
             SELECT count(*)::int FROM inserted
@@ -163,31 +171,64 @@ internal sealed class JobSql
             WHERE {held}
             """;
 
+        // Finishing a job also records how far its owner's data now reaches and counts it in its hour, in the same
+        // statement: the monitor reads both without scanning jobs, and the counts outlive the rows clean-up deletes.
         Complete =
             $"""
-            UPDATE {table}
-            SET status = 'completed',
-                completed_at = @now,
-                error = NULL,
-                cursor = NULL,
-                leased_by = NULL,
-                lease_expires_at = NULL,
-                updated_at = @now
-            WHERE {held}
+            WITH done AS (
+                UPDATE {table}
+                SET status = 'completed',
+                    completed_at = @now,
+                    error = NULL,
+                    cursor = NULL,
+                    leased_by = NULL,
+                    lease_expires_at = NULL,
+                    updated_at = @now
+                WHERE {held}
+                RETURNING queue, owner, type, mode, window_end, processed_count
+            ),
+            noted AS (
+                UPDATE {coverage} AS c
+                SET completed_to = GREATEST(c.completed_to, d.window_end),
+                    completed_at = @now
+                FROM done AS d
+                WHERE d.mode IN ('initial', 'recurring') AND c.queue = d.queue AND c.owner = d.owner AND c.type = d.type
+            ),
+            counted AS (
+                INSERT INTO {stats} AS s (queue, type, hour, completed, records, failures, abandoned)
+                SELECT queue, type, date_trunc('hour', @now::timestamptz, 'UTC'), 1, processed_count, 0, 0
+                FROM done
+                ON CONFLICT (queue, type, hour) DO UPDATE
+                SET completed = s.completed + 1, records = s.records + excluded.records
+            )
+            SELECT count(*)::int FROM done
             """;
 
         Settle =
             $"""
-            UPDATE {table}
-            SET status = @status,
-                error = @error,
-                next_run_at = @next_run_at,
-                completed_at = CASE WHEN @status = 'abandoned' THEN @now END,
-                leased_by = NULL,
-                lease_expires_at = NULL,
-                updated_at = @now
-            WHERE {held}
+            WITH settled AS (
+                UPDATE {table}
+                SET status = @status,
+                    error = @error,
+                    next_run_at = @next_run_at,
+                    completed_at = CASE WHEN @status = 'abandoned' THEN @now END,
+                    leased_by = NULL,
+                    lease_expires_at = NULL,
+                    updated_at = @now
+                WHERE {held}
+                RETURNING queue, type, status
+            ),
+            counted AS (
+                INSERT INTO {stats} AS s (queue, type, hour, completed, records, failures, abandoned)
+                SELECT queue, type, date_trunc('hour', @now::timestamptz, 'UTC'), 0, 0, 1, (status = 'abandoned')::int
+                FROM settled
+                ON CONFLICT (queue, type, hour) DO UPDATE
+                SET failures = s.failures + 1, abandoned = s.abandoned + excluded.abandoned
+            )
+            SELECT count(*)::int FROM settled
             """;
+
+        DeleteOldStats = $"DELETE FROM {stats} WHERE hour < @before";
 
         Release =
             $"""
@@ -357,6 +398,8 @@ internal sealed class JobSql
     public string ForgetOwner { get; }
 
     public string DeleteCompleted { get; }
+
+    public string DeleteOldStats { get; }
 
     public string Progress { get; }
 

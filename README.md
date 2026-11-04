@@ -310,7 +310,26 @@ if (response.StatusCode == HttpStatusCode.TooManyRequests)
 
 ## Watching it run
 
-SyncLane reports metrics and traces through the APIs built into .NET, so it adds no dependency and costs nothing when nobody listens. With OpenTelemetry:
+`ISyncLaneMonitor` answers what an operator asks, for every queue in the schema, whichever application runs it:
+
+| Call | Answers |
+| --- | --- |
+| `GetOverviewAsync()` | One line per queue: due, postponed, running, retrying, deferred and abandoned jobs; owners; live instances; jobs, records and failures in the last 24 hours. |
+| `GetFreshnessAsync(query)` | Owners ranked by how old their newest completed data is, each with the job that explains it (its status, error code and next run) and how much of its history has loaded. |
+| `GetProblemsAsync(queue?)` | Failing, deferred and abandoned jobs grouped by error code: "SL5106: 37 jobs, 12 owners" instead of 37 rows. |
+| `GetBudgetsAsync(query)` | Each rate budget and key: the rate it learned, whether it is paused, when it was last refused. |
+| `GetInstancesAsync()` | Every process of every application: host, version, queues, alive or gone. |
+| `GetVolumeAsync(query)` | Completed jobs, records, failed attempts and abandoned jobs per hour or day, kept for 400 days. |
+
+```csharp
+var behind = await monitor.GetFreshnessAsync(new FreshnessQuery { Queue = "shops", Limit = 20 });
+foreach (var row in behind.Items)
+    Console.WriteLine($"{row.Owner} {row.Type}: data until {row.DataUntil:u}, {row.Status} {row.Code}");
+```
+
+Each call is one round trip that reads small summary tables and the open jobs, never the history: on a table of a million jobs each one takes about a millisecond, and a year of daily volume about 45. Lists page with a cursor.
+
+SyncLane also reports metrics and traces through the APIs built into .NET, so it adds no dependency and costs nothing when nobody listens. With OpenTelemetry:
 
 ```csharp
 builder.Services.AddOpenTelemetry()

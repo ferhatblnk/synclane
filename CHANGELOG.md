@@ -2,6 +2,24 @@
 
 All notable changes to this project are recorded here. The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project uses [Semantic Versioning](https://semver.org/).
 
+## [Unreleased]
+
+### Added
+
+- `ISyncLaneMonitor`, registered by `AddSyncLane`, answers what an operator asks for every queue in the schema, declared in this application or not:
+  - `GetOverviewAsync`: per queue, open jobs by state, owners, live instances, and the last 24 hours;
+  - `GetFreshnessAsync`: owners ranked by how old their completed data is, with the job that explains it;
+  - `GetProblemsAsync`: failing and abandoned jobs grouped by error code;
+  - `GetBudgetsAsync`, `GetInstancesAsync`, and `GetVolumeAsync` per hour or day.
+
+  Each is one round trip that reads summaries and open jobs, never history.
+- The schema is at version 7:
+  - `coverage` records how far each owner's completed data reaches;
+  - a new `job_stats` table counts completed jobs, records, failed attempts and abandoned jobs per queue, type and hour, kept for 400 days;
+  - a new index on initial jobs makes `GetProgressAsync` independent of an owner's recurring history.
+
+  The statements that complete and settle a job keep them, and they are filled from existing jobs once.
+
 ## [0.2.0-preview.1] - 2026-11-04
 
 The first version on NuGet: `SyncLane`, `SyncLane.Http` and the `synclane` tool, `SyncLane.Cli`. It also holds everything listed under 0.1.0 in CHANGELOG.md, which was never published. It stays a preview until the HTTP source has met the APIs of a production integration.

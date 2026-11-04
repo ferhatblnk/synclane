@@ -15,8 +15,17 @@ public abstract class PostgresTest : IAsyncLifetime
 
     private NpgsqlDataSource? _admin;
 
-    public static string? ConnectionString =>
-        Environment.GetEnvironmentVariable(Variable) is { Length: > 0 } value ? value : null;
+    /// <summary>
+    /// The test database, with a small pool per data source. Test classes run side by side and each opens pools of its
+    /// own; uncapped, a busy moment went past PostgreSQL's default of 100 connections and random tests failed with
+    /// "too many clients". A test that needs more connections than its pool holds waits for one instead.
+    /// </summary>
+    public static string? ConnectionString { get; } =
+        Environment.GetEnvironmentVariable(Variable) is { Length: > 0 } value
+            ? new NpgsqlConnectionStringBuilder(value) { MaxPoolSize = MaxPoolSize }.ConnectionString
+            : null;
+
+    private const int MaxPoolSize = 4;
 
     protected string Schema { get; } = $"t_{Guid.NewGuid():N}";
 
