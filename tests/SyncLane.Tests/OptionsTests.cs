@@ -113,6 +113,18 @@ public class OptionsTests
     }
 
     [Fact]
+    public void An_application_name_that_cannot_be_stored_is_refused_at_start_up()
+    {
+        var failure = Assert.Throws<SyncLaneException>(() => new ServiceCollection().AddSyncLane(options =>
+        {
+            options.ConnectionString = AnyConnection;
+            options.Application = "shipping service";
+        }));
+
+        Assert.Equal(SyncErrorCodes.ApplicationNameInvalid, failure.Error.Code);
+    }
+
+    [Fact]
     public void Handlers_and_owner_sources_are_registered_as_scoped_services()
     {
         var services = new ServiceCollection().AddSyncLane(options =>

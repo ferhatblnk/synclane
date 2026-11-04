@@ -1,0 +1,96 @@
+name: Release
+
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: read
+
+jobs:
+  publish:
+    name: Publish to NuGet
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write   # the GitHub release
+      id-token: write   # NuGet trusted publishing: a key valid for one hour, no stored secret
+
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_DB: synclane_test
+          POSTGRES_HOST_AUTH_METHOD: trust
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 2s
+          --health-timeout 2s
+          --health-retries 30
+
+    env:
+      SYNCLANE_TEST_DB: Host=localhost;Username=postgres;Database=synclane_test
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-dotnet@v4
+        with:
+          global-json-file: global.json
+
+      # The version lives in Directory.Build.props, next to the code and the changelog it belongs to; the tag only
+      # confirms it. A tag that disagrees, or a version without its changelog section, publishes nothing.
+      - name: Check the tag and the changelog
+        run: |
+          version=$(dotnet msbuild src/SyncLane/SyncLane.csproj -getProperty:Version)
+          if [ "v$version" != "$GITHUB_REF_NAME" ]; then
+            echo "::error::Tag $GITHUB_REF_NAME does not match version $version in Directory.Build.props."
+            exit 1
+          fi
+          awk -v heading="## [$version]" 'index($0, heading) == 1 { found = 1; next } /^## \[/ { found = 0 } found' CHANGELOG.md > release-notes.md
+          if ! grep -q '[^[:space:]]' release-notes.md; then
+            echo "::error::CHANGELOG.md has no section '## [$version]'."
+            exit 1
+          fi
+
+      - name: Build
+        run: dotnet build --configuration Release
+
+      - name: Test
+        run: dotnet test --configuration Release --no-build
+
+      # nuget.org does not resolve relative links, and README.md is the page of two packages. Only this checkout is
+      # changed: links point at the files as they are in this release.
+      - name: Point the package readmes at this release
+        env:
+          REPO: ${{ github.repository }}
+          TAG: ${{ github.ref_name }}
+        run: |
+          for readme in README.md src/SyncLane.Cli/README.md; do
+            perl -pi -e 's{\]\((?!https?:|#|mailto:)([^)\s]+)\)}{](https://github.com/$ENV{REPO}/blob/$ENV{TAG}/$1)}g' "$readme"
+          done
+
+      - name: Pack
+        run: |
+          for project in src/SyncLane src/SyncLane.Http src/SyncLane.Cli; do
+            dotnet pack "$project" --configuration Release --no-build --output artifacts
+          done
+
+      - name: NuGet login
+        uses: NuGet/login@v1
+        id: login
+        with:
+          user: ferhat_bulanik
+
+      # Symbol packages (.snupkg) next to the packages are pushed with them.
+      - name: Push
+        run: dotnet nuget push "artifacts/*.nupkg" --api-key "${{ steps.login.outputs.NUGET_API_KEY }}" --source https://api.nuget.org/v3/index.json --skip-duplicate
+
+      - name: GitHub release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          prerelease=""
+          case "$GITHUB_REF_NAME" in *-*) prerelease="--prerelease" ;; esac
+          gh release create "$GITHUB_REF_NAME" artifacts/* --title "$GITHUB_REF_NAME" --notes-file release-notes.md $prerelease

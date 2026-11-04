@@ -67,6 +67,7 @@ public abstract class PostgresTest : IAsyncLifetime
         await using var command = _admin!.CreateCommand(
             $"SELECT coalesce(string_agg(row_to_json(j)::text, E'\\n'), '') FROM {Schema}.jobs j " +
             $"UNION ALL SELECT coalesce(string_agg(row_to_json(c)::text, E'\\n'), '') FROM {Schema}.coverage c " +
+            $"UNION ALL SELECT coalesce(string_agg(row_to_json(i)::text, E'\\n'), '') FROM {Schema}.instances i " +
             $"UNION ALL SELECT coalesce(string_agg(row_to_json(m)::text, E'\\n'), '') FROM {Schema}.migrations m " +
             $"UNION ALL SELECT coalesce(string_agg(row_to_json(b)::text, E'\\n'), '') FROM {Schema}.rate_buckets b");
 

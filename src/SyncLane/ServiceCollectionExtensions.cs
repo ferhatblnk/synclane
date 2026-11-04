@@ -1,7 +1,9 @@
 using System.Diagnostics.Metrics;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
+using Microsoft.Extensions.Hosting;
 using Npgsql;
+using SyncLane.Instances;
 using SyncLane.Planning;
 using SyncLane.Running;
 using SyncLane.Storage;
@@ -41,6 +43,11 @@ public static class ServiceCollectionExtensions
             provider.GetRequiredService<TimeProvider>(),
             provider.GetRequiredService<SyncLaneMetrics>(),
             provider.GetRequiredService<Microsoft.Extensions.Logging.ILogger<RateBudgets>>()));
+        services.AddSingleton(static provider => new InstanceStore(
+            provider.GetRequiredService<JobStore>().DataSource,
+            new InstanceSql(provider.GetRequiredService<SyncLaneOptions>().Schema)));
+        services.AddSingleton(static provider => InstanceIdentity.Create(
+            provider.GetRequiredService<SyncLaneOptions>(), provider.GetService<IHostEnvironment>()));
         services.AddSingleton<QueuePlanner>();
         services.AddSingleton<JobRunner>();
         services.AddSingleton<ISyncLane, SyncLaneClient>();
@@ -58,6 +65,9 @@ public static class ServiceCollectionExtensions
             services.AddHostedService<SchemaInitializer>();
         else
             services.AddHostedService<SchemaCheck>();
+
+        // After the schema, before the planner and the workers: a refused start must happen before any job is taken.
+        services.AddHostedService<InstanceRegistry>();
 
         if (options.RunPlanner)
         {

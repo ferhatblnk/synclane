@@ -4,7 +4,7 @@ SyncLane is four pieces around one table: a planner that inserts rows, worker sl
 
 ## The table
 
-Jobs are in `synclane.jobs`. The full definition is in [schema.sql](schema.sql). Beside it, `synclane.coverage` keeps what the planner needs per owner and type, `synclane.rate_buckets` the rate budgets, and `synclane.migrations` which schema version the database has.
+Jobs are in `synclane.jobs`. The full definition is in [schema.sql](schema.sql). Beside it, `synclane.coverage` keeps what the planner needs per owner and type, `synclane.rate_buckets` the rate budgets, `synclane.instances` the running processes, and `synclane.migrations` which schema version the database has.
 
 | Column | Meaning |
 | --- | --- |

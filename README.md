@@ -75,7 +75,13 @@ public sealed class ConnectedShops(AppDb db) : IOwnerSource
 }
 ```
 
-That is the whole integration. The table is created at start-up, the planner runs once a minute and the workers start pulling. SyncLane is not on NuGet yet; reference the project or run `dotnet pack src/SyncLane`.
+That is the whole integration. The table is created at start-up, the planner runs once a minute and the workers start pulling.
+
+```bash
+dotnet add package SyncLane --prerelease
+dotnet add package SyncLane.Http --prerelease          # recipes instead of handlers
+dotnet tool install --global SyncLane.Cli --prerelease # the synclane command
+```
 
 ## What a job looks like
 
@@ -325,6 +331,7 @@ Every run of a job is a `synclane.job` span and every page a `synclane.page` spa
 | `PlanInterval` | 1 minute | How often the planner looks for missing jobs. |
 | `PollInterval` | 5 seconds | How long an idle worker slot waits before it looks again. |
 | `AddBudget(name, limit, per, burst, start)` | none | A rate budget: at most `limit` requests per `per`, at most `burst` at once (default 1, evenly spaced). It starts at `start` times the limit (default 1) and learns below it. |
+| `Application` | the host's application name | The name instances register under. Copies of one application share its queues; another application that runs one of them is refused at start-up. See [Several applications on one schema](docs/operations.md#several-applications-on-one-schema). |
 | `KeepCompletedJobs` | 7 days | How long completed recurring and manual jobs stay before instances that run the planner delete them. Initial jobs and unfinished jobs stay. `null` keeps everything. |
 | `MaxBudgetWait` | 30 seconds | The longest a request waits for a budget's token inside a job; a longer wait postpones the job. |
 | `queue.Concurrency` | `1` | Jobs of the queue one process runs at once. `1` makes the queue strictly sequential. |
@@ -393,5 +400,7 @@ Anything in this repository that describes a third-party API, including the demo
 ## License
 
 [Apache License 2.0](LICENSE). The software is provided on an "AS IS" basis, without warranties or conditions of any kind, and no contributor is liable for damages arising from its use; sections 7 and 8 of the license state this in full.
+
+SyncLane is free to use, with no registration, account or paid edition, and it calls no host of its own: no telemetry, no license check, no update check.
 
 SyncLane is an independent open-source project. It is not affiliated with, endorsed by or supported by the PostgreSQL project or any API provider.

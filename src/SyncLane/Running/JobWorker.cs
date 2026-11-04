@@ -1,5 +1,6 @@
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
+using SyncLane.Instances;
 using SyncLane.Storage;
 
 namespace SyncLane.Running;
@@ -9,11 +10,12 @@ namespace SyncLane.Running;
 /// when nothing is due it waits for the poll interval.
 /// </summary>
 internal sealed partial class JobWorker(
-    SyncLaneOptions options, JobStore store, JobRunner runner, TimeProvider time, ILogger<JobWorker> logger) : BackgroundService
+    SyncLaneOptions options, JobStore store, JobRunner runner, InstanceIdentity identity, TimeProvider time, ILogger<JobWorker> logger)
+    : BackgroundService
 {
     private const double JitterShare = 0.25;
 
-    private readonly string _host = $"{Environment.MachineName}:{Environment.ProcessId}";
+    private readonly string _host = identity.Id;
 
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {

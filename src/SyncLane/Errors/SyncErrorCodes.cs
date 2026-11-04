@@ -34,6 +34,12 @@ public static class SyncErrorCodes
     /// <summary>A setting of a rate budget is out of range.</summary>
     public const string BudgetSettingInvalid = "SL1009";
 
+    /// <summary>The application name is not usable.</summary>
+    public const string ApplicationNameInvalid = "SL1010";
+
+    /// <summary>A queue this instance runs is run by a live instance of another application.</summary>
+    public const string QueueRunByAnotherApplication = "SL1011";
+
     /// <summary>The database lacks a migration and <c>CreateSchema</c> is off.</summary>
     public const string MigrationMissing = "SL2001";
 

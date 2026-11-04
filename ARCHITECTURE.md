@@ -104,11 +104,13 @@ User code reaches SyncLane through two small interfaces and one facade: `IJobHan
 
 ## Data model
 
-Four tables in the configured schema.
+Five tables in the configured schema.
 
 `jobs` holds one row per job: what it covers (`queue`, `owner`, `lane`, `type`, `mode`, `window_start`, `window_end`, `dedup_key`), where it is (`status`, `cursor`, `processed_count`, `attempt_count`, `error`, `next_run_at`) and who holds it (`leased_by`, `lease_expires_at`, `heartbeat_at`). The full definition is in [docs/schema.sql](docs/schema.sql).
 
 `coverage` holds one row per queue, owner and type: what has been planned (an initial job exists, the oldest initial start, the newest window end, the last planned and last recurring times). The planner reads it instead of every job ever created. It is written by the same statement that inserts jobs (D40), so old jobs can be deleted without changing what is planned.
+
+`instances` holds one row per running process: its application, host, version, the queues it runs and its budgets, with a heartbeat every 30 seconds. Its id is the prefix of the worker names in `jobs.leased_by`. It keeps two applications off one queue (D43) and shows what is running.
 
 `migrations` records which schema steps the database has.
 
@@ -228,6 +230,8 @@ Round trips per operation:
 | `MarkLoadedAsync` | 1 | `jobs_dedup`, `coverage` primary key |
 | `ForgetOwnerAsync` | 1 | `jobs_dedup` prefix, `coverage` primary key |
 | Clean-up | 1 per batch of 1,000, hourly | `jobs_finished` |
+| Register an instance | 2 at start-up, in one transaction behind an advisory lock | `instances`, a handful of rows |
+| Heartbeat | 1 every 30 seconds, also deleting rows silent for a day | `instances` primary key |
 | `EnqueueAsync` | 1 | `jobs_dedup` |
 | `GetJobsAsync` | 1, with the optional count in the same batch | Primary key, scanned backwards |
 | `RequeueAsync`, `CancelAsync`, `GetProgressAsync` | 1 | `jobs_dedup` prefix |
@@ -329,3 +333,4 @@ Each is a small interface the user implements; SyncLane calls it.
 | D40 | The planner reads a summary that the inserting statement keeps, not the history | Every fact planning needs is fixed when a job is created, so a data-modifying CTE upserts it in the same statement: one round trip, never out of step. Reading every job made planning grow with time (200 owners: 1.7 ms at 10 periods, 171 ms at 5,000; now 0.2 ms at both) and kept old rows from being deleted. Proposals that hit an existing key are counted too, so jobs an older instance created during a rolling deploy reach the summary. What is still under way is read from open rows, which clean-up never deletes. | Accepted |
 | D41 | An abandoned recurring job is replaced by the next period's job, whose window reaches back over it | Keeping them grows the table by one row per period for every broken account; deleting them loses the windows they missed without a trace; stopping until a person requeues halts a whole queue after a short outage. Replacing keeps one row, refetches what was missed once the cause is gone, and leaves the current error on the newest job. The delete is conditional on the row still being abandoned, so a concurrent requeue wins. History slices still wait for a requeue: they are bounded and each one matters. | Accepted |
 | D42 | Completed recurring and manual jobs are deleted after `KeepCompletedJobs`, 7 days by default; initial jobs are kept | Recurring jobs are what grows. Initial jobs are bounded by the horizon, `GetProgressAsync` counts them, and they record what history was loaded. A week answers "what happened last Tuesday" and costs little: the table holds about a week of recurring jobs, whatever its age. Each application cleans only its own queues, so applications sharing a table keep their own rules. | Accepted |
+| D43 | A queue belongs to one application at a time, checked at start-up from a table of live instances | A worker takes any job of a queue it declares. Two applications sharing a schema with one queue name took each other's jobs and abandoned the types they did not know. Each process registers its application and the queues it runs, under an advisory lock, and does not start when a live instance of another application runs one of them. Copies of one application share queues. An instance that only calls `ISyncLane` claims none. A heartbeat every 30 seconds keeps a claim; two minutes of silence ends it, so a crashed application does not block its successor for long. A budget declared differently elsewhere only warns, because a deploy that changes a limit passes through that state. | Accepted |
