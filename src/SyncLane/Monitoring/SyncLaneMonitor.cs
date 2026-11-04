@@ -10,6 +10,7 @@ internal sealed partial class SyncLaneMonitor(
     MonitorSql sql,
     BudgetStore budgets,
     InstanceStore instances,
+    JobChangeFeed changes,
     TimeProvider time,
     ILogger<SyncLaneMonitor> logger) : ISyncLaneMonitor
 {
@@ -103,6 +104,9 @@ internal sealed partial class SyncLaneMonitor(
 
         return SyncResult<IReadOnlyList<VolumeBucket>>.Success(await monitor.VolumeAsync(query, to, cancellationToken));
     }
+
+    public IAsyncEnumerable<JobChange> WatchAsync(string? queue = null, string? owner = null, CancellationToken cancellationToken = default) =>
+        changes.ReadAllAsync(queue, owner, cancellationToken);
 
     public Task<SyncResult<int>> RequeueJobAsync(long id, CancellationToken cancellationToken = default) =>
         ChangeJobAsync(sql.RequeueJob, id, "a requeue", "failed, deferred and abandoned", cancellationToken);

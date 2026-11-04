@@ -1,18 +1,27 @@
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 using SyncLane.Instances;
+using SyncLane.Monitoring;
 using SyncLane.Storage;
 
 namespace SyncLane.Running;
 
 /// <summary>
-/// Runs the worker slots of every queue. A slot takes one job, runs it to an end and takes the next;
-/// when nothing is due it waits for the poll interval.
+/// Runs the worker slots of every queue. A slot takes one job, runs it to an end and takes the next; when nothing is due
+/// it waits for the poll interval, or less when a job is created or put back in line on its queue, from any instance.
 /// </summary>
 internal sealed partial class JobWorker(
-    SyncLaneOptions options, JobStore store, JobRunner runner, InstanceIdentity identity, TimeProvider time, ILogger<JobWorker> logger)
+    SyncLaneOptions options,
+    JobStore store,
+    JobRunner runner,
+    InstanceIdentity identity,
+    JobChangeFeed changes,
+    TimeProvider time,
+    ILogger<JobWorker> logger)
     : BackgroundService
 {
+    private readonly QueueSignals _signals = new();
+
     private const double JitterShare = 0.25;
 
     private readonly string _host = identity.Id;
@@ -25,7 +34,24 @@ internal sealed partial class JobWorker(
             .ToArray();
 
         LogStarted(_host, slots.Length, options.Queues.Count);
-        await Task.WhenAll(slots);
+        await Task.WhenAll([.. slots, WakeOnNewWorkAsync(stoppingToken)]);
+    }
+
+    /// <summary>Wakes the slots of a queue when one of its jobs becomes pending: created, requeued, restarted or handed back.</summary>
+    private async Task WakeOnNewWorkAsync(CancellationToken stopping)
+    {
+        try
+        {
+            // Sequential: reading the change feed in order.
+            await foreach (var change in changes.ReadAllAsync(null, null, stopping))
+            {
+                if (change.Status == JobStatus.Pending)
+                    _signals.Pulse(change.Queue);
+            }
+        }
+        catch (OperationCanceledException) when (stopping.IsCancellationRequested)
+        {
+        }
     }
 
     private async Task RunSlotAsync(QueueOptions queue, string worker, CancellationToken stopping)
@@ -36,6 +62,7 @@ internal sealed partial class JobWorker(
         while (!stopping.IsCancellationRequested)
         {
             var worked = false;
+            var woken = _signals.Next(queue.Name);
 
             try
             {
@@ -53,14 +80,11 @@ internal sealed partial class JobWorker(
             if (worked)
                 continue;
 
-            try
-            {
-                await Task.Delay(IdleDelay(), time, stopping);
-            }
-            catch (OperationCanceledException)
-            {
+            using var idle = CancellationTokenSource.CreateLinkedTokenSource(stopping);
+            await Task.WhenAny(Task.Delay(IdleDelay(), time, idle.Token), woken);
+            await idle.CancelAsync();
+            if (stopping.IsCancellationRequested)
                 return;
-            }
         }
     }
 

@@ -19,12 +19,25 @@ All notable changes to this project are recorded here. The format follows [Keep 
   - `PrioritizeOwnerAsync(queue, owner)`, which moves an owner's waiting jobs ahead of the others.
 
   Codes `SL3008` and `SL3102`.
-- The schema is at version 7:
-  - `coverage` records how far each owner's completed data reaches;
-  - a new `job_stats` table counts completed jobs, records, failed attempts and abandoned jobs per queue, type and hour, kept for 400 days;
-  - a new index on initial jobs makes `GetProgressAsync` independent of an owner's recurring history.
+- `ISyncLaneMonitor.WatchAsync(queue?, owner?)` streams jobs as they are created and change status, from every instance, a moment after each change commits. A trigger announces every change with `NOTIFY` (migration 8), and one connection per process listens, reconnecting after a break.
 
-  The statements that complete and settle a job keep them, and they are filled from existing jobs once.
+- `SyncLane.AspNetCore`, a new package: `app.MapSyncLane("/synclane")` maps the monitor's reads, repairs and live stream (server-sent events) as Minimal API endpoints, listed in the host's OpenAPI document, and returns the group for `.RequireAuthorization(...)`.
+  - Until the group requires authorization, the endpoints answer only requests from the same machine that did not come through a proxy.
+  - Repairs need the `X-SyncLane-Action` header; `ReadOnly` leaves them out.
+  - Answers are never cached and never show a job's cursor.
+  - Codes `SL7001` and `SL7002`.
+
+### Changed
+
+- An idle worker slot wakes as soon as a job of its queue is created, requeued or handed back, on any instance, instead of waiting for `PollInterval`. Behind a pooler in transaction mode it polls as before.
+- The schema is at version 8. Both new migrations only add. With `CreateSchema` off, run `SyncLaneSchema.Script()` before starting this version.
+  - Migration 7, for the monitor:
+    - `coverage` records how far each owner's completed data reaches;
+    - a new `job_stats` table counts completed jobs, records, failed attempts and abandoned jobs per queue, type and hour, kept for 400 days;
+    - a new index on initial jobs makes `GetProgressAsync` independent of an owner's recurring history.
+
+    The statements that complete and settle a job keep these, and they are filled from existing jobs once.
+  - Migration 8: the trigger that announces job changes.
 
 ## [0.2.0-preview.1] - 2026-11-04
 

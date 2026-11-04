@@ -81,6 +81,7 @@ That is the whole integration. The table is created at start-up, the planner run
 dotnet add package SyncLane --prerelease
 dotnet add package SyncLane.Http --prerelease          # recipes instead of handlers
 dotnet tool install --global SyncLane.Cli --prerelease # the synclane command
+dotnet add package SyncLane.AspNetCore --prerelease    # the monitor over HTTP
 ```
 
 ## What a job looks like
@@ -327,6 +328,21 @@ foreach (var row in behind.Items)
     Console.WriteLine($"{row.Owner} {row.Type}: data until {row.DataUntil:u}, {row.Status} {row.Code}");
 ```
 
+`WatchAsync(queue?, owner?)` streams jobs as they are created and change status, from every instance, a moment after each change commits, so a live view or an alert needs no polling:
+
+```csharp
+await foreach (var change in monitor.WatchAsync("shops", cancellationToken: stopping))
+    await hub.Clients.All.SendAsync("job", change.Id, change.Owner, change.Status.ToString(), stopping);
+```
+
+Over HTTP, `SyncLane.AspNetCore` maps all of it in one line, with the stream as server-sent events. The endpoints show up in your OpenAPI (Swagger) document under `SyncLane`, and answer only requests from the same machine until you require authorization:
+
+```csharp
+app.MapSyncLane("/synclane").RequireAuthorization("ops");
+```
+
+See [the package's readme](src/SyncLane.AspNetCore/README.md) for the routes.
+
 It also has the repairs those answers call for: `RequeueJobAsync(id)`, `RestartJobAsync(id)` to fetch a window again, `RequeueByCodeAsync(queue, code)` after fixing what a problem group shows, and `PrioritizeOwnerAsync(queue, owner)` for an account that should load first. None of them touches a running job; see [docs/operations.md](docs/operations.md#changing).
 
 Each read is one round trip that reads small summary tables and the open jobs, never the history: on a table of a million jobs each one takes about a millisecond, and a year of daily volume about 45. Lists page with a cursor.
@@ -350,7 +366,7 @@ Every run of a job is a `synclane.job` span and every page a `synclane.page` spa
 | `CreateSchema` | `true` | Create the schema and apply missing migrations at start-up. Turn it off if you manage migrations: put `SyncLaneSchema.Script()` into one of yours, and SyncLane only checks at start-up that it has been applied. See [docs/operations.md](docs/operations.md#running-the-schema-yourself). |
 | `RunPlanner`, `RunWorkers` | `true` | Turn them off in instances that should only enqueue and read. |
 | `PlanInterval` | 1 minute | How often the planner looks for missing jobs. |
-| `PollInterval` | 5 seconds | How long an idle worker slot waits before it looks again. |
+| `PollInterval` | 5 seconds | How long an idle worker slot waits before it looks again. A job created or put back in line wakes it at once, from any instance. |
 | `AddBudget(name, limit, per, burst, start)` | none | A rate budget: at most `limit` requests per `per`, at most `burst` at once (default 1, evenly spaced). It starts at `start` times the limit (default 1) and learns below it. |
 | `Application` | the host's application name | The name instances register under. Copies of one application share its queues; another application that runs one of them is refused at start-up. See [Several applications on one schema](docs/operations.md#several-applications-on-one-schema). |
 | `KeepCompletedJobs` | 7 days | How long completed recurring and manual jobs stay before instances that run the planner delete them. Initial jobs and unfinished jobs stay. `null` keeps everything. |
@@ -371,7 +387,7 @@ Every run of a job is a `synclane.job` span and every page a `synclane.page` spa
 ## Limitations
 
 - **PostgreSQL only.** The lease is a single statement that relies on `FOR UPDATE SKIP LOCKED` and partial unique indexes.
-- **Workers poll.** An idle slot asks once per `PollInterval`. There is no `LISTEN`/`NOTIFY` yet.
+- **Live changes need a direct connection.** Workers wake and `WatchAsync` streams through PostgreSQL's `LISTEN`, which a pooler in transaction mode (PgBouncer's default) cannot carry. Behind one, workers fall back to polling every `PollInterval` and the stream stays quiet; point SyncLane's connection string at the server, or at a pooler in session mode.
 - **No job arguments.** A job knows its owner, type and window. Anything else the handler needs it looks up from the owner.
 - **Periods are aligned to the clock.** "Every day" means once per UTC day, so the first refresh after a first load can come sooner than a full period.
 - **Clocks.** Leases and rate budgets use the clock of the instance. Keep your instances on NTP; a lease of minutes is not sensitive to a skew of seconds, but a budget is: an instance whose clock runs a second ahead can let one second's worth of extra tokens through.

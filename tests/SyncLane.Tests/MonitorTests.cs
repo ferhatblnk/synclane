@@ -200,6 +200,7 @@ public class MonitorTests : PostgresTest
             sql,
             new BudgetStore(store.DataSource, new BudgetSql(schema)),
             new InstanceStore(store.DataSource, new InstanceSql(schema)),
+            new JobChangeFeed(store.DataSource, schema, clock, Microsoft.Extensions.Logging.Abstractions.NullLogger<JobChangeFeed>.Instance),
             clock,
             Microsoft.Extensions.Logging.Abstractions.NullLogger<SyncLaneMonitor>.Instance);
     }

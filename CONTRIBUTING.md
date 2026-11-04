@@ -56,7 +56,7 @@ Packages are published by [release.yml](.github/workflows/release.yml) when a ve
 The workflow then:
 1. checks that the tag matches the version and that the changelog has its section;
 2. runs every test against PostgreSQL;
-3. packs `SyncLane`, `SyncLane.Http` and `SyncLane.Cli` with their symbol packages;
+3. packs `SyncLane`, `SyncLane.Http`, `SyncLane.Cli` and `SyncLane.AspNetCore` with their symbol packages;
 4. pushes them to nuget.org;
 5. creates a GitHub release with the packages attached.
 
@@ -74,7 +74,6 @@ They are explained in [docs/planning.md](docs/planning.md). A change that breaks
 
 ## Ideas
 
-- `LISTEN`/`NOTIFY` so an idle slot wakes up when a job is enqueued instead of polling.
 - Enqueueing inside the caller's own transaction.
 - A small JSON payload per job for handlers that need more than owner, type and window.
 

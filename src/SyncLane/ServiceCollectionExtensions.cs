@@ -52,6 +52,11 @@ public static class ServiceCollectionExtensions
         services.AddSingleton(static provider => new MonitorSql(provider.GetRequiredService<SyncLaneOptions>().Schema));
         services.AddSingleton(static provider => new MonitorStore(
             provider.GetRequiredService<JobStore>().DataSource, provider.GetRequiredService<MonitorSql>()));
+        services.AddSingleton(static provider => new JobChangeFeed(
+            provider.GetRequiredService<JobStore>().DataSource,
+            provider.GetRequiredService<SyncLaneOptions>().Schema,
+            provider.GetRequiredService<TimeProvider>(),
+            provider.GetRequiredService<Microsoft.Extensions.Logging.ILogger<JobChangeFeed>>()));
         services.AddSingleton<ISyncLaneMonitor, SyncLaneMonitor>();
         services.AddSingleton<QueuePlanner>();
         services.AddSingleton<JobRunner>();
