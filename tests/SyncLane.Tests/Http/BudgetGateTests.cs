@@ -1,5 +1,6 @@
 using System.Collections.Concurrent;
 using System.Diagnostics;
+using System.Diagnostics.Metrics;
 using System.Net;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
@@ -51,16 +52,14 @@ public class BudgetGateTests : PostgresTest
     {
         var api = new LimitedApi(perSecond: 1000, burst: 1000, throttleRequest: 6, retryAfter: "1");
         using var host = Host(api, """, "rate": { "budget": "shop", "key": "shared-account" }""");
+        var pausedAt = new ConcurrentQueue<TimeSpan>();
+        using var pauses = RecordPauses([host], api, pausedAt);
 
         var jobs = await RunAsync(host);
 
         Assert.All(jobs, job => Assert.Equal(JobStatus.Completed, job.Status));
-        var throttledAt = Assert.Single(api.ThrottledAt);
-
-        // A request already on its way when the 429 was answered may arrive just after it; none may arrive later in the pause.
-        var duringPause = api.Arrivals.Where(at => at > throttledAt + TimeSpan.FromMilliseconds(50) && at < throttledAt + TimeSpan.FromSeconds(0.95));
-        Assert.Empty(duringPause);
-        Assert.Contains(api.Arrivals, at => at >= throttledAt + TimeSpan.FromSeconds(0.95));
+        AssertNothingSentInThePause(api, pausedAt);
+        Assert.Contains(api.Arrivals, at => at >= Assert.Single(api.ThrottledAt) + TimeSpan.FromSeconds(0.95));
     }
 
     [PostgresTheory]
@@ -97,14 +96,51 @@ public class BudgetGateTests : PostgresTest
         var api = new LimitedApi(perSecond: 1000, burst: 1000, throttleRequest: 12, retryAfter: "1");
         using var first = Host(api, Rate("shared-account"), agent: "host-a");
         using var second = Host(api, Rate("shared-account"), agent: "host-b");
+        var pausedAt = new ConcurrentQueue<TimeSpan>();
+        using var pauses = RecordPauses([first, second], api, pausedAt);
 
         var jobs = await RunAsync([first, second], owners: 16);
 
         Assert.All(jobs, job => Assert.Equal(JobStatus.Completed, job.Status));
         Assert.True(api.Agents.Distinct().Count() == 2, "Both hosts must have sent requests, or the test proves nothing.");
+        AssertNothingSentInThePause(api, pausedAt);
+    }
+
+    /// <summary>
+    /// The pause holds from the moment it is recorded. Tokens are checked against it when they are used, so a request
+    /// whose token was checked a moment before may still arrive; none may arrive later in the pause. Measured from the
+    /// 429 instead, the test depended on how fast a busy machine records the pause, and failed on a loaded CI runner
+    /// with a request 340 ms after the 429.
+    /// </summary>
+    private static void AssertNothingSentInThePause(LimitedApi api, ConcurrentQueue<TimeSpan> pausedAt)
+    {
         var throttledAt = Assert.Single(api.ThrottledAt);
-        var duringPause = api.Arrivals.Where(at => at > throttledAt + TimeSpan.FromMilliseconds(50) && at < throttledAt + TimeSpan.FromSeconds(0.95));
-        Assert.Empty(duringPause);
+        var recordedAt = Assert.Single(pausedAt);
+        var pauseEnds = throttledAt + TimeSpan.FromSeconds(0.95);
+        Assert.True(recordedAt < pauseEnds - TimeSpan.FromMilliseconds(300),
+            $"The pause was recorded {(recordedAt - throttledAt).TotalMilliseconds:F0} ms after the 429, too late for this test to show anything.");
+
+        var duringPause = api.Arrivals.Where(at => at > recordedAt + TimeSpan.FromMilliseconds(50) && at < pauseEnds).ToList();
+        Assert.True(duringPause.Count == 0,
+            $"429 at {throttledAt.TotalMilliseconds:F0} ms, pause recorded at {recordedAt.TotalMilliseconds:F0} ms; sent during the pause at " +
+            string.Join(", ", duringPause.Select(at => $"{at.TotalMilliseconds:F0} ms")));
+    }
+
+    /// <summary>Notes when each of these hosts recorded a pause, on the API's clock. Other tests' hosts are not heard.</summary>
+    private static MeterListener RecordPauses(IHost[] hosts, LimitedApi api, ConcurrentQueue<TimeSpan> pausedAt)
+    {
+        var factories = hosts.Select(host => host.Services.GetRequiredService<IMeterFactory>()).ToHashSet();
+        var listener = new MeterListener
+        {
+            InstrumentPublished = (instrument, listening) =>
+            {
+                if (instrument.Name == "synclane.budget.paused" && instrument.Meter.Scope is IMeterFactory factory && factories.Contains(factory))
+                    listening.EnableMeasurementEvents(instrument);
+            }
+        };
+        listener.SetMeasurementEventCallback<long>((_, _, _, _) => pausedAt.Enqueue(api.Now));
+        listener.Start();
+        return listener;
     }
 
     private Task<IReadOnlyList<Job>> RunAsync(IHost host, Func<IReadOnlyList<Job>, bool>? until = null) =>
@@ -198,6 +234,9 @@ public class BudgetGateTests : PostgresTest
         public int Throttled => _throttledAt.Count;
 
         public IReadOnlyList<TimeSpan> Arrivals => _arrivals.ToArray();
+
+        /// <summary>The API's clock, which every time in this test is read from.</summary>
+        public TimeSpan Now => _clock.Elapsed;
 
         public IReadOnlyList<TimeSpan> ThrottledAt => _throttledAt.ToArray();
 
