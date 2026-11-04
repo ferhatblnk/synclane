@@ -107,6 +107,66 @@ internal sealed class MonitorSql
             ORDER BY count(*) DESC, queue, code
             """;
 
+        // Every change below is conditional on the row's own status at the moment of the write, so a job a worker takes in
+        // the meantime is left alone. The status read beside it only explains a refusal.
+        const string fresh =
+            """
+            status = 'pending',
+                    attempt_count = 0,
+                    next_run_at = @now,
+                    error = NULL,
+                    completed_at = NULL,
+                    leased_by = NULL,
+                    lease_expires_at = NULL,
+                    updated_at = @now
+            """;
+
+        RequeueJob =
+            $"""
+            WITH target AS (SELECT status FROM {jobs} WHERE id = @id),
+            changed AS (
+                UPDATE {jobs}
+                SET {fresh}
+                WHERE id = @id AND status IN ('failed', 'deferred', 'abandoned')
+                RETURNING id
+            )
+            SELECT t.status, (SELECT count(*)::int FROM changed) FROM target AS t
+            """;
+
+        RestartJob =
+            $"""
+            WITH target AS (SELECT status FROM {jobs} WHERE id = @id),
+            changed AS (
+                UPDATE {jobs}
+                SET {fresh},
+                    cursor = NULL,
+                    processed_count = 0,
+                    started_at = NULL
+                WHERE id = @id AND status <> 'running'
+                RETURNING id
+            )
+            SELECT t.status, (SELECT count(*)::int FROM changed) FROM target AS t
+            """;
+
+        RequeueByCode =
+            $"""
+            UPDATE {jobs}
+            SET {fresh}
+            WHERE queue = @queue
+              AND status <> 'completed' AND status IN ('failed', 'deferred', 'abandoned')
+              AND coalesce({CodeOf("error")}, 'unknown') = @code
+            """;
+
+        // Jobs already moved forward are skipped, so asking twice changes nothing.
+        PrioritizeOwner =
+            $"""
+            UPDATE {jobs}
+            SET priority = priority - @boost, updated_at = @now
+            WHERE queue = @queue AND owner = @owner
+              AND status <> 'completed' AND status IN ('pending', 'failed', 'deferred', 'abandoned')
+              AND priority >= 0
+            """;
+
         Volume =
             $"""
             SELECT date_trunc(@unit, hour, 'UTC'), sum(completed)::bigint, sum(records)::bigint, sum(failures)::bigint, sum(abandoned)::bigint
@@ -118,6 +178,16 @@ internal sealed class MonitorSql
             ORDER BY 1
             """;
     }
+
+    /// <summary>Requeues one failed, deferred or abandoned job. Returns its status before, and whether it changed.</summary>
+    public string RequeueJob { get; }
+
+    /// <summary>Runs one job again from its first page, whatever its status but running.</summary>
+    public string RestartJob { get; }
+
+    public string RequeueByCode { get; }
+
+    public string PrioritizeOwner { get; }
 
     public string Overview { get; }
 

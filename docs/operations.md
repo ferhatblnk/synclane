@@ -76,7 +76,18 @@ ORDER BY budget, rate;
 
 ## Changing
 
-Everything `ISyncLane` does is a plain update, so you can do the same from `psql` when you need something it does not offer.
+`ISyncLaneMonitor` has the usual repairs, for any queue in the schema:
+
+| Call | What it does |
+| --- | --- |
+| `RequeueJobAsync(id)` | Gives one failed, deferred or abandoned job fresh attempts, keeping its cursor. |
+| `RestartJobAsync(id)` | Runs one job again from its first page, a completed one too, for a window whose data has to be fetched again. |
+| `RequeueByCodeAsync(queue, code)` | Requeues every failing, deferred and abandoned job of the queue with that error code, after you fixed the cause. |
+| `PrioritizeOwnerAsync(queue, owner)` | Moves the owner's waiting jobs ahead of every other owner's, keeping its own type order. |
+
+None of them touches a running job. A call about one job that cannot act says why (`SL3008`, `SL3102`); the others return how many jobs they changed.
+
+Everything SyncLane does is a plain update, so you can do the same from `psql` when you need something it does not offer.
 
 Give stopped jobs of one owner fresh attempts (this is `RequeueAsync`). The cursor is left alone on purpose:
 

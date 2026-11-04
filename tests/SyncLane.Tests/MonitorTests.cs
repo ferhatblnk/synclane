@@ -190,11 +190,19 @@ public class MonitorTests : PostgresTest
         Assert.Equal((1, 9), (hour.Completed, hour.Records));
     }
 
-    private SyncLaneMonitor Monitor() => new(
-        new MonitorStore(Store.DataSource, new MonitorSql(Schema)),
-        new BudgetStore(Store.DataSource, new BudgetSql(Schema)),
-        new InstanceStore(Store.DataSource, new InstanceSql(Schema)),
-        _clock);
+    private SyncLaneMonitor Monitor() => MonitorFor(Store, Schema, _clock);
+
+    internal static SyncLaneMonitor MonitorFor(JobStore store, string schema, TimeProvider clock)
+    {
+        var sql = new MonitorSql(schema);
+        return new SyncLaneMonitor(
+            new MonitorStore(store.DataSource, sql),
+            sql,
+            new BudgetStore(store.DataSource, new BudgetSql(schema)),
+            new InstanceStore(store.DataSource, new InstanceSql(schema)),
+            clock,
+            Microsoft.Extensions.Logging.Abstractions.NullLogger<SyncLaneMonitor>.Instance);
+    }
 
     private async Task RunAsync(string owner, DateTimeOffset at, int records, JobStatus outcome)
     {

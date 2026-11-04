@@ -1,11 +1,24 @@
 using System.Globalization;
+using Microsoft.Extensions.Logging;
 using SyncLane.Instances;
 using SyncLane.Storage;
 
 namespace SyncLane.Monitoring;
 
-internal sealed class SyncLaneMonitor(MonitorStore monitor, BudgetStore budgets, InstanceStore instances, TimeProvider time) : ISyncLaneMonitor
+internal sealed partial class SyncLaneMonitor(
+    MonitorStore monitor,
+    MonitorSql sql,
+    BudgetStore budgets,
+    InstanceStore instances,
+    TimeProvider time,
+    ILogger<SyncLaneMonitor> logger) : ISyncLaneMonitor
 {
+    /// <summary>
+    /// How far a prioritized owner's jobs move forward. Type priorities are declaration positions, so this puts the owner
+    /// ahead of every other owner and keeps its own order.
+    /// </summary>
+    internal const int PriorityBoost = 1_000_000;
+
     public async Task<SyncResult<IReadOnlyList<QueueOverview>>> GetOverviewAsync(CancellationToken cancellationToken = default) =>
         SyncResult<IReadOnlyList<QueueOverview>>.Success(await monitor.OverviewAsync(time.GetUtcNow(), InstanceRules.GoneAfter, cancellationToken));
 
@@ -90,4 +103,52 @@ internal sealed class SyncLaneMonitor(MonitorStore monitor, BudgetStore budgets,
 
         return SyncResult<IReadOnlyList<VolumeBucket>>.Success(await monitor.VolumeAsync(query, to, cancellationToken));
     }
+
+    public Task<SyncResult<int>> RequeueJobAsync(long id, CancellationToken cancellationToken = default) =>
+        ChangeJobAsync(sql.RequeueJob, id, "a requeue", "failed, deferred and abandoned", cancellationToken);
+
+    public Task<SyncResult<int>> RestartJobAsync(long id, CancellationToken cancellationToken = default) =>
+        ChangeJobAsync(sql.RestartJob, id, "a restart", "pending, completed, failed, deferred and abandoned", cancellationToken);
+
+    public async Task<SyncResult<int>> RequeueByCodeAsync(string queue, string code, CancellationToken cancellationToken = default)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(queue);
+        ArgumentException.ThrowIfNullOrWhiteSpace(code);
+
+        var requeued = await monitor.RequeueByCodeAsync(queue, code, time.GetUtcNow(), cancellationToken);
+        LogRequeuedByCode(requeued, queue, code);
+        return SyncResult<int>.Success(requeued);
+    }
+
+    public async Task<SyncResult<int>> PrioritizeOwnerAsync(string queue, string owner, CancellationToken cancellationToken = default)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(queue);
+        ArgumentNullException.ThrowIfNull(owner);
+
+        var moved = await monitor.PrioritizeOwnerAsync(queue, owner, PriorityBoost, time.GetUtcNow(), cancellationToken);
+        LogPrioritized(moved, queue, owner);
+        return SyncResult<int>.Success(moved);
+    }
+
+    private async Task<SyncResult<int>> ChangeJobAsync(string statement, long id, string action, string allowed, CancellationToken cancellationToken)
+    {
+        var (status, changed) = await monitor.ChangeJobAsync(statement, id, time.GetUtcNow(), cancellationToken);
+        if (status is null)
+            return SyncResult<int>.Failure(SyncLaneErrors.JobNotFound(id));
+
+        if (!changed)
+            return SyncResult<int>.Failure(SyncLaneErrors.JobStatusNotAllowed(id, status, action, allowed));
+
+        LogJobChanged(id, action, status);
+        return SyncResult<int>.Success(1);
+    }
+
+    [LoggerMessage(Level = LogLevel.Information, Message = "Job {JobId} was {Status}; {Action} put it back in line.")]
+    private partial void LogJobChanged(long jobId, string action, string status);
+
+    [LoggerMessage(Level = LogLevel.Information, Message = "Requeued {Count} jobs of queue {Queue} that failed with {Code}.")]
+    private partial void LogRequeuedByCode(int count, string queue, string code);
+
+    [LoggerMessage(Level = LogLevel.Information, Message = "Moved {Count} jobs of owner {Owner} on queue {Queue} ahead of the others.")]
+    private partial void LogPrioritized(int count, string queue, string owner);
 }

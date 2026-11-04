@@ -131,6 +131,36 @@ internal sealed class MonitorStore(NpgsqlDataSource dataSource, MonitorSql sql)
         return buckets;
     }
 
+    /// <summary>Runs a change to one job. Returns the job's status before the change, or <c>null</c> when it does not exist.</summary>
+    public async Task<(string? Status, bool Changed)> ChangeJobAsync(string statement, long id, DateTimeOffset now, CancellationToken cancellationToken)
+    {
+        await using var command = dataSource.CreateCommand(statement);
+        command.Parameters.AddWithValue("id", id);
+        command.Parameters.AddWithValue("now", now.ToUniversalTime());
+
+        await using var reader = await command.ExecuteReaderAsync(cancellationToken);
+        return await reader.ReadAsync(cancellationToken) ? (reader.GetString(0), reader.GetInt32(1) == 1) : (null, false);
+    }
+
+    public async Task<int> RequeueByCodeAsync(string queue, string code, DateTimeOffset now, CancellationToken cancellationToken)
+    {
+        await using var command = dataSource.CreateCommand(sql.RequeueByCode);
+        command.Parameters.AddWithValue("queue", queue);
+        command.Parameters.AddWithValue("code", code);
+        command.Parameters.AddWithValue("now", now.ToUniversalTime());
+        return await command.ExecuteNonQueryAsync(cancellationToken);
+    }
+
+    public async Task<int> PrioritizeOwnerAsync(string queue, string owner, int boost, DateTimeOffset now, CancellationToken cancellationToken)
+    {
+        await using var command = dataSource.CreateCommand(sql.PrioritizeOwner);
+        command.Parameters.AddWithValue("queue", queue);
+        command.Parameters.AddWithValue("owner", owner);
+        command.Parameters.AddWithValue("boost", boost);
+        command.Parameters.AddWithValue("now", now.ToUniversalTime());
+        return await command.ExecuteNonQueryAsync(cancellationToken);
+    }
+
     private static NpgsqlParameter Text(string name, string? value) =>
         new(name, NpgsqlDbType.Text) { Value = (object?)value ?? DBNull.Value };
 

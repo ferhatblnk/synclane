@@ -51,7 +51,9 @@ The first digit is the area:
 | `SL3005` | Configuration | `RateBudgets.WaitAsync` or `Throttled` was called with a budget that is not declared. | Declare it with `lane.AddBudget(...)`, or correct the name. |
 | `SL3006` | Validation | `MarkLoadedAsync` was given a job type that is not declared with `Windowed`. A snapshot type reads everything on each run, so there is no history to mark. | Mark only windowed types; leave snapshot types to the planner. |
 | `SL3007` | Validation | A range given to `MarkLoadedAsync` starts after it ends, ends in the future, or, for a type without `every`, ends before today (UTC), which would leave the days after it unloaded for good. Nothing is marked. | Correct the range. For a type without `every`, mark history up to today. |
+| `SL3008` | NotFound | `RequeueJobAsync` or `RestartJobAsync` names a job that does not exist. Clean-up deletes completed jobs after `KeepCompletedJobs`, and `ForgetOwnerAsync` deletes an owner's jobs. | Check the id against `GetJobsAsync`. |
 | `SL3101` | Conflict | `EnqueueAsync` found a job with the same owner, type and dedup key. | Requeue the existing job, or use another key. |
+| `SL3102` | Conflict | The job's status does not allow the action: a requeue takes failed, deferred and abandoned jobs, a restart takes any job that is not running. Nothing was changed. | Wait for a running job to end, or use the action that fits its status. |
 
 ## Running jobs
 
