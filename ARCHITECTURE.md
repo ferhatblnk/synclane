@@ -104,9 +104,11 @@ User code reaches SyncLane through two small interfaces and one facade: `IJobHan
 
 ## Data model
 
-Three tables in the configured schema.
+Four tables in the configured schema.
 
 `jobs` holds one row per job: what it covers (`queue`, `owner`, `lane`, `type`, `mode`, `window_start`, `window_end`, `dedup_key`), where it is (`status`, `cursor`, `processed_count`, `attempt_count`, `error`, `next_run_at`) and who holds it (`leased_by`, `lease_expires_at`, `heartbeat_at`). The full definition is in [docs/schema.sql](docs/schema.sql).
+
+`coverage` holds one row per queue, owner and type: what has been planned (an initial job exists, the oldest initial start, the newest window end, the last planned and last recurring times). The planner reads it instead of every job ever created. It is written by the same statement that inserts jobs (D40), so old jobs can be deleted without changing what is planned.
 
 `migrations` records which schema steps the database has.
 
@@ -119,6 +121,8 @@ The guarantees are indexes, not code:
 | `UNIQUE (queue, owner, type, dedup_key)` | A planned job is created once, however many instances plan at once. |
 | `UNIQUE (queue, lane) WHERE status = 'running'` | One running job per lane, across every process. |
 | `(queue, next_run_at) WHERE status IN (...)` | Finding the next due job stays cheap as completed rows pile up. |
+| `jobs_open (queue, owner, type) WHERE status <> 'completed'` | The planner sees what is still under way per owner and type without reading history. |
+| `jobs_finished (queue, completed_at) WHERE status = 'completed' AND mode <> 'initial'` | Clean-up finds old jobs without scanning the table. |
 
 Every write a worker makes to a job carries `WHERE id = @id AND status = 'running' AND leased_by = @worker`. A worker whose lease was taken over cannot overwrite the new holder; its writes match no row and it stops.
 
@@ -220,7 +224,10 @@ Round trips per operation:
 | Save a page | 1 | Primary key |
 | Heartbeat | 1 per third of `LeaseDuration` | Primary key |
 | Finish a job | 1 | Primary key |
-| Plan a queue | 2: coverage read, batched insert | `jobs_dedup` |
+| Plan a queue | 2: summary read, one insert that also replaces abandoned recurring jobs and updates the summary | `coverage` primary key, `jobs_open`, `jobs_dedup` |
+| `MarkLoadedAsync` | 1 | `jobs_dedup`, `coverage` primary key |
+| `ForgetOwnerAsync` | 1 | `jobs_dedup` prefix, `coverage` primary key |
+| Clean-up | 1 per batch of 1,000, hourly | `jobs_finished` |
 | `EnqueueAsync` | 1 | `jobs_dedup` |
 | `GetJobsAsync` | 1, with the optional count in the same batch | Primary key, scanned backwards |
 | `RequeueAsync`, `CancelAsync`, `GetProgressAsync` | 1 | `jobs_dedup` prefix |
@@ -319,3 +326,6 @@ Each is a small interface the user implements; SyncLane calls it.
 | D37 | The `synclane` command is built on System.CommandLine | It gives help, version, option errors and POSIX conventions that a hand-written parser would have to grow one by one, and it is what the `dotnet` command itself uses. MIT, maintained by Microsoft's .NET team; version 2.0, stable. Only the tool package takes it: the engine and `SyncLane.Http` stay as they were. The tool also references `Microsoft.Extensions.DependencyInjection`, already in the graph through `Microsoft.Extensions.Http`, to run a recipe through the public `AddSyncLaneHttp`. | Accepted |
 | D38 | `synclane init` takes the curl after the command, not inside an option, and learns from one real answer, not from an API description | A copied curl holds both kinds of quotes, so wrapping it in one more pair is where people fail; after the command, the shell splits it as it would for curl, and a piped curl goes through the same splitter. An answer shows what the API does; a description shows what it says it does. Every inferred field gets a comment in the written file, so the person reviews the file, not a log. | Accepted |
 | D39 | `synclane test` prints the shape of the data, never the data | Field names, counts, whether the key is unique and whether page 2 brought new records are what decides whether a recipe works; record values, cursors, URLs and credentials are what leaks when output is pasted into an issue or a CI log. A page 2 that repeats page 1, the commonest wrong guess, fails the test with its own code. | Accepted |
+| D40 | The planner reads a summary that the inserting statement keeps, not the history | Every fact planning needs is fixed when a job is created, so a data-modifying CTE upserts it in the same statement: one round trip, never out of step. Reading every job made planning grow with time (200 owners: 1.7 ms at 10 periods, 171 ms at 5,000; now 0.2 ms at both) and kept old rows from being deleted. Proposals that hit an existing key are counted too, so jobs an older instance created during a rolling deploy reach the summary. What is still under way is read from open rows, which clean-up never deletes. | Accepted |
+| D41 | An abandoned recurring job is replaced by the next period's job, whose window reaches back over it | Keeping them grows the table by one row per period for every broken account; deleting them loses the windows they missed without a trace; stopping until a person requeues halts a whole queue after a short outage. Replacing keeps one row, refetches what was missed once the cause is gone, and leaves the current error on the newest job. The delete is conditional on the row still being abandoned, so a concurrent requeue wins. History slices still wait for a requeue: they are bounded and each one matters. | Accepted |
+| D42 | Completed recurring and manual jobs are deleted after `KeepCompletedJobs`, 7 days by default; initial jobs are kept | Recurring jobs are what grows. Initial jobs are bounded by the horizon, `GetProgressAsync` counts them, and they record what history was loaded. A week answers "what happened last Tuesday" and costs little: the table holds about a week of recurring jobs, whatever its age. Each application cleans only its own queues, so applications sharing a table keep their own rules. | Accepted |

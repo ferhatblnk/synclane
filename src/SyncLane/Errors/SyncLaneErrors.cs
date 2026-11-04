@@ -94,6 +94,15 @@ internal static class SyncLaneErrors
         SyncErrorCodes.BudgetNotDeclared, SyncErrorKind.Configuration,
         $"Budget '{budget}' is not declared. Declare it with lane.AddBudget(\"{budget}\", ...) in AddSyncLane, or correct the name.");
 
+    public static SyncError JobTypeNotWindowed(string queue, string type) => new(
+        SyncErrorCodes.JobTypeNotWindowed, SyncErrorKind.Validation,
+        $"Job type '{type}' on queue '{queue}' has no windows, so there is no history to mark as loaded. " +
+        "MarkLoadedAsync takes types declared with Windowed; a snapshot type reads everything on each run anyway.");
+
+    public static SyncError LoadedRangeInvalid(string queue, string type, string owner, string rule) => new(
+        SyncErrorCodes.LoadedRangeInvalid, SyncErrorKind.Validation,
+        $"The loaded range of owner '{owner}', type '{type}' on queue '{queue}' {rule}. Nothing was marked.");
+
     // 4xxx: running jobs. Written to the error column of the job.
 
     public static SyncError HandlerMissing(string queue, string type) => new(

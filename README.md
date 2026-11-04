@@ -251,6 +251,8 @@ The whole format: [docs/recipes.md](docs/recipes.md). Add `"$schema"` to a recip
 | `CancelAsync(queue, owner, reason)` | `SyncResult<int>` | Abandon what has not started, for example when an account disconnects. |
 | `GetJobsAsync(query)` | `SyncListResult<Job>` | One page of jobs by queue, owner or status, newest first. Follow `NextCursor` for the next page; set `IncludeTotal` for a count. |
 | `GetProgressAsync(queue, owner)` | `SyncResult<OwnerProgress>` | How far the first load of an owner is. Use it to show "connecting" without storing a status of your own. |
+| `MarkLoadedAsync(queue, ranges)` | `SyncResult<int>` | Moving from another system: record the history it already loaded, so only what is older and what came after is fetched. |
+| `ForgetOwnerAsync(queue, owner)` | `SyncResult<int>` | Delete everything about an owner that is gone for good. If it comes back, its history loads again. |
 
 ```csharp
 var result = await syncLane.EnqueueAsync(new NewJob { Queue = "shops", Owner = owner, Type = "orders", DedupKey = "resync-2026-10" });
@@ -323,6 +325,7 @@ Every run of a job is a `synclane.job` span and every page a `synclane.page` spa
 | `PlanInterval` | 1 minute | How often the planner looks for missing jobs. |
 | `PollInterval` | 5 seconds | How long an idle worker slot waits before it looks again. |
 | `AddBudget(name, limit, per, burst, start)` | none | A rate budget: at most `limit` requests per `per`, at most `burst` at once (default 1, evenly spaced). It starts at `start` times the limit (default 1) and learns below it. |
+| `KeepCompletedJobs` | 7 days | How long completed recurring and manual jobs stay before instances that run the planner delete them. Initial jobs and unfinished jobs stay. `null` keeps everything. |
 | `MaxBudgetWait` | 30 seconds | The longest a request waits for a budget's token inside a job; a longer wait postpones the job. |
 | `queue.Concurrency` | `1` | Jobs of the queue one process runs at once. `1` makes the queue strictly sequential. |
 | `queue.MaxAttempts` | `5` | Attempts in a row without saving a page before a job is deferred. |
@@ -344,7 +347,7 @@ Every run of a job is a `synclane.job` span and every page a `synclane.page` spa
 - **No job arguments.** A job knows its owner, type and window. Anything else the handler needs it looks up from the owner.
 - **Periods are aligned to the clock.** "Every day" means once per UTC day, so the first refresh after a first load can come sooner than a full period.
 - **Clocks.** Leases and rate budgets use the clock of the instance. Keep your instances on NTP; a lease of minutes is not sensitive to a skew of seconds, but a budget is: an instance whose clock runs a second ahead can let one second's worth of extra tokens through.
-- **The table only grows.** Deleting old rows is up to you, and initial rows are the record of what has been loaded. See [docs/operations.md](docs/operations.md).
+- **Initial jobs stay.** Completed recurring and manual jobs are deleted after `KeepCompletedJobs`; initial jobs, one per slice of history, are kept as the record of what was loaded. A two-year horizon in 30-day slices is 25 rows per owner and type. See [docs/operations.md](docs/operations.md#keeping-the-table-small).
 - **No dashboard.** The demo has a single page built on `GetJobsAsync`; the table itself is the real interface.
 
 ## Project status

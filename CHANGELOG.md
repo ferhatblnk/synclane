@@ -40,6 +40,9 @@ Packed as `0.2.0-preview.1` until the HTTP source has met the APIs of a producti
 - `SyncLaneOptions.Describe()`: a read-only list of the declared queues and job types with their handlers.
 - `SyncLaneException.Errors`: an exception can carry several errors; `ThrowIfFailed()` throws all of them.
 - A convention test that fails when a platform is named in the library's code.
+- Old jobs are deleted. `KeepCompletedJobs` (default 7 days, `null` to keep all) sets how long completed recurring and manual jobs stay; instances that run the planner delete older ones every hour, in small batches, for their own queues only. Initial jobs and jobs that have not completed are kept.
+- `ISyncLane.MarkLoadedAsync(queue, ranges)`: for moving from another system. History it already loaded is recorded as completed initial jobs, so SyncLane fetches only what is older and what came after. One bad range marks nothing. Codes `SL3006` and `SL3007`.
+- `ISyncLane.ForgetOwnerAsync(queue, owner)`: deletes an owner's jobs and what the planner knows about it, for an account that is gone for good. Deleting its rows by hand would now leave the summary behind.
 
 ### Changed
 
@@ -48,6 +51,9 @@ Packed as `0.2.0-preview.1` until the HTTP source has met the APIs of a producti
 - With a rate budget, a `429` (or a `403` that means one) postpones the job for the budget's pause instead of using an attempt: the budget is what keeps the API safe. Without a budget it still uses one. `synclane.job.throttled` counts only the throttles that use an attempt.
 - After a `429` without `Retry-After`, the pause is one token's time, at least a second, and doubles only while the first request after each pause is refused again. Until now it doubled with every `429` until a quiet spell, which drove pauses to five minutes while the rate was being lowered.
 - The schema is at version 4: it adds the `rate_buckets` table with its `taken`, `rate`, `rate_max` and `taken_at_pause` columns, and changes nothing else. With `CreateSchema` on there is nothing to do. With it off, run `SyncLaneSchema.Script()` before starting this version; until then the host stops at start-up with `SL2001`. An instance of 0.1 keeps working against the new schema.
+- The planner reads a summary, one row per queue, owner and type, instead of every job ever created (new table `coverage`, migration 5). The same statement that inserts jobs keeps it, so it can never disagree with them. Planning 200 owners took 1.7 ms with 10 periods each and 171 ms with 5,000; it now takes 0.2 ms either way.
+- A recurring job that was abandoned is replaced by the next period's job, whose window reaches back over it. Until now a broken account added one abandoned row per period, and the windows they missed stayed missed after the cause was fixed. An abandoned history slice still waits for a requeue.
+- The schema is at version 5. Migration 5 adds `coverage`, fills it from the existing jobs, and builds two indexes on `jobs`: `jobs_open` for the planner and `jobs_finished` for clean-up. On a large table, create the two indexes with `CREATE INDEX CONCURRENTLY` before upgrading (see `docs/operations.md`); the migration then skips them. An older instance keeps working against the new schema.
 - The README no longer suggests sharing a lane to share a rate limit: a lane runs one job at a time, a rate budget paces requests.
 - `SL5109` (API unreachable) no longer keeps the `HttpRequestException` as its inner exception. Its message, which the engine stores in the `error` column, can hold the URL or a proxy's password; the error now says which kind of failure it was (host name, connection, TLS, proxy, protocol) instead.
 

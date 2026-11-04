@@ -47,6 +47,8 @@ The first digit is the area:
 | `SL3003` | Validation | `JobQuery.Limit` is below 1 or above `JobQuery.MaxLimit`. | Ask for a smaller page and follow `NextCursor`. |
 | `SL3004` | Validation | `JobQuery.Cursor` was not produced by SyncLane. | Pass the previous page's `NextCursor` unchanged. |
 | `SL3005` | Configuration | `RateBudgets.WaitAsync` or `Throttled` was called with a budget that is not declared. | Declare it with `lane.AddBudget(...)`, or correct the name. |
+| `SL3006` | Validation | `MarkLoadedAsync` was given a job type that is not declared with `Windowed`. A snapshot type reads everything on each run, so there is no history to mark. | Mark only windowed types; leave snapshot types to the planner. |
+| `SL3007` | Validation | A range given to `MarkLoadedAsync` starts after it ends, ends in the future, or, for a type without `every`, ends before today (UTC), which would leave the days after it unloaded for good. Nothing is marked. | Correct the range. For a type without `every`, mark history up to today. |
 | `SL3101` | Conflict | `EnqueueAsync` found a job with the same owner, type and dedup key. | Requeue the existing job, or use another key. |
 
 ## Running jobs

@@ -8,6 +8,8 @@ namespace SyncLane.Planning;
 /// <param name="RecurringOutstanding">A recurring job of the type has not reached an end yet.</param>
 /// <param name="LastPlannedAt">When the newest job of the type was created.</param>
 /// <param name="LastRecurringAt">When the newest recurring job of the type was created.</param>
+/// <param name="AbandonedFrom">The oldest start of the recurring windows that were given up.</param>
+/// <param name="Abandoned">The recurring jobs that were given up. The next recurring job replaces them.</param>
 internal sealed record TypeCoverage(
     bool HasInitial,
     DateTimeOffset? InitialFrom,
@@ -15,7 +17,9 @@ internal sealed record TypeCoverage(
     bool AnyOutstanding,
     bool RecurringOutstanding,
     DateTimeOffset? LastPlannedAt,
-    DateTimeOffset? LastRecurringAt)
+    DateTimeOffset? LastRecurringAt,
+    DateTimeOffset? AbandonedFrom = null,
+    IReadOnlyList<long>? Abandoned = null)
 {
     public static readonly TypeCoverage None = new(false, null, null, false, false, null, null);
 }

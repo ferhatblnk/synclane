@@ -27,7 +27,7 @@ public class MigrationTests : PostgresTest
         await DropSchemaAsync();
         await ExecuteAsync($"CREATE SCHEMA {Schema}");
         await ExecuteAsync(Migrations.All[0].Sql(Schema));
-        await EnqueueAsync(Noon, Planned("a", key: "1"));
+        await InsertAsAnOlderVersionAsync("a");
 
         Assert.Equal(Enumerable.Range(1, Migrations.Latest), await Store.MissingMigrationsAsync(CancellationToken.None));
 
@@ -43,7 +43,7 @@ public class MigrationTests : PostgresTest
         await DropSchemaAsync();
         await ExecuteAsync(Migrations.HistoryTable(Schema));
         await ExecuteAsync(Migrations.All[0].Sql(Schema) + Migrations.Record(Schema, Migrations.All[0]));
-        await EnqueueAsync(Noon, Planned("a", key: "1"));
+        await InsertAsAnOlderVersionAsync("a");
 
         Assert.Equal(Enumerable.Range(2, Migrations.Latest - 1), await Store.MissingMigrationsAsync(CancellationToken.None));
         Assert.Equal(Migrations.Latest - 1, await Store.MigrateAsync(CancellationToken.None));
@@ -102,6 +102,11 @@ public class MigrationTests : PostgresTest
     }
 
     private Task DropSchemaAsync() => ExecuteAsync($"DROP SCHEMA {Schema} CASCADE");
+
+    /// <summary>A job written the way an older SyncLane wrote it: straight into the jobs table, without the summary.</summary>
+    private Task InsertAsAnOlderVersionAsync(string owner) => ExecuteAsync(
+        $"INSERT INTO {Schema}.jobs (queue, owner, lane, type, mode, dedup_key, next_run_at, created_at, updated_at) " +
+        $"VALUES ('{Queue}', '{owner}', '{owner}', 'orders', 'initial', '1', now(), now(), now())");
 
     private IHost Host(bool createSchema)
     {
