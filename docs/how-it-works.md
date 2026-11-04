@@ -4,7 +4,7 @@ SyncLane is four pieces around one table: a planner that inserts rows, worker sl
 
 ## The table
 
-Jobs are in `synclane.jobs`. The full definition is in [schema.sql](schema.sql). Beside it, `synclane.coverage` keeps what the planner needs per owner and type, `synclane.rate_buckets` the rate budgets, `synclane.instances` the running processes, and `synclane.migrations` which schema version the database has.
+Jobs are in `synclane.jobs`. The full definition is in [schema.sql](schema.sql). Beside it, `synclane.coverage` keeps what the planner needs per owner and type, `synclane.rate_buckets` the rate budgets, `synclane.pauses` and `synclane.budget_limits` what operators set, `synclane.actions` what they did, `synclane.instances` the running processes, and `synclane.migrations` which schema version the database has.
 
 | Column | Meaning |
 | --- | --- |
@@ -118,6 +118,7 @@ Three things happen around that loop.
 | Exception, attempts left | `failed` | After `RetryBaseDelay`, doubled per attempt, capped at `RetryMaxDelay` |
 | `JobThrottledException` | `failed` | After the wait it named, or `ThrottleBaseDelay` doubled per attempt, capped at `ThrottleMaxDelay` |
 | `JobPostponedException` | `pending`, the attempt not counted | After the wait it named. A rate budget throws it when a token is far away, and a recipe with a budget when the API says "slow down" |
+| Its queue or owner is paused | `pending`, the attempt not counted, cut where it was | After the resume, from the last saved page |
 | Exception on attempt `MaxAttempts` | `deferred` | When nothing else is pending, running or waiting for a retry in its lane |
 | Exception on the deferred attempt | `abandoned` | After a requeue. A recurring job is replaced by the next period's, which covers its window too |
 | `JobAbandonedException` | `abandoned` | The same |

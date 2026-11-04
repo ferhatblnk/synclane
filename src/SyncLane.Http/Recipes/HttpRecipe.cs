@@ -222,8 +222,8 @@ public sealed record HttpRecipeRate
     public string? Key { get; init; }
 
     /// <summary>
-    /// The headers in which the API says how many requests are left and when more come. Leave it out when its answers
-    /// say nothing. No header is read unless it is named here.
+    /// The headers in which the API says how many requests are left, when more come, and what its limit is. Leave it out
+    /// when its answers say nothing. No header is read unless it is named here.
     /// </summary>
     public HttpRecipeRateHeaders? Headers { get; init; }
 }
@@ -243,6 +243,38 @@ public sealed record HttpRecipeRateHeaders
 
     /// <summary>How <see cref="Reset"/> is written. Defaults to <see cref="RateResetFormat.Seconds"/>.</summary>
     public RateResetFormat? ResetFormat { get; init; }
+
+    /// <summary>
+    /// The header with the API's limit, such as <c>X-Rate-Limit-Limit</c>. While the API reports it, it is the budget's
+    /// ceiling in place of the declared limit, up or down, on every instance.
+    /// </summary>
+    public string? Limit { get; init; }
+
+    /// <summary>How <see cref="Limit"/> is written. Defaults to <see cref="RateLimitFormat.Number"/>.</summary>
+    public RateLimitFormat? LimitFormat { get; init; }
+
+    /// <summary>
+    /// The window <see cref="Limit"/> counts over, in seconds, as the API's documentation states it: <c>60</c> for "40 a
+    /// minute", <c>1</c> for "0.5 a second". Required with <see cref="RateLimitFormat.Number"/>, since a bare number does
+    /// not say its window; left out with <see cref="RateLimitFormat.Ietf"/>, which carries its own.
+    /// </summary>
+    public int? LimitWindow { get; init; }
+}
+
+/// <summary>How an API writes its limit.</summary>
+[JsonConverter(typeof(JsonStringEnumConverter<RateLimitFormat>))]
+public enum RateLimitFormat
+{
+    /// <summary>A number of requests per <see cref="HttpRecipeRateHeaders.LimitWindow"/>, such as <c>40</c>.</summary>
+    [JsonStringEnumMemberName("number")]
+    Number,
+
+    /// <summary>
+    /// The <c>RateLimit-Policy</c> field of the IETF draft, such as <c>"default";q=100;w=60</c>: 100 requests per 60
+    /// seconds. Of several policies the tightest counts.
+    /// </summary>
+    [JsonStringEnumMemberName("ietf")]
+    Ietf
 }
 
 /// <summary>How an API writes how many requests are left.</summary>

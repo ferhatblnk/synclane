@@ -308,7 +308,9 @@ if (response.StatusCode == HttpStatusCode.TooManyRequests)
 - **A `429` pauses the whole bucket** for `Retry-After`, or one token's time, at least a second. Every job on the key, on every instance, waits; then the bucket goes on at 0.7 times its rate and climbs back while requests go through. The pause doubles, up to five minutes, only while the first request after each pause is refused again. Requests that were already on their way when the pause began do not count again.
 - **The limit is a ceiling, and the budget learns how much of it is safe.** A budget whose limit is right never sees a `429` and never changes. One whose limit is too high, or shared with another app, settles below it. For a limit nobody publishes, declare a generous ceiling and start lower: `AddBudget("example-shop", limit: 20, per: TimeSpan.FromSeconds(1), start: 0.25)`. Against simulated APIs with hidden limits it kept `429`s under 1% and reached 95 to 100% of the limit; it has not yet met a real one.
 - **A wait longer than `MaxBudgetWait`** (30 seconds) gives the job's slot back without using an attempt, so a paused budget never holds workers.
-- **What the API says counts too.** A recipe can name the headers in which the API says how many requests are left and when more come; the budget then stops at zero instead of running into a `429`, and notices another app spending the same quota. A hand-written handler passes the same numbers to `budgets.ReportRemainingAsync(permit, remaining, resetsIn)`. Readings only ever lower the budget. See [docs/recipes.md](docs/recipes.md#reading-what-the-api-says).
+- **What the API says counts too.** A recipe can name the headers in which the API says how many requests are left and when more come; the budget then stops at zero instead of running into a `429`, and notices another app spending the same quota. A hand-written handler passes the same numbers to `budgets.ReportRemainingAsync(permit, remaining, resetsIn)`. Those readings only ever lower the budget. See [docs/recipes.md](docs/recipes.md#reading-what-the-api-says).
+- **A limit the API reports replaces the declared one**, up or down, on every instance: name its header in the recipe (`rate.headers.limit`), or call `budgets.ReportLimitAsync(permit, limit, per)` from a handler. When the API raises its limit, SyncLane follows without a deploy.
+- **An operator can lower a budget for a while**, without a deploy: `monitor.LimitBudgetAsync("example-shop", key: null, limit: 30, per: TimeSpan.FromMinutes(1), reason: "the API answers slowly", until: ...)`. It never raises one.
 
 
 ## Watching it run
@@ -320,7 +322,7 @@ if (response.StatusCode == HttpStatusCode.TooManyRequests)
 | `GetOverviewAsync()` | One line per queue: due, postponed, running, retrying, deferred and abandoned jobs; owners; live instances; jobs, records and failures in the last 24 hours. |
 | `GetFreshnessAsync(query)` | Owners ranked by how old their newest completed data is, each with the job that explains it (its status, error code and next run) and how much of its history has loaded. |
 | `GetProblemsAsync(queue?)` | Failing, deferred and abandoned jobs grouped by error code: "SL5106: 37 jobs, 12 owners" instead of 37 rows. |
-| `GetBudgetsAsync(query)` | Each rate budget and key: the rate it learned, whether it is paused, when it was last refused. |
+| `GetBudgetsAsync(query)` | Each rate budget and key: the rate it learned, the limit the API reports and any operator's limit, whether it is paused, when it was last refused. |
 | `GetInstancesAsync()` | Every process of every application: host, version, queues, alive or gone. |
 | `GetVolumeAsync(query)` | Completed jobs, records, failed attempts and abandoned jobs per hour or day, kept for 400 days. |
 
@@ -345,7 +347,7 @@ app.MapSyncLane("/synclane").RequireAuthorization("ops");
 
 See [the package's readme](src/SyncLane.AspNetCore/README.md) for the routes.
 
-It also has the repairs those answers call for: `RequeueJobAsync(id)`, `RestartJobAsync(id)` to fetch a window again, `RequeueByCodeAsync(queue, code)` after fixing what a problem group shows, and `PrioritizeOwnerAsync(queue, owner)` for an account that should load first. None of them touches a running job; see [docs/operations.md](docs/operations.md#changing).
+It also has an emergency stop, `PauseAsync(queue, owner?, reason)`, which cuts what runs on every instance and takes nothing more until `ResumeAsync`, and the repairs the answers call for: `RequeueJobAsync(id)`, `RestartJobAsync(id)` to fetch a window again, `RequeueByCodeAsync(queue, code)` after fixing what a problem group shows, and `PrioritizeOwnerAsync(queue, owner)` for an account that should load first. `LimitBudgetAsync` lowers a rate budget for a while. Every action is logged with who did it and why (`GetActionsAsync`). See [docs/operations.md](docs/operations.md#changing).
 
 Each read is one round trip that reads small summary tables and the open jobs, never the history: on a table of a million jobs each one takes about a millisecond, and a year of daily volume about 45. Lists page with a cursor.
 

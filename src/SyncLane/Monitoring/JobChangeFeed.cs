@@ -27,6 +27,7 @@ internal sealed partial class JobChangeFeed(NpgsqlDataSource dataSource, string 
 
     private readonly string _channel = ChangeChannel.For(schema);
     private readonly ConcurrentDictionary<Channel<JobChange>, (string? Queue, string? Owner)> _readers = new();
+    private readonly ConcurrentDictionary<Channel<PauseSignal>, byte> _pauseReaders = new();
     private readonly CancellationTokenSource _stopping = new();
     private readonly Lock _gate = new();
     private Task? _listening;
@@ -53,6 +54,26 @@ internal sealed partial class JobChangeFeed(NpgsqlDataSource dataSource, string 
         }
     }
 
+    /// <summary>Pauses and resumes as operators set them, on any instance, until <paramref name="cancellationToken"/> ends the reading.</summary>
+    public async IAsyncEnumerable<PauseSignal> ReadPausesAsync([EnumeratorCancellation] CancellationToken cancellationToken)
+    {
+        var reader = Channel.CreateBounded<PauseSignal>(
+            new BoundedChannelOptions(ReaderCapacity) { FullMode = BoundedChannelFullMode.DropOldest, SingleReader = true });
+        _pauseReaders[reader] = 0;
+        EnsureListening();
+
+        try
+        {
+            // Sequential: reading one channel in order.
+            await foreach (var signal in reader.Reader.ReadAllAsync(cancellationToken))
+                yield return signal;
+        }
+        finally
+        {
+            _pauseReaders.TryRemove(reader, out _);
+        }
+    }
+
     /// <summary>Completes once the connection listens, so a caller can make changes knowing they will be seen.</summary>
     internal Task ListeningAsync(CancellationToken cancellationToken)
     {
@@ -67,6 +88,8 @@ internal sealed partial class JobChangeFeed(NpgsqlDataSource dataSource, string 
             await listening.ConfigureAwait(ConfigureAwaitOptions.SuppressThrowing);
 
         foreach (var reader in _readers.Keys)
+            reader.Writer.TryComplete();
+        foreach (var reader in _pauseReaders.Keys)
             reader.Writer.TryComplete();
 
         _stopping.Dispose();
@@ -134,6 +157,13 @@ internal sealed partial class JobChangeFeed(NpgsqlDataSource dataSource, string 
 
     private void OnNotification(object sender, NpgsqlNotificationEventArgs notification)
     {
+        if (ReadPause(notification.Payload) is { } pause)
+        {
+            foreach (var reader in _pauseReaders.Keys)
+                reader.Writer.TryWrite(pause);
+            return;
+        }
+
         if (Read(notification.Payload) is not { } change)
             return;
 
@@ -162,6 +192,33 @@ internal sealed partial class JobChangeFeed(NpgsqlDataSource dataSource, string 
             };
         }
         catch (Exception exception) when (exception is JsonException or KeyNotFoundException or InvalidOperationException or FormatException or SyncLaneException)
+        {
+            return null;
+        }
+    }
+
+    /// <summary>A pause or resume announcement, or <c>null</c> for anything else.</summary>
+    internal static PauseSignal? ReadPause(string payload)
+    {
+        try
+        {
+            using var document = JsonDocument.Parse(payload);
+            var root = document.RootElement;
+            if (!root.TryGetProperty("control", out var control))
+                return null;
+
+            var resumed = control.GetString() switch
+            {
+                "pause" => false,
+                "resume" => true,
+                _ => (bool?)null
+            };
+
+            return resumed is { } isResume
+                ? new PauseSignal(root.GetProperty("queue").GetString()!, root.GetProperty("owner").GetString()!, isResume)
+                : null;
+        }
+        catch (Exception exception) when (exception is JsonException or KeyNotFoundException or InvalidOperationException)
         {
             return null;
         }

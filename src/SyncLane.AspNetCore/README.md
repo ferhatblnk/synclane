@@ -18,6 +18,13 @@ app.MapSyncLane("/synclane").RequireAuthorization("ops");
 | GET | `/volume?from=&to=&queue=&type=&unit=hour` | Completed jobs, records, failures per hour or day |
 | GET | `/jobs?queue=&owner=&status=&limit=&cursor=` | Jobs, newest first |
 | GET | `/stream?queue=&owner=` | Server-sent events, one `job` event per created job or status change |
+| GET | `/pauses` | The pauses in force: who, why, until when |
+| GET | `/budget-limits` | The budget limits in force: who, why, until when |
+| GET | `/actions?queue=&owner=&limit=&cursor=` | What operators did, newest first, with who and why |
+| POST | `/pause?queue=&owner=&reason=&until=` | Emergency stop of a queue or one owner: running jobs are cut and handed back |
+| POST | `/resume?queue=&owner=` | Lift a pause |
+| POST | `/budgets/limit?budget=&key=&limit=&per=&reason=&until=` | Lower a rate budget, or one key of it, for a while (`per` as `00:01:00`) |
+| POST | `/budgets/clear-limit?budget=&key=` | Lift a budget limit |
 | POST | `/jobs/{id}/requeue`, `/jobs/{id}/restart` | Repair one job |
 | POST | `/requeue-by-code?queue=&code=` | Requeue every failing job with one error code |
 | POST | `/prioritize?queue=&owner=` | Move an owner's waiting jobs ahead of the others |
@@ -26,7 +33,7 @@ Safe by default:
 - Until the group requires authorization, the endpoints answer only requests from the same machine. A request that came through a proxy (`X-Forwarded-For` and the like) does not count as local.
 - Repairs need the header `X-SyncLane-Action`, which a page on another site cannot send. `MapSyncLane(configure: o => o.ReadOnly = true)` leaves them out.
 - Answers are never cached and never hold a job's cursor, which can contain the other side's token.
-- Each repair is logged with the user who asked for it.
+- Each pause, budget limit and repair is written to the actions log with the signed-in user who asked for it.
 
 The stream needs `LISTEN`, which a pooler in transaction mode cannot carry: point SyncLane's connection string at the server.
 

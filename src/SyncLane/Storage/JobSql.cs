@@ -9,6 +9,21 @@ internal sealed class JobSql
 
     public const string StatsTableName = "job_stats";
 
+    public const string PausesTableName = "pauses";
+
+    public const string ActionsTableName = "actions";
+
+    /// <summary>
+    /// A pause in force over the job aliased <paramref name="job"/>: of its whole queue (owner '') or of its owner, and not
+    /// expired. Served by the pauses primary key, on a table of a handful of rows.
+    /// </summary>
+    public static string PausedOver(string schema, string job) =>
+        $"""
+        EXISTS (SELECT 1 FROM {schema}.{PausesTableName} AS p
+                WHERE p.queue = {job}.queue AND (p.owner = '' OR p.owner = {job}.owner)
+                  AND (p.until IS NULL OR p.until > @now))
+        """;
+
     private const string Outstanding = "('pending', 'running', 'failed', 'deferred')";
 
     private static readonly string[] ColumnNames =
@@ -128,6 +143,9 @@ internal sealed class JobSql
                 heartbeat_at = @now,
                 updated_at = @now
             WHERE j.id = (
+                -- Pauses are read once per statement, not once per candidate: the paused owners of the queue become a
+                -- small array each row is compared with, and a paused queue becomes a one-time filter, so a paused queue
+                -- with many due jobs costs nothing to poll.
                 SELECT c.id
                 FROM {table} AS c
                 WHERE c.queue = @queue
@@ -144,6 +162,12 @@ internal sealed class JobSql
                       FROM {table} AS r
                       WHERE r.queue = c.queue AND r.lane = c.lane AND r.id <> c.id
                         AND r.status = 'running')
+                  AND c.owner <> ALL (ARRAY(
+                      SELECT p.owner FROM {schema}.{PausesTableName} AS p
+                      WHERE p.queue = @queue AND p.owner <> '' AND (p.until IS NULL OR p.until > @now)))
+                  AND NOT EXISTS (
+                      SELECT 1 FROM {schema}.{PausesTableName} AS q
+                      WHERE q.queue = @queue AND q.owner = '' AND (q.until IS NULL OR q.until > @now))
                 ORDER BY (c.status = 'deferred'), c.priority, c.window_start DESC NULLS LAST, c.next_run_at, c.id
                 LIMIT 1
                 FOR UPDATE OF c SKIP LOCKED)
@@ -152,23 +176,27 @@ internal sealed class JobSql
 
         // A saved page proves the attempt works: the count starts again at this one, so a long job that fails now and
         // then, with progress in between, is never abandoned for failures spread over its whole life.
+        // Both say, in the same round trip, whether a pause now covers the job: the way a worker that missed the pause's
+        // announcement still stops, at its next page or heartbeat.
         Checkpoint =
             $"""
-            UPDATE {table}
+            UPDATE {table} AS j
             SET cursor = @cursor,
-                processed_count = processed_count + @processed,
+                processed_count = j.processed_count + @processed,
                 attempt_count = 1,
                 heartbeat_at = @now,
                 lease_expires_at = @lease_expires_at,
                 updated_at = @now
             WHERE {held}
+            RETURNING {PausedOver(schema, "j")}
             """;
 
         Heartbeat =
             $"""
-            UPDATE {table}
+            UPDATE {table} AS j
             SET heartbeat_at = @now, lease_expires_at = @lease_expires_at, updated_at = @now
             WHERE {held}
+            RETURNING {PausedOver(schema, "j")}
             """;
 
         // Finishing a job also records how far its owner's data now reaches and counts it in its hour, in the same
@@ -228,7 +256,13 @@ internal sealed class JobSql
             SELECT count(*)::int FROM settled
             """;
 
-        DeleteOldStats = $"DELETE FROM {stats} WHERE hour < @before";
+        DeleteOldStats =
+            $"""
+            DELETE FROM {stats} WHERE hour < @before;
+            DELETE FROM {schema}.{ActionsTableName} WHERE at < @before;
+            DELETE FROM {schema}.{PausesTableName} WHERE until < @now;
+            DELETE FROM {schema}.{BudgetSql.LimitsTableName} WHERE until < @now;
+            """;
 
         Release =
             $"""

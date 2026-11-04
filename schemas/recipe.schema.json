@@ -231,7 +231,7 @@
           "type": "string"
         },
         "headers": {
-          "description": "The headers in which the API says how many requests are left and when more come. Leave it out when its answers say nothing. No header is read unless it is named here.",
+          "description": "The headers in which the API says how many requests are left, when more come, and what its limit is. Leave it out when its answers say nothing. No header is read unless it is named here.",
           "type": "object",
           "properties": {
             "remaining": {
@@ -269,6 +269,25 @@
                 "A Unix time in milliseconds, such as \u00601793361600000\u0060.",
                 "An HTTP date, such as \u0060Fri, 30 Oct 2026 12:00:00 GMT\u0060."
               ]
+            },
+            "limit": {
+              "description": "The header with the API\u0027s limit, such as \u0060X-Rate-Limit-Limit\u0060. While the API reports it, it is the budget\u0027s ceiling in place of the declared limit, up or down, on every instance.",
+              "type": "string"
+            },
+            "limitFormat": {
+              "description": "How Limit is written. Defaults to Number.",
+              "enum": [
+                "number",
+                "ietf"
+              ],
+              "enumDescriptions": [
+                "A number of requests per LimitWindow, such as \u006040\u0060.",
+                "The \u0060RateLimit-Policy\u0060 field of the IETF draft, such as \u0060\u0022default\u0022;q=100;w=60\u0060: 100 requests per 60 seconds. Of several policies the tightest counts."
+              ]
+            },
+            "limitWindow": {
+              "description": "The window Limit counts over, in seconds, as the API\u0027s documentation states it: \u006060\u0060 for \u002240 a minute\u0022, \u00601\u0060 for \u00220.5 a second\u0022. Required with Number, since a bare number does not say its window; left out with Ietf, which carries its own.",
+              "type": "integer"
             }
           },
           "additionalProperties": false

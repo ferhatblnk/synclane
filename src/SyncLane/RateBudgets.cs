@@ -27,6 +27,9 @@ public sealed partial class RateBudgets
     private readonly SyncLaneMetrics _metrics;
     private readonly ILogger<RateBudgets> _logger;
 
+    // The limit each budget and key last reported, so the same header on every answer costs no round trip.
+    private readonly System.Collections.Concurrent.ConcurrentDictionary<(string Budget, string Key), double> _reported = new();
+
     internal RateBudgets(SyncLaneOptions options, BudgetStore store, TimeProvider time, SyncLaneMetrics metrics, ILogger<RateBudgets> logger)
     {
         _declared = options.DescribeBudgets().ToDictionary(budget => budget.Name, StringComparer.Ordinal);
@@ -115,7 +118,7 @@ public sealed partial class RateBudgets
     /// <summary>
     /// Tells the permit's budget what the API's answer said is left for its key. The bucket is lowered to that, minus the
     /// requests that took a token after this one and have not reached the API's count yet; it is never raised above its
-    /// declared rate and burst. When nothing is left and <paramref name="resetsIn"/> is known, every request of the key,
+    /// rate and burst. When nothing is left and <paramref name="resetsIn"/> is known, every request of the key,
     /// on every instance, waits until then, and the bucket restarts empty. This is not a throttle: it does not lengthen
     /// the backoff of later "slow down" answers.
     /// </summary>
@@ -145,6 +148,35 @@ public sealed partial class RateBudgets
         }
     }
 
+    /// <summary>
+    /// Tells the permit's budget the limit the API states in its answers, such as <c>X-Rate-Limit-Limit: 40</c> per
+    /// minute. From then on it is the budget's ceiling for the key, in place of the declared limit, up or down, on every
+    /// instance: a provider that raises its limit is followed without a deploy. The budget still learns below it, and an
+    /// operator's temporary limit still caps it. Reporting the same limit again costs nothing.
+    /// </summary>
+    /// <param name="permit">The permit the answered request was sent with.</param>
+    /// <param name="limit">How many requests the API allows per <paramref name="per"/>.</param>
+    /// <param name="per">The window the limit counts over, as the API's documentation states it.</param>
+    /// <param name="cancellationToken">Stops the call.</param>
+    public async ValueTask ReportLimitAsync(BudgetPermit permit, double limit, TimeSpan per, CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(permit);
+        ArgumentOutOfRangeException.ThrowIfNegativeOrZero(limit);
+        ArgumentOutOfRangeException.ThrowIfLessThanOrEqual(per, TimeSpan.Zero);
+        if (!double.IsFinite(limit))
+            throw new ArgumentOutOfRangeException(nameof(limit));
+
+        Declared(permit.Budget, permit.Key);
+        var rate = limit / per.TotalSeconds;
+        if (_reported.TryGetValue((permit.Budget, permit.Key), out var known) && known.Equals(rate))
+            return;
+
+        if (await _store.ReportLimitAsync(permit.Budget, permit.Key, rate, _time.GetUtcNow(), cancellationToken))
+            LogLimitReported(permit.Budget, limit, per);
+
+        _reported[(permit.Budget, permit.Key)] = rate;
+    }
+
     private BudgetDescription Declared(string budget, string key)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(budget);
@@ -160,6 +192,9 @@ public sealed partial class RateBudgets
 
     [LoggerMessage(Level = LogLevel.Warning, Message = "Budget {Budget} is paused for {Pause} because the API asked to slow down, and goes on at {Rate} requests a second. Every job that draws from it waits.")]
     private partial void LogPaused(string budget, TimeSpan pause, double rate);
+
+    [LoggerMessage(Level = LogLevel.Information, Message = "Budget {Budget} follows the limit the API reports: {Limit} per {Per}.")]
+    private partial void LogLimitReported(string budget, double limit, TimeSpan per);
 
     [LoggerMessage(Level = LogLevel.Information, Message = "Budget {Budget} waits {Pause} because the API said nothing is left until then.")]
     private partial void LogExhausted(string budget, TimeSpan pause);

@@ -221,14 +221,29 @@ internal static partial class Inference
             read = new HttpRecipeRateHeaders { Remaining = used, RemainingFormat = RateRemainingFormat.UsedOfLimit };
         }
 
-        if (Header(LimitHeader()) is { } limit)
-            notes.Add($"The API reports its limit in {limit}: {headers[limit]}. Use it to choose the budget's limit.");
+        // A policy field says its own window, so the budget can follow it as it is. A bare number does not: its window is
+        // in the API's documentation, and a guess could raise the ceiling far above what the API allows.
+        if (headers.ContainsKey("RateLimit-Policy"))
+        {
+            read = (read ?? new HttpRecipeRateHeaders()) with { Limit = "RateLimit-Policy", LimitFormat = RateLimitFormat.Ietf };
+        }
+        else if (Header(LimitHeader()) is { } limit)
+        {
+            notes.Add(
+                $"The API reports its limit in {limit}: {headers[limit]}. To make the budget follow it, add \"limit\": \"{limit}\" " +
+                "and \"limitWindow\" (the seconds it counts over, from the API's documentation) to rate.headers.");
+        }
 
         if (read is null)
             return null;
 
         var budget = draft.Name.Split('/')[0];
-        comments["rate"] = $"the answer says how many requests are left in {read.Remaining}";
+        comments["rate"] = (read.Remaining, read.Limit) switch
+        {
+            ({ } left, { } limit) => $"the answer says how many requests are left in {left}, and the limit in {limit}",
+            ({ } left, null) => $"the answer says how many requests are left in {left}",
+            _ => $"the answer says the limit in {read.Limit}"
+        };
         notes.Add($"The recipe draws from a rate budget named '{budget}'. Declare it in AddSyncLane: lane.AddBudget(\"{budget}\", limit: ..., per: ...).");
         return new HttpRecipeRate { Budget = budget, Headers = read };
     }
@@ -335,7 +350,7 @@ internal static partial class Inference
     [GeneratedRegex(@"^(x-)?rate-?limit-reset$", RegexOptions.IgnoreCase)]
     private static partial Regex ResetHeader();
 
-    [GeneratedRegex(@"^(x-)?rate-?limit-limit$", RegexOptions.IgnoreCase)]
+    [GeneratedRegex(@"^(x-([a-z]+-)?)?rate-?limit-limit$", RegexOptions.IgnoreCase)]
     private static partial Regex LimitHeader();
 
     [GeneratedRegex(@"token-count$", RegexOptions.IgnoreCase)]

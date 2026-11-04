@@ -119,11 +119,12 @@ internal sealed class JobStore(NpgsqlDataSource dataSource, JobSql sql) : IAsync
         return await command.ExecuteNonQueryAsync(cancellationToken);
     }
 
-    /// <summary>Deletes hourly counts older than <paramref name="before"/>. Returns how many hours.</summary>
-    public async Task<int> DeleteOldStatsAsync(DateTimeOffset before, CancellationToken cancellationToken)
+    /// <summary>Deletes hourly counts and logged actions older than <paramref name="before"/>, and pauses that have ended.</summary>
+    public async Task<int> DeleteOldStatsAsync(DateTimeOffset before, DateTimeOffset now, CancellationToken cancellationToken)
     {
         await using var command = dataSource.CreateCommand(sql.DeleteOldStats);
         command.Parameters.AddWithValue("before", before.ToUniversalTime());
+        command.Parameters.AddWithValue("now", now.ToUniversalTime());
         return await command.ExecuteNonQueryAsync(cancellationToken);
     }
 
@@ -166,22 +167,30 @@ internal sealed class JobStore(NpgsqlDataSource dataSource, JobSql sql) : IAsync
         return null;
     }
 
-    public async Task<bool> CheckpointAsync(
+    public async Task<Hold> CheckpointAsync(
         long id, string worker, string? cursor, int processed, DateTimeOffset now, DateTimeOffset leaseExpiresAt, CancellationToken cancellationToken)
     {
         await using var command = Held(sql.Checkpoint, id, worker, now);
         command.Parameters.Add(Text("cursor", cursor));
         command.Parameters.AddWithValue("processed", processed);
         command.Parameters.AddWithValue("lease_expires_at", leaseExpiresAt.ToUniversalTime());
-        return await command.ExecuteNonQueryAsync(cancellationToken) == 1;
+        return HoldOf(await command.ExecuteScalarAsync(cancellationToken));
     }
 
-    public async Task<bool> HeartbeatAsync(long id, string worker, DateTimeOffset now, DateTimeOffset leaseExpiresAt, CancellationToken cancellationToken)
+    public async Task<Hold> HeartbeatAsync(long id, string worker, DateTimeOffset now, DateTimeOffset leaseExpiresAt, CancellationToken cancellationToken)
     {
         await using var command = Held(sql.Heartbeat, id, worker, now);
         command.Parameters.AddWithValue("lease_expires_at", leaseExpiresAt.ToUniversalTime());
-        return await command.ExecuteNonQueryAsync(cancellationToken) == 1;
+        return HoldOf(await command.ExecuteScalarAsync(cancellationToken));
     }
+
+    /// <summary>No row means the job is no longer this worker's; the returned flag says whether a pause covers it.</summary>
+    private static Hold HoldOf(object? paused) => paused switch
+    {
+        true => Hold.Paused,
+        false => Hold.Held,
+        _ => Hold.Lost
+    };
 
     public async Task<bool> CompleteAsync(long id, string worker, DateTimeOffset now, CancellationToken cancellationToken)
     {

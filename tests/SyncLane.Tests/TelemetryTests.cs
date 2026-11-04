@@ -97,7 +97,7 @@ public class TelemetryTests : PostgresTest
         var leased = await LeaseAsync(Worker, _clock.GetUtcNow()) ?? throw new InvalidOperationException("No job is due.");
 
         var services = new ServiceCollection().AddSingleton(handler).BuildServiceProvider();
-        var runner = new JobRunner(Store, services.GetRequiredService<IServiceScopeFactory>(), _clock, metrics, NullLogger<JobRunner>.Instance);
+        var runner = new JobRunner(Store, new RunningJobs(), services.GetRequiredService<IServiceScopeFactory>(), _clock, metrics, NullLogger<JobRunner>.Instance);
         var queue = new SyncLaneOptions().AddQueue(Queue, options => options.Snapshot<ScriptedHandler>("orders")).Queue(Queue);
 
         await runner.RunAsync(queue, leased, Worker, CancellationToken.None);

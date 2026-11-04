@@ -16,6 +16,7 @@ internal sealed partial class JobWorker(
     JobRunner runner,
     InstanceIdentity identity,
     JobChangeFeed changes,
+    RunningJobs running,
     TimeProvider time,
     ILogger<JobWorker> logger)
     : BackgroundService
@@ -34,7 +35,29 @@ internal sealed partial class JobWorker(
             .ToArray();
 
         LogStarted(_host, slots.Length, options.Queues.Count);
-        await Task.WhenAll([.. slots, WakeOnNewWorkAsync(stoppingToken)]);
+        await Task.WhenAll([.. slots, WakeOnNewWorkAsync(stoppingToken), ObeyPausesAsync(stoppingToken)]);
+    }
+
+    /// <summary>
+    /// Cuts this process's running jobs a pause covers, the moment the pause is announced; wakes the queue's slots when it
+    /// is resumed.
+    /// </summary>
+    private async Task ObeyPausesAsync(CancellationToken stopping)
+    {
+        try
+        {
+            // Sequential: reading the announcements in order.
+            await foreach (var signal in changes.ReadPausesAsync(stopping))
+            {
+                if (signal.Resumed)
+                    _signals.Pulse(signal.Queue);
+                else if (running.Pause(signal.Queue, signal.Owner) is var cut and > 0)
+                    LogCut(cut, signal.Queue);
+            }
+        }
+        catch (OperationCanceledException) when (stopping.IsCancellationRequested)
+        {
+        }
     }
 
     /// <summary>Wakes the slots of a queue when one of its jobs becomes pending: created, requeued, restarted or handed back.</summary>
@@ -102,6 +125,9 @@ internal sealed partial class JobWorker(
 
     private TimeSpan IdleDelay() =>
         options.PollInterval + options.PollInterval * (Random.Shared.NextDouble() * JitterShare);
+
+    [LoggerMessage(Level = LogLevel.Information, Message = "A pause on queue {Queue} stopped {Cut} running jobs here.")]
+    private partial void LogCut(int cut, string queue);
 
     [LoggerMessage(Level = LogLevel.Information, Message = "SyncLane worker {Host} started with {Slots} slots over {Queues} queues.")]
     private partial void LogStarted(string host, int slots, int queues);

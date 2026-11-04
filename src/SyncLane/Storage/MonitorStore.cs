@@ -31,7 +31,15 @@ internal sealed class MonitorStore(NpgsqlDataSource dataSource, MonitorSql sql)
                 Abandoned = reader.GetInt32(8),
                 CompletedLastDay = reader.GetInt32(9),
                 RecordsLastDay = reader.GetInt64(10),
-                FailuresLastDay = reader.GetInt32(11)
+                FailuresLastDay = reader.GetInt32(11),
+                Pause = reader.IsDBNull(12) ? null : new PauseInfo
+                {
+                    Queue = reader.GetString(0),
+                    By = reader.GetString(12),
+                    Reason = reader.GetString(13),
+                    PausedAt = reader.GetFieldValue<DateTimeOffset>(14),
+                    Until = Moment(reader, 15)
+                }
             });
         }
 
@@ -40,9 +48,11 @@ internal sealed class MonitorStore(NpgsqlDataSource dataSource, MonitorSql sql)
 
     /// <summary>A page of owners, oldest data first, with each row's sort key for the next cursor.</summary>
     public async Task<List<(OwnerFreshness Row, DateTimeOffset SortKey)>> FreshnessAsync(
-        string? queue, string? owner, (DateTimeOffset Key, string Queue, string Owner, string Type)? after, int limit, CancellationToken cancellationToken)
+        string? queue, string? owner, (DateTimeOffset Key, string Queue, string Owner, string Type)? after, int limit, DateTimeOffset now,
+        CancellationToken cancellationToken)
     {
         await using var command = dataSource.CreateCommand(sql.Freshness);
+        command.Parameters.AddWithValue("now", now.ToUniversalTime());
         command.Parameters.Add(Text("queue", queue));
         command.Parameters.Add(Text("owner", owner));
         command.Parameters.AddWithValue("never", MonitorSql.Never);
@@ -71,7 +81,8 @@ internal sealed class MonitorStore(NpgsqlDataSource dataSource, MonitorSql sql)
                 Error = Text(reader, 7),
                 NextRunAt = Moment(reader, 8),
                 HistoryTotal = reader.GetInt32(9),
-                HistoryCompleted = reader.GetInt32(10)
+                HistoryCompleted = reader.GetInt32(10),
+                Paused = reader.GetBoolean(12)
             }, reader.GetFieldValue<DateTimeOffset>(11)));
         }
 
@@ -132,33 +143,173 @@ internal sealed class MonitorStore(NpgsqlDataSource dataSource, MonitorSql sql)
     }
 
     /// <summary>Runs a change to one job. Returns the job's status before the change, or <c>null</c> when it does not exist.</summary>
-    public async Task<(string? Status, bool Changed)> ChangeJobAsync(string statement, long id, DateTimeOffset now, CancellationToken cancellationToken)
+    public async Task<(string? Status, bool Changed)> ChangeJobAsync(
+        string statement, long id, string by, DateTimeOffset now, CancellationToken cancellationToken)
     {
         await using var command = dataSource.CreateCommand(statement);
         command.Parameters.AddWithValue("id", id);
         command.Parameters.AddWithValue("now", now.ToUniversalTime());
+        AddWho(command.Parameters, by, null);
 
         await using var reader = await command.ExecuteReaderAsync(cancellationToken);
         return await reader.ReadAsync(cancellationToken) ? (reader.GetString(0), reader.GetInt32(1) == 1) : (null, false);
     }
 
-    public async Task<int> RequeueByCodeAsync(string queue, string code, DateTimeOffset now, CancellationToken cancellationToken)
+    public async Task<int> RequeueByCodeAsync(string queue, string code, string by, DateTimeOffset now, CancellationToken cancellationToken)
     {
         await using var command = dataSource.CreateCommand(sql.RequeueByCode);
         command.Parameters.AddWithValue("queue", queue);
         command.Parameters.AddWithValue("code", code);
         command.Parameters.AddWithValue("now", now.ToUniversalTime());
-        return await command.ExecuteNonQueryAsync(cancellationToken);
+        AddWho(command.Parameters, by, null);
+        return await command.ExecuteScalarAsync(cancellationToken) is int changed ? changed : 0;
     }
 
-    public async Task<int> PrioritizeOwnerAsync(string queue, string owner, int boost, DateTimeOffset now, CancellationToken cancellationToken)
+    public async Task<int> PrioritizeOwnerAsync(string queue, string owner, int boost, string by, DateTimeOffset now, CancellationToken cancellationToken)
     {
         await using var command = dataSource.CreateCommand(sql.PrioritizeOwner);
         command.Parameters.AddWithValue("queue", queue);
         command.Parameters.AddWithValue("owner", owner);
         command.Parameters.AddWithValue("boost", boost);
         command.Parameters.AddWithValue("now", now.ToUniversalTime());
-        return await command.ExecuteNonQueryAsync(cancellationToken);
+        AddWho(command.Parameters, by, null);
+        return await command.ExecuteScalarAsync(cancellationToken) is int changed ? changed : 0;
+    }
+
+    /// <summary>Sets or replaces the pause of a queue (owner empty) or an owner, logs it and announces it. Returns 1.</summary>
+    public async Task<int> PauseAsync(
+        string queue, string owner, string by, string reason, DateTimeOffset? until, DateTimeOffset now, CancellationToken cancellationToken)
+    {
+        await using var command = dataSource.CreateCommand(sql.Pause);
+        command.Parameters.AddWithValue("queue", queue);
+        command.Parameters.AddWithValue("owner", owner);
+        command.Parameters.Add(new NpgsqlParameter("until", NpgsqlDbType.TimestampTz) { Value = (object?)until?.ToUniversalTime() ?? DBNull.Value });
+        command.Parameters.AddWithValue("now", now.ToUniversalTime());
+        command.Parameters.AddWithValue("channel", sql.Channel);
+        AddWho(command.Parameters, by, reason);
+        return await command.ExecuteScalarAsync(cancellationToken) is int paused ? paused : 0;
+    }
+
+    /// <summary>Lifts the pause of a queue (owner empty) or an owner, logs it and announces it. Returns 1, or 0 when there was none.</summary>
+    public async Task<int> ResumeAsync(string queue, string owner, string by, DateTimeOffset now, CancellationToken cancellationToken)
+    {
+        await using var command = dataSource.CreateCommand(sql.Resume);
+        command.Parameters.AddWithValue("queue", queue);
+        command.Parameters.AddWithValue("owner", owner);
+        command.Parameters.AddWithValue("now", now.ToUniversalTime());
+        command.Parameters.AddWithValue("channel", sql.Channel);
+        AddWho(command.Parameters, by, null);
+        return await command.ExecuteScalarAsync(cancellationToken) is int resumed ? resumed : 0;
+    }
+
+    /// <summary>Sets or replaces an operator's limit on a budget (key empty for every key) and logs it. Returns 1.</summary>
+    public async Task<int> LimitBudgetAsync(
+        string budget, string key, double rate, DateTimeOffset? until, string by, string reason, DateTimeOffset now, CancellationToken cancellationToken)
+    {
+        await using var command = dataSource.CreateCommand(sql.LimitBudget);
+        command.Parameters.AddWithValue("budget", budget);
+        command.Parameters.AddWithValue("key", key);
+        command.Parameters.AddWithValue("rate", rate);
+        command.Parameters.Add(new NpgsqlParameter("until", NpgsqlDbType.TimestampTz) { Value = (object?)until?.ToUniversalTime() ?? DBNull.Value });
+        command.Parameters.AddWithValue("now", now.ToUniversalTime());
+        AddWho(command.Parameters, by, reason);
+        return await command.ExecuteScalarAsync(cancellationToken) is int set ? set : 0;
+    }
+
+    /// <summary>Removes an operator's limit and logs it. Returns 1, or 0 when there was none.</summary>
+    public async Task<int> ClearBudgetLimitAsync(string budget, string key, string by, DateTimeOffset now, CancellationToken cancellationToken)
+    {
+        await using var command = dataSource.CreateCommand(sql.ClearBudgetLimit);
+        command.Parameters.AddWithValue("budget", budget);
+        command.Parameters.AddWithValue("key", key);
+        command.Parameters.AddWithValue("now", now.ToUniversalTime());
+        AddWho(command.Parameters, by, null);
+        return await command.ExecuteScalarAsync(cancellationToken) is int cleared ? cleared : 0;
+    }
+
+    public async Task<List<BudgetLimitInfo>> BudgetLimitsAsync(DateTimeOffset now, CancellationToken cancellationToken)
+    {
+        await using var command = dataSource.CreateCommand(sql.BudgetLimits);
+        command.Parameters.AddWithValue("now", now.ToUniversalTime());
+
+        await using var reader = await command.ExecuteReaderAsync(cancellationToken);
+        var limits = new List<BudgetLimitInfo>();
+        // Sequential: reading rows of one data reader.
+        while (await reader.ReadAsync(cancellationToken))
+        {
+            limits.Add(new BudgetLimitInfo
+            {
+                Budget = reader.GetString(0),
+                Key = reader.GetString(1) is { Length: > 0 } key ? key : null,
+                Rate = reader.GetDouble(2),
+                Until = Moment(reader, 3),
+                By = reader.GetString(4),
+                Reason = reader.GetString(5),
+                SetAt = reader.GetFieldValue<DateTimeOffset>(6)
+            });
+        }
+
+        return limits;
+    }
+
+    public async Task<List<PauseInfo>> PausesAsync(DateTimeOffset now, CancellationToken cancellationToken)
+    {
+        await using var command = dataSource.CreateCommand(sql.Pauses);
+        command.Parameters.AddWithValue("now", now.ToUniversalTime());
+
+        await using var reader = await command.ExecuteReaderAsync(cancellationToken);
+        var pauses = new List<PauseInfo>();
+        // Sequential: reading rows of one data reader.
+        while (await reader.ReadAsync(cancellationToken))
+        {
+            pauses.Add(new PauseInfo
+            {
+                Queue = reader.GetString(0),
+                Owner = reader.GetString(1) is { Length: > 0 } owner ? owner : null,
+                By = reader.GetString(2),
+                Reason = reader.GetString(3),
+                PausedAt = reader.GetFieldValue<DateTimeOffset>(4),
+                Until = Moment(reader, 5)
+            });
+        }
+
+        return pauses;
+    }
+
+    public async Task<List<OperatorAction>> ActionsAsync(string? queue, string? owner, long? before, int limit, CancellationToken cancellationToken)
+    {
+        await using var command = dataSource.CreateCommand(sql.Actions);
+        command.Parameters.Add(Text("queue", queue));
+        command.Parameters.Add(Text("owner", owner));
+        command.Parameters.Add(new NpgsqlParameter("before", NpgsqlDbType.Bigint) { Value = (object?)before ?? DBNull.Value });
+        command.Parameters.AddWithValue("limit", limit);
+
+        await using var reader = await command.ExecuteReaderAsync(cancellationToken);
+        var actions = new List<OperatorAction>(limit);
+        // Sequential: reading rows of one data reader.
+        while (await reader.ReadAsync(cancellationToken))
+        {
+            actions.Add(new OperatorAction
+            {
+                Id = reader.GetInt64(0),
+                At = reader.GetFieldValue<DateTimeOffset>(1),
+                By = reader.GetString(2),
+                Action = reader.GetString(3),
+                Queue = Text(reader, 4),
+                Owner = Text(reader, 5),
+                Target = Text(reader, 6),
+                Reason = Text(reader, 7),
+                Changed = reader.GetInt32(8)
+            });
+        }
+
+        return actions;
+    }
+
+    private static void AddWho(NpgsqlParameterCollection parameters, string by, string? reason)
+    {
+        parameters.AddWithValue("by", by);
+        parameters.Add(Text("reason", reason));
     }
 
     private static NpgsqlParameter Text(string name, string? value) =>

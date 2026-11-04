@@ -39,4 +39,13 @@ public sealed record BudgetState
 
     /// <summary>Tokens the bucket has given, ever.</summary>
     public long Taken { get; init; }
+
+    /// <summary>
+    /// The limit the API last reported in its answers, in requests a second. While it is known it is the ceiling, in place
+    /// of the declared limit. <c>null</c> when the API reports none.
+    /// </summary>
+    public double? ReportedRate { get; init; }
+
+    /// <summary>An operator's temporary limit on this key, in requests a second, or <c>null</c> when there is none.</summary>
+    public double? LimitedTo { get; init; }
 }

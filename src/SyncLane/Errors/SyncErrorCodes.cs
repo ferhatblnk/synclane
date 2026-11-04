@@ -76,6 +76,12 @@ public static class SyncErrorCodes
     /// <summary>The job named by its id does not exist.</summary>
     public const string JobNotFound = "SL3008";
 
+    /// <summary>A pause was asked to end at a moment that has already passed.</summary>
+    public const string PauseEndInvalid = "SL3009";
+
+    /// <summary>A temporary budget limit was asked with a rate or an end that cannot be used.</summary>
+    public const string BudgetLimitInvalid = "SL3010";
+
     /// <summary>A job with the same owner, type and dedup key already exists.</summary>
     public const string JobAlreadyExists = "SL3101";
 

@@ -5,8 +5,9 @@ namespace SyncLane.Storage;
 /// instances that draw from one bucket at the same moment take their turns instead of both taking the last token.
 /// </summary>
 /// <remarks>
-/// A bucket refills at its current rate, which it learns: it never goes above the declared limit (<c>@ceiling</c>, in
-/// tokens a second), drops to 0.7 times itself on a fresh throttle (not below 1% of the limit), and rises with every
+/// A bucket refills at its current rate, which it learns: it never goes above its ceiling (<c>@ceiling</c>, in tokens a
+/// second). The ceiling is the limit the API last reported in a header, or else the declared one, and never more than a
+/// temporary limit an operator set. It drops to 0.7 times itself on a fresh throttle (not below 1% of the limit), and rises with every
 /// token taken while the bucket is the bottleneck. The rise is 2% per token below 90% of the rate that last caused a
 /// throttle, 0.03% from there up to it, and 0.1% above it. The numbers come from a simulation against servers with
 /// hidden limits, and LearningGateTests guards them; change them only with a new measurement.
@@ -14,6 +15,8 @@ namespace SyncLane.Storage;
 internal sealed class BudgetSql
 {
     public const string TableName = "rate_buckets";
+
+    public const string LimitsTableName = "budget_limits";
 
     /// <summary>The bucket's current rate. A row written before rates were learned has none and starts afresh.</summary>
     private const string CurrentRate = "LEAST(@ceiling, COALESCE(rate, @start_rate))";
@@ -26,6 +29,24 @@ internal sealed class BudgetSql
     {
         Schema = schema;
         var table = $"{schema}.{TableName}";
+
+        // Every @ceiling below is the effective ceiling: the limit the API last reported, or else the declared one, and
+        // never more than an operator's temporary limit. A limit set for all keys of the budget is stored with the key '',
+        // and the lower of it and the key's own wins. The operators' limit is read once per statement, in a CTE of its own,
+        // since the ceiling appears several times in each.
+        const string ceiling =
+            "LEAST(COALESCE(reported_rate, @declared_ceiling), COALESCE((SELECT rate FROM operator_limit), 'Infinity'::double precision))";
+        var operatorLimit =
+            $"""
+            operator_limit AS (
+                SELECT min(l.rate) AS rate
+                FROM {schema}.{LimitsTableName} AS l
+                WHERE l.budget = @budget AND l.key IN ('', @key) AND (l.until IS NULL OR l.until > @now)
+            ),
+            """;
+        string Effective(string statement) => statement
+            .Replace("WITH current AS (", $"WITH {operatorLimit}\ncurrent AS (", StringComparison.Ordinal)
+            .Replace("@ceiling", $"({ceiling})", StringComparison.Ordinal);
 
         // A bucket nobody has used starts full, at its starting rate. Sent in the same batch as the statement after it,
         // which sees the row.
@@ -40,7 +61,7 @@ internal sealed class BudgetSql
         // not free yet is taken anyway and the count goes below zero, so waiters queue in order. refilled_at stays in
         // the future during a pause, and nothing refills until it ends. A token taken while the bucket was empty and
         // not paused means demand met the rate, so the rate rises; an idle budget does not.
-        Reserve =
+        Reserve = Effective(
             $"""
             WITH current AS (
                 SELECT budget, key, generation, taken,
@@ -72,11 +93,11 @@ internal sealed class BudgetSql
             FROM decided AS d
             WHERE b.budget = d.budget AND b.key = d.key
             RETURNING d.wait <= @max_wait, d.wait, d.generation, d.taken + 1
-            """;
+            """);
 
         Generation = $"SELECT generation FROM {table} WHERE budget = @budget AND key = @key";
 
-        Observe =
+        Observe = Effective(
             $"""
             WITH current AS (
                 SELECT budget, key, generation, taken, refilled_at,
@@ -103,7 +124,7 @@ internal sealed class BudgetSql
                 RETURNING d.pause, b.refilled_at
             )
             SELECT pause, refilled_at FROM observed
-            """;
+            """);
 
         // A throttle answered to a request sent after the last pause began is fresh: it cuts the rate, remembers the
         // rate it cut from, and starts a new pause for @retry_after, or for one token's time at least @min_backoff. The
@@ -111,7 +132,7 @@ internal sealed class BudgetSql
         // taken_at_pause): then the API is still full. One answered to a request sent before the pause is already
         // covered: it only lengthens the pause when it asks for longer. Every pause empties the bucket and counts a
         // generation, which voids the reservations made before it.
-        Pause =
+        Pause = Effective(
             $"""
             WITH current AS (
                 SELECT budget, key, refilled_at, generation, taken, taken_at_pause, streak,
@@ -154,12 +175,23 @@ internal sealed class BudgetSql
             SELECT paused, refilled_at, rate FROM paused
             UNION ALL
             SELECT false, refilled_at, rate FROM timed WHERE NOT (fresh OR @now + pause > refilled_at)
+            """);
+
+
+        // The limit the API reports, written only when it changes.
+        ReportLimit =
+            $"""
+            UPDATE {table}
+            SET reported_rate = @rate, reported_at = @now
+            WHERE budget = @budget AND key = @key AND reported_rate IS DISTINCT FROM @rate
             """;
 
         List =
             $"""
-            SELECT budget, key, tokens, rate, rate_max, refilled_at, throttled_at, taken
-            FROM {table}
+            SELECT budget, key, tokens, rate, rate_max, refilled_at, throttled_at, taken, reported_rate,
+                   (SELECT min(l.rate) FROM {schema}.{LimitsTableName} AS l
+                    WHERE l.budget = b.budget AND l.key IN ('', b.key) AND (l.until IS NULL OR l.until > @now))
+            FROM {table} AS b
             WHERE (@budget::text IS NULL OR budget = @budget)
               AND (@after_budget::text IS NULL OR (budget, key) > (@after_budget, @after_key))
             ORDER BY budget, key
@@ -171,6 +203,8 @@ internal sealed class BudgetSql
 
     /// <summary>A page of buckets by budget and key, for the monitor. The primary key serves it.</summary>
     public string List { get; }
+
+    public string ReportLimit { get; }
 
     public string Seed { get; }
 
