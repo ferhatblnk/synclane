@@ -2,7 +2,9 @@
 
 All notable changes to this project are recorded here. The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project uses [Semantic Versioning](https://semver.org/).
 
-## [Unreleased]
+## [0.2.0-preview.2] - 2026-11-04
+
+The monitor: what every queue is doing, whose data is old and why, failures grouped by code, repairs, and a live stream of job changes, in C# and over HTTP with the new `SyncLane.AspNetCore`. Idle workers wake as soon as work arrives.
 
 ### Added
 
