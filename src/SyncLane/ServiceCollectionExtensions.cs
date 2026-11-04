@@ -49,9 +49,9 @@ public static class ServiceCollectionExtensions
             new InstanceSql(provider.GetRequiredService<SyncLaneOptions>().Schema)));
         services.AddSingleton(static provider => InstanceIdentity.Create(
             provider.GetRequiredService<SyncLaneOptions>(), provider.GetService<IHostEnvironment>()));
+        services.AddSingleton(static provider => new MonitorSql(provider.GetRequiredService<SyncLaneOptions>().Schema));
         services.AddSingleton(static provider => new MonitorStore(
-            provider.GetRequiredService<JobStore>().DataSource,
-            new MonitorSql(provider.GetRequiredService<SyncLaneOptions>().Schema)));
+            provider.GetRequiredService<JobStore>().DataSource, provider.GetRequiredService<MonitorSql>()));
         services.AddSingleton<ISyncLaneMonitor, SyncLaneMonitor>();
         services.AddSingleton<QueuePlanner>();
         services.AddSingleton<JobRunner>();

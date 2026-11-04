@@ -99,6 +99,15 @@ internal static class SyncLaneErrors
         SyncErrorCodes.CursorInvalid, SyncErrorKind.Validation,
         "The cursor was not produced by SyncLane. Pass the NextCursor of the previous page unchanged, or leave it out to start from the newest job.");
 
+    public static SyncError JobNotFound(long id) => new(
+        SyncErrorCodes.JobNotFound, SyncErrorKind.NotFound,
+        $"Job {id} does not exist. Clean-up deletes completed jobs after KeepCompletedJobs, and ForgetOwnerAsync deletes an " +
+        "owner's jobs; check the id against GetJobsAsync.");
+
+    public static SyncError JobStatusNotAllowed(long id, string status, string action, string allowed) => new(
+        SyncErrorCodes.JobStatusNotAllowed, SyncErrorKind.Conflict,
+        $"Job {id} is {status}, and {action} takes only {allowed} jobs. Nothing was changed.");
+
     public static SyncError JobAlreadyExists(string queue, string owner, string type, string? dedupKey) => new(
         SyncErrorCodes.JobAlreadyExists, SyncErrorKind.Conflict,
         $"A '{type}' job of owner '{owner}' with dedup key '{dedupKey}' already exists on queue '{queue}'. Requeue it, or use another key.");

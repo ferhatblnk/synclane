@@ -13,6 +13,12 @@ All notable changes to this project are recorded here. The format follows [Keep 
   - `GetBudgetsAsync`, `GetInstancesAsync`, and `GetVolumeAsync` per hour or day.
 
   Each is one round trip that reads summaries and open jobs, never history.
+- Repairs on `ISyncLaneMonitor`, for any queue in the schema; none touches a running job:
+  - `RequeueJobAsync(id)` and `RestartJobAsync(id)`, the second from the first page and for completed jobs too;
+  - `RequeueByCodeAsync(queue, code)`;
+  - `PrioritizeOwnerAsync(queue, owner)`, which moves an owner's waiting jobs ahead of the others.
+
+  Codes `SL3008` and `SL3102`.
 - The schema is at version 7:
   - `coverage` records how far each owner's completed data reaches;
   - a new `job_stats` table counts completed jobs, records, failed attempts and abandoned jobs per queue, type and hour, kept for 400 days;

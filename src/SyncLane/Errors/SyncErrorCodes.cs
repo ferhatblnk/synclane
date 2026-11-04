@@ -73,8 +73,14 @@ public static class SyncErrorCodes
     /// <summary>A range of history marked as loaded is not usable as it is.</summary>
     public const string LoadedRangeInvalid = "SL3007";
 
+    /// <summary>The job named by its id does not exist.</summary>
+    public const string JobNotFound = "SL3008";
+
     /// <summary>A job with the same owner, type and dedup key already exists.</summary>
     public const string JobAlreadyExists = "SL3101";
+
+    /// <summary>The job's status does not allow what was asked of it.</summary>
+    public const string JobStatusNotAllowed = "SL3102";
 
     /// <summary>A job was taken whose type has no handler in this process.</summary>
     public const string HandlerMissing = "SL4001";
