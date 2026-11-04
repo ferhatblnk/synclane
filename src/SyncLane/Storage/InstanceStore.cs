@@ -67,6 +67,20 @@ internal sealed class InstanceStore(NpgsqlDataSource dataSource, InstanceSql sql
         await batch.ExecuteNonQueryAsync(cancellationToken);
     }
 
+    /// <summary>Every registered instance, live or gone, by application.</summary>
+    public async Task<List<InstanceRow>> AllAsync(CancellationToken cancellationToken)
+    {
+        await using var command = dataSource.CreateCommand(sql.All);
+        await using var reader = await command.ExecuteReaderAsync(cancellationToken);
+
+        var rows = new List<InstanceRow>();
+        // Sequential: reading rows of one data reader.
+        while (await reader.ReadAsync(cancellationToken))
+            rows.Add(Read(reader));
+
+        return rows;
+    }
+
     public async Task RemoveAsync(string id, CancellationToken cancellationToken)
     {
         await using var command = dataSource.CreateCommand(sql.Remove);

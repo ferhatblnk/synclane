@@ -38,7 +38,11 @@ internal sealed class InstanceSql
         Forget = $"DELETE FROM {table} WHERE heartbeat_at < @forget_before";
 
         Remove = $"DELETE FROM {table} WHERE id = @id";
+
+        All = $"SELECT id, application, host, version, queues, budgets::text, started_at, heartbeat_at FROM {table} ORDER BY application, id";
     }
+
+    public string All { get; }
 
     public string Lock { get; }
 

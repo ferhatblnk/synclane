@@ -119,6 +119,14 @@ internal sealed class JobStore(NpgsqlDataSource dataSource, JobSql sql) : IAsync
         return await command.ExecuteNonQueryAsync(cancellationToken);
     }
 
+    /// <summary>Deletes hourly counts older than <paramref name="before"/>. Returns how many hours.</summary>
+    public async Task<int> DeleteOldStatsAsync(DateTimeOffset before, CancellationToken cancellationToken)
+    {
+        await using var command = dataSource.CreateCommand(sql.DeleteOldStats);
+        command.Parameters.AddWithValue("before", before.ToUniversalTime());
+        return await command.ExecuteNonQueryAsync(cancellationToken);
+    }
+
     /// <summary>Deletes up to <paramref name="batch"/> completed recurring and manual jobs that completed before <paramref name="before"/>.</summary>
     public async Task<int> DeleteCompletedAsync(IReadOnlyList<string> queues, DateTimeOffset before, int batch, CancellationToken cancellationToken)
     {
@@ -178,7 +186,7 @@ internal sealed class JobStore(NpgsqlDataSource dataSource, JobSql sql) : IAsync
     public async Task<bool> CompleteAsync(long id, string worker, DateTimeOffset now, CancellationToken cancellationToken)
     {
         await using var command = Held(sql.Complete, id, worker, now);
-        return await command.ExecuteNonQueryAsync(cancellationToken) == 1;
+        return await command.ExecuteScalarAsync(cancellationToken) is 1;
     }
 
     /// <summary>Ends an attempt that did not complete: failed, deferred or abandoned.</summary>
@@ -189,7 +197,7 @@ internal sealed class JobStore(NpgsqlDataSource dataSource, JobSql sql) : IAsync
         command.Parameters.AddWithValue("status", JobText.Of(status));
         command.Parameters.AddWithValue("error", error);
         command.Parameters.AddWithValue("next_run_at", nextRunAt.ToUniversalTime());
-        return await command.ExecuteNonQueryAsync(cancellationToken) == 1;
+        return await command.ExecuteScalarAsync(cancellationToken) is 1;
     }
 
     /// <summary>Hands a job back untouched, because the worker is stopping. The attempt is not counted.</summary>

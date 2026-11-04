@@ -104,11 +104,13 @@ User code reaches SyncLane through two small interfaces and one facade: `IJobHan
 
 ## Data model
 
-Five tables in the configured schema.
+Six tables in the configured schema.
 
 `jobs` holds one row per job: what it covers (`queue`, `owner`, `lane`, `type`, `mode`, `window_start`, `window_end`, `dedup_key`), where it is (`status`, `cursor`, `processed_count`, `attempt_count`, `error`, `next_run_at`) and who holds it (`leased_by`, `lease_expires_at`, `heartbeat_at`). The full definition is in [docs/schema.sql](docs/schema.sql).
 
-`coverage` holds one row per queue, owner and type: what has been planned (an initial job exists, the oldest initial start, the newest window end, the last planned and last recurring times). The planner reads it instead of every job ever created. It is written by the same statement that inserts jobs (D40), so old jobs can be deleted without changing what is planned.
+`coverage` holds one row per queue, owner and type: what has been planned (an initial job exists, the oldest initial start, the newest window end, the last planned and last recurring times) and how far completed data reaches (`completed_to`, `completed_at`). The planner reads it instead of every job ever created. It is written by the same statement that inserts jobs (D40), so old jobs can be deleted without changing what is planned.
+
+`job_stats` counts, per queue, job type and hour: completed jobs, their records, failed attempts and abandoned jobs. The statements that complete and settle a job update it (D45). It is kept for 400 days, long after clean-up deletes the jobs, and the monitor's overview and volume read it instead of jobs.
 
 `instances` holds one row per running process: its application, host, version, the queues it runs and its budgets, with a heartbeat every 30 seconds. Its id is the prefix of the worker names in `jobs.leased_by`. It keeps two applications off one queue (D43) and shows what is running.
 
@@ -125,6 +127,7 @@ The guarantees are indexes, not code:
 | `(queue, next_run_at) WHERE status IN (...)` | Finding the next due job stays cheap as completed rows pile up. |
 | `jobs_open (queue, owner, type) WHERE status <> 'completed'` | The planner sees what is still under way per owner and type without reading history. |
 | `jobs_finished (queue, completed_at) WHERE status = 'completed' AND mode <> 'initial'` | Clean-up finds old jobs without scanning the table. |
+| `jobs_initial (queue, owner, type) INCLUDE (status) WHERE mode = 'initial'` | Progress and the monitor count an owner's history without reading its recurring jobs. |
 
 Every write a worker makes to a job carries `WHERE id = @id AND status = 'running' AND leased_by = @worker`. A worker whose lease was taken over cannot overwrite the new holder; its writes match no row and it stops.
 
@@ -232,6 +235,7 @@ Round trips per operation:
 | Clean-up | 1 per batch of 1,000, hourly | `jobs_finished` |
 | Register an instance | 2 at start-up, in one transaction behind an advisory lock | `instances`, a handful of rows |
 | Heartbeat | 1 every 30 seconds, also deleting rows silent for a day | `instances` primary key |
+| Monitor reads | 1 each. Measured on a million jobs: overview 0.2 ms, freshness page 0.9 ms, problems 0.3 ms, a week by hour 0.8 ms, 400 days by day 46 ms | `coverage`, `job_stats`, `jobs_open`, `jobs_initial`, `rate_buckets`, `instances` |
 | `EnqueueAsync` | 1 | `jobs_dedup` |
 | `GetJobsAsync` | 1, with the optional count in the same batch | Primary key, scanned backwards |
 | `RequeueAsync`, `CancelAsync`, `GetProgressAsync` | 1 | `jobs_dedup` prefix |
@@ -334,3 +338,5 @@ Each is a small interface the user implements; SyncLane calls it.
 | D41 | An abandoned recurring job is replaced by the next period's job, whose window reaches back over it | Keeping them grows the table by one row per period for every broken account; deleting them loses the windows they missed without a trace; stopping until a person requeues halts a whole queue after a short outage. Replacing keeps one row, refetches what was missed once the cause is gone, and leaves the current error on the newest job. The delete is conditional on the row still being abandoned, so a concurrent requeue wins. History slices still wait for a requeue: they are bounded and each one matters. | Accepted |
 | D42 | Completed recurring and manual jobs are deleted after `KeepCompletedJobs`, 7 days by default; initial jobs are kept | Recurring jobs are what grows. Initial jobs are bounded by the horizon, `GetProgressAsync` counts them, and they record what history was loaded. A week answers "what happened last Tuesday" and costs little: the table holds about a week of recurring jobs, whatever its age. Each application cleans only its own queues, so applications sharing a table keep their own rules. | Accepted |
 | D43 | A queue belongs to one application at a time, checked at start-up from a table of live instances | A worker takes any job of a queue it declares. Two applications sharing a schema with one queue name took each other's jobs and abandoned the types they did not know. Each process registers its application and the queues it runs, under an advisory lock, and does not start when a live instance of another application runs one of them. Copies of one application share queues. An instance that only calls `ISyncLane` claims none. A heartbeat every 30 seconds keeps a claim; two minutes of silence ends it, so a crashed application does not block its successor for long. A budget declared differently elsewhere only warns, because a deploy that changes a limit passes through that state. | Accepted |
+| D44 | The monitor answers questions, reads every queue, and never reads history | A list per job state leaves the reader to work out what is wrong. Six calls answer what operators ask: the state of each queue, whose data is old and why, what fails grouped by code, budgets, instances, volume. They need no queue declared, so one application can watch all that share a schema. Each reads the summaries (`coverage`, `job_stats`), the open jobs and small tables, so its cost stays flat as jobs pile up; lists page by cursor. Measured on a million jobs: every call under a millisecond except a year of daily volume, 46 ms. | Accepted |
+| D45 | Completed and failed work is counted per hour in `job_stats`, by the statement that ends the attempt | Counting from jobs would scan a week of rows per poll, and clean-up would cut charts off at seven days. One upsert per finished attempt into a row per queue, type and hour costs little: completions are per job, not per page, and a row sees about one write a second at a thousand owners on 15-minute periods. Records are counted when their job completes. | Accepted |

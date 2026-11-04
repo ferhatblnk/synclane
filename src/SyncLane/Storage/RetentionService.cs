@@ -15,6 +15,9 @@ internal sealed partial class RetentionService(
 
     internal const int BatchSize = 1000;
 
+    /// <summary>How long hourly counts are kept. They are a few rows per queue, type and hour, so a year and more costs little.</summary>
+    internal static readonly TimeSpan KeepStats = TimeSpan.FromDays(400);
+
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
         if (options.KeepCompletedJobs is not { } keep || options.Queues.Count == 0)
@@ -47,6 +50,8 @@ internal sealed partial class RetentionService(
                 deleted += batch;
             }
             while (batch == BatchSize);
+
+            await store.DeleteOldStatsAsync(time.GetUtcNow() - KeepStats, cancellationToken);
 
             if (deleted > 0)
                 LogDeleted(deleted, keep);

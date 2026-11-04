@@ -4,6 +4,7 @@ using Microsoft.Extensions.DependencyInjection.Extensions;
 using Microsoft.Extensions.Hosting;
 using Npgsql;
 using SyncLane.Instances;
+using SyncLane.Monitoring;
 using SyncLane.Planning;
 using SyncLane.Running;
 using SyncLane.Storage;
@@ -48,6 +49,10 @@ public static class ServiceCollectionExtensions
             new InstanceSql(provider.GetRequiredService<SyncLaneOptions>().Schema)));
         services.AddSingleton(static provider => InstanceIdentity.Create(
             provider.GetRequiredService<SyncLaneOptions>(), provider.GetService<IHostEnvironment>()));
+        services.AddSingleton(static provider => new MonitorStore(
+            provider.GetRequiredService<JobStore>().DataSource,
+            new MonitorSql(provider.GetRequiredService<SyncLaneOptions>().Schema)));
+        services.AddSingleton<ISyncLaneMonitor, SyncLaneMonitor>();
         services.AddSingleton<QueuePlanner>();
         services.AddSingleton<JobRunner>();
         services.AddSingleton<ISyncLane, SyncLaneClient>();

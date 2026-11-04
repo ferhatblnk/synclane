@@ -155,9 +155,22 @@ internal sealed class BudgetSql
             UNION ALL
             SELECT false, refilled_at, rate FROM timed WHERE NOT (fresh OR @now + pause > refilled_at)
             """;
+
+        List =
+            $"""
+            SELECT budget, key, tokens, rate, rate_max, refilled_at, throttled_at, taken
+            FROM {table}
+            WHERE (@budget::text IS NULL OR budget = @budget)
+              AND (@after_budget::text IS NULL OR (budget, key) > (@after_budget, @after_key))
+            ORDER BY budget, key
+            LIMIT @limit
+            """;
     }
 
     public string Schema { get; }
+
+    /// <summary>A page of buckets by budget and key, for the monitor. The primary key serves it.</summary>
+    public string List { get; }
 
     public string Seed { get; }
 

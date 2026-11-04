@@ -6,6 +6,8 @@ All examples use the default schema, `synclane`.
 
 ## Looking
 
+`ISyncLaneMonitor` answers the usual questions without SQL: the state of each queue, whose data is old and why, failures grouped by error code, rate budgets, instances, and volume per hour or day. See [Watching it run](../README.md#watching-it-run). The queries below are for everything else.
+
 What is running right now, and who has it:
 
 ```sql
