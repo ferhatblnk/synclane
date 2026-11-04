@@ -68,6 +68,9 @@ jobs:
           TAG: ${{ github.ref_name }}
         run: |
           for readme in README.md src/SyncLane.Cli/README.md src/SyncLane.AspNetCore/README.md; do
+            # Images first, to the raw file: nuget.org shows images only from there. Then every other link.
+            perl -pi -e 's{src="(?!https?:)([^"]+)"}{src="https://raw.githubusercontent.com/$ENV{REPO}/$ENV{TAG}/$1"}g' "$readme"
+            perl -pi -e 's{!\[([^\]]*)\]\((?!https?:)([^)\s]+)\)}{![$1](https://raw.githubusercontent.com/$ENV{REPO}/$ENV{TAG}/$2)}g' "$readme"
             perl -pi -e 's{\]\((?!https?:|#|mailto:)([^)\s]+)\)}{](https://github.com/$ENV{REPO}/blob/$ENV{TAG}/$1)}g' "$readme"
           done
 
