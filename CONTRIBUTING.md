@@ -1,6 +1,6 @@
 # Contributing
 
-Thanks for taking the time. Bug reports, questions and pull requests are all welcome.
+Thanks for taking the time. Bug reports, questions and pull requests are all welcome. Everyone taking part follows the [code of conduct](CODE_OF_CONDUCT.md).
 
 ## Before you start
 
