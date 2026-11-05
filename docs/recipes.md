@@ -71,7 +71,7 @@ The recipe works.
 
 **Signed recipes:** a recipe that signs its requests with an `IRequestSigner` runs your code, which `test` cannot load. Test it from your application.
 
-The command is the `SyncLane.Cli` tool: `dotnet tool install --global SyncLane.Cli --prerelease`. From a clone, `dotnet run --project src/SyncLane.Cli -- init ...` does the same.
+The command is the `SyncLane.Cli` tool: `dotnet tool install --global SyncLane.Cli`. From a clone, `dotnet run --project src/SyncLane.Cli -- init ...` does the same.
 
 ## A recipe
 

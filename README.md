@@ -82,10 +82,10 @@ The key identifies the owner and never changes. The lane is optional: owners tha
 That is the whole integration. The table is created at start-up, the planner runs once a minute and the workers start pulling.
 
 ```bash
-dotnet add package SyncLane --prerelease
-dotnet add package SyncLane.Http --prerelease          # recipes instead of handlers
-dotnet tool install --global SyncLane.Cli --prerelease # the synclane command
-dotnet add package SyncLane.AspNetCore --prerelease    # the monitor over HTTP
+dotnet add package SyncLane
+dotnet add package SyncLane.Http          # recipes instead of handlers
+dotnet tool install --global SyncLane.Cli # the synclane command
+dotnet add package SyncLane.AspNetCore    # the monitor over HTTP
 ```
 
 ## What a job looks like
@@ -436,7 +436,7 @@ builder.Services.AddSyncLane(builder.Configuration.GetSection("SyncLane"), lane 
 
 ## Project status
 
-Version 0.2 preview, early. The design comes from a job system that has been syncing external APIs for many accounts in production, and the rules in [docs/planning.md](docs/planning.md) were learned there the hard way. This repository is a clean, general rewrite of that design. It has its own tests, including ones that run many workers against a real PostgreSQL, but this code has not run in production itself. Try it on something that is allowed to fail first; [docs/production-trial.md](docs/production-trial.md) is the checklist we use for that. `SyncLane.Http` is newer still: it has synced five public APIs, not yet the APIs of a production integration.
+Version 0.4, early. Before 1.0 a minor version may still change the API; every such change is listed under its version in [CHANGELOG.md](CHANGELOG.md). The design comes from a job system that has been syncing external APIs for many accounts in production, and the rules in [docs/planning.md](docs/planning.md) were learned there the hard way. This repository is a clean, general rewrite of that design. It has its own tests, including ones that run many workers against a real PostgreSQL, but this code has not run in production itself. Try it on something that is allowed to fail first; [docs/production-trial.md](docs/production-trial.md) is the checklist we use for that. `SyncLane.Http` is newer still: it has synced five public APIs, not yet the APIs of a production integration.
 
 ## Development
 

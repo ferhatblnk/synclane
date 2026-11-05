@@ -2,9 +2,9 @@
 
 All notable changes to this project are recorded here. The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project uses [Semantic Versioning](https://semver.org/).
 
-## [Unreleased]
+## [0.4.0] - 2026-11-05
 
-Ready for real use: owners people can find by name, instances that stay visible after they stop, and numbers per environment from configuration.
+Ready for real use: owners people can find by name, instances that stay visible after they stop, and numbers per environment from configuration. The packages are no longer previews: install them without `--prerelease`. Before 1.0 a minor version may still change the API, as this one does.
 
 ### Added
 
@@ -32,6 +32,8 @@ Ready for real use: owners people can find by name, instances that stay visible 
   - No package is added.
 - `InstanceInfo.StoppedAt`. `GET /instances` shows it too.
 - `SyncLane.AspNetCore`: `GET /jobs?type=&search=`, `GET /freshness?search=`, and `ownerName` on every job.
+- `THIRD-PARTY-NOTICES.txt`, in the repository and in the `SyncLane.Cli` package: the notices of the libraries the tool carries (Npgsql, `Microsoft.Extensions.*`, `System.CommandLine`).
+- `AUTHORS`, which says who "The SyncLane Authors" are.
 
 ### Changed
 

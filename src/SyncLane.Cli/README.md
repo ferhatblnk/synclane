@@ -3,7 +3,7 @@
 Turns a curl that works into a SyncLane recipe, and tests the recipe without a database.
 
 ```bash
-dotnet tool install --global SyncLane.Cli --prerelease
+dotnet tool install --global SyncLane.Cli
 ```
 
 ## From a curl to a recipe
