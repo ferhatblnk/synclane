@@ -16,6 +16,7 @@ internal static class Migrations
         new(7, "monitoring", Monitoring),
         new(8, "change notifications", ChangeNotifications),
         new(9, "operations", Operations),
+        new(10, "owners", Owners),
     ];
 
     public static int Latest => All[^1].Version;
@@ -320,5 +321,41 @@ internal static class Migrations
         ALTER TABLE {schema}.{BudgetSql.TableName}
             ADD COLUMN IF NOT EXISTS reported_rate double precision,
             ADD COLUMN IF NOT EXISTS reported_at timestamptz;
+        """;
+
+    /// <summary>
+    /// Version 10: what people call each owner, and instances that stopped.
+    /// <list type="bullet">
+    /// <item><c>owners</c>: one row per queue and owner SyncLane has seen, with the name its owner source or an enqueue
+    /// last gave it. The monitor searches this small table instead of the jobs. Filled once from the summary and the
+    /// existing jobs, without names; the next planning round adds them.</item>
+    /// <item><c>jobs_owner</c>: an owner's jobs newest first, so a search lists the newest jobs of the owners it finds
+    /// without walking the table. Built in the migration's transaction: about a second per million jobs, during which
+    /// jobs cannot be written.</item>
+    /// <item><c>instances.stopped_at</c>: an instance that stops gracefully keeps its row, marked stopped, until it is
+    /// forgotten a day after its last heartbeat.</item>
+    /// </list>
+    /// An older instance writes no names, and for two minutes counts a stopped newer instance as live.
+    /// </summary>
+    private static string Owners(string schema) =>
+        $"""
+        CREATE TABLE IF NOT EXISTS {schema}.{JobSql.OwnersTableName} (
+            queue      text        NOT NULL,
+            owner      text        NOT NULL,
+            name       text,
+            updated_at timestamptz NOT NULL,
+            PRIMARY KEY (queue, owner)
+        );
+
+        INSERT INTO {schema}.{JobSql.OwnersTableName} (queue, owner, updated_at)
+        SELECT queue, owner, now() FROM {schema}.{JobSql.CoverageTableName}
+        UNION
+        SELECT DISTINCT queue, owner, now() FROM {schema}.{JobSql.TableName}
+        ON CONFLICT (queue, owner) DO NOTHING;
+
+        CREATE INDEX IF NOT EXISTS jobs_owner ON {schema}.{JobSql.TableName} (queue, owner, id);
+
+        ALTER TABLE {schema}.{InstanceSql.TableName}
+            ADD COLUMN IF NOT EXISTS stopped_at timestamptz;
         """;
 }

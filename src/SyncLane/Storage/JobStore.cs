@@ -84,10 +84,15 @@ internal sealed class JobStore(NpgsqlDataSource dataSource, JobSql sql) : IAsync
         return await command.ExecuteScalarAsync(cancellationToken) is int created ? created : 0;
     }
 
-    /// <summary>Inserts one job. Returns its id, or <c>null</c> when a job with the same dedup key exists.</summary>
-    public async Task<long?> EnqueueOneAsync(string queue, PlannedJob job, DateTimeOffset now, CancellationToken cancellationToken)
+    /// <summary>
+    /// Inserts one job and remembers its owner, with <paramref name="ownerName"/> when given. Returns its id, or
+    /// <c>null</c> when a job with the same dedup key exists.
+    /// </summary>
+    public async Task<long?> EnqueueOneAsync(string queue, PlannedJob job, string? ownerName, DateTimeOffset now, CancellationToken cancellationToken)
     {
         await using var command = EnqueueCommand(sql.EnqueueOne, queue, [job], now);
+        command.Parameters.Add(Text("owner_key", job.Owner));
+        command.Parameters.Add(Text("owner_name", ownerName));
         return await command.ExecuteScalarAsync(cancellationToken) is long id ? id : null;
     }
 
@@ -245,17 +250,37 @@ internal sealed class JobStore(NpgsqlDataSource dataSource, JobSql sql) : IAsync
         return await command.ExecuteNonQueryAsync(cancellationToken);
     }
 
-    public async Task<Dictionary<CoverageKey, TypeCoverage>> GetCoverageAsync(string queue, IReadOnlyCollection<string> owners, CancellationToken cancellationToken)
+    /// <summary>
+    /// Remembers the owners of a planning round with the names they were given, and reads what planning knows about
+    /// them, in one round trip.
+    /// </summary>
+    public async Task<Dictionary<CoverageKey, TypeCoverage>> GetCoverageAsync(
+        string queue, IReadOnlyList<JobOwner> owners, DateTimeOffset now, CancellationToken cancellationToken)
     {
         var coverage = new Dictionary<CoverageKey, TypeCoverage>();
         if (owners.Count == 0)
             return coverage;
 
-        await using var command = dataSource.CreateCommand(sql.Coverage);
-        command.Parameters.AddWithValue("queue", queue);
-        command.Parameters.AddWithValue("owners", owners.ToArray());
+        // One row per key: a source that lists an owner twice keeps the last name it gave.
+        var named = new Dictionary<string, string?>(StringComparer.Ordinal);
+        foreach (var owner in owners)
+            named[owner.Key] = owner.NameOrNull ?? named.GetValueOrDefault(owner.Key);
 
-        await using var reader = await command.ExecuteReaderAsync(cancellationToken);
+        await using var batch = dataSource.CreateBatch();
+
+        var remember = new NpgsqlBatchCommand(sql.RememberOwners);
+        remember.Parameters.AddWithValue("queue", queue);
+        remember.Parameters.AddWithValue("now", now.ToUniversalTime());
+        remember.Parameters.Add(Texts("owner_keys", named.Keys));
+        remember.Parameters.Add(Texts("owner_names", named.Values));
+        batch.BatchCommands.Add(remember);
+
+        var read = new NpgsqlBatchCommand(sql.Coverage);
+        read.Parameters.AddWithValue("queue", queue);
+        read.Parameters.AddWithValue("owners", named.Keys.ToArray());
+        batch.BatchCommands.Add(read);
+
+        await using var reader = await batch.ExecuteReaderAsync(cancellationToken);
         // Sequential: reading rows of one data reader.
         while (await reader.ReadAsync(cancellationToken))
         {
@@ -294,7 +319,7 @@ internal sealed class JobStore(NpgsqlDataSource dataSource, JobSql sql) : IAsync
     {
         await using var batch = dataSource.CreateBatch();
 
-        var list = new NpgsqlBatchCommand(sql.List);
+        var list = new NpgsqlBatchCommand(query.Search is null ? sql.List : sql.ListFound);
         AddFilters(list.Parameters, query);
         list.Parameters.Add(new NpgsqlParameter("before", NpgsqlDbType.Bigint) { Value = (object?)before ?? DBNull.Value });
         list.Parameters.AddWithValue("limit", limit);
@@ -325,6 +350,8 @@ internal sealed class JobStore(NpgsqlDataSource dataSource, JobSql sql) : IAsync
             parameters.Add(Text("queue", query.Queue));
             parameters.Add(Text("owner", query.Owner));
             parameters.Add(Text("status", query.Status is { } status ? JobText.Of(status) : null));
+            parameters.Add(Text("type", query.Type));
+            parameters.Add(Text("search", query.Search is { } search ? ContainsPattern(search) : null));
         }
     }
 
@@ -363,6 +390,12 @@ internal sealed class JobStore(NpgsqlDataSource dataSource, JobSql sql) : IAsync
 
         return command;
     }
+
+    /// <summary>An ILIKE pattern that finds <paramref name="text"/> anywhere, with its own wildcards taken literally.</summary>
+    internal static string ContainsPattern(string text) =>
+        "%" + text.Trim().Replace(@"\", @"\\", StringComparison.Ordinal)
+            .Replace("%", @"\%", StringComparison.Ordinal)
+            .Replace("_", @"\_", StringComparison.Ordinal) + "%";
 
     private static NpgsqlParameter Texts(string name, IEnumerable<string?> values) =>
         new(name, NpgsqlDbType.Array | NpgsqlDbType.Text) { Value = values.ToArray() };
@@ -405,6 +438,7 @@ internal sealed class JobStore(NpgsqlDataSource dataSource, JobSql sql) : IAsync
         CreatedAt = reader.GetFieldValue<DateTimeOffset>(18),
         StartedAt = Moment(reader, 19),
         HeartbeatAt = Moment(reader, 20),
-        CompletedAt = Moment(reader, 21)
+        CompletedAt = Moment(reader, 21),
+        OwnerName = Text(reader, 22)
     };
 }

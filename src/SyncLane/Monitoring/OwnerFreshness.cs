@@ -9,6 +9,11 @@ public sealed record FreshnessQuery
     /// <summary>Only this owner.</summary>
     public string? Owner { get; init; }
 
+    /// <summary>
+    /// Only owners whose key or name contains this text, ignoring case. 1 to <see cref="JobQuery.MaxSearchLength"/> characters.
+    /// </summary>
+    public string? Search { get; init; }
+
     /// <summary>Rows per page, 1 to <see cref="JobQuery.MaxLimit"/>. Default 50.</summary>
     public int Limit { get; init; } = 50;
 
@@ -24,6 +29,9 @@ public sealed record OwnerFreshness
 
     /// <summary>The owner.</summary>
     public required string Owner { get; init; }
+
+    /// <summary>The owner's name, as its owner source last gave it. <c>null</c> when none was given.</summary>
+    public string? OwnerName { get; init; }
 
     /// <summary>The job type.</summary>
     public required string Type { get; init; }

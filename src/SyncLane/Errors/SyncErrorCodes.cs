@@ -40,6 +40,12 @@ public static class SyncErrorCodes
     /// <summary>A queue this instance runs is run by a live instance of another application.</summary>
     public const string QueueRunByAnotherApplication = "SL1011";
 
+    /// <summary>The configuration names a queue, job type, budget or setting the code does not declare.</summary>
+    public const string SettingNotDeclared = "SL1012";
+
+    /// <summary>A configuration value cannot be read as the kind of value its setting takes.</summary>
+    public const string SettingValueInvalid = "SL1013";
+
     /// <summary>The database lacks a migration and <c>CreateSchema</c> is off.</summary>
     public const string MigrationMissing = "SL2001";
 
@@ -81,6 +87,9 @@ public static class SyncErrorCodes
 
     /// <summary>A temporary budget limit was asked with a rate or an end that cannot be used.</summary>
     public const string BudgetLimitInvalid = "SL3010";
+
+    /// <summary>The search text of a query is empty or too long.</summary>
+    public const string SearchInvalid = "SL3011";
 
     /// <summary>A job with the same owner, type and dedup key already exists.</summary>
     public const string JobAlreadyExists = "SL3101";

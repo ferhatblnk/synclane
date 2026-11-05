@@ -66,6 +66,31 @@ public class EndpointTests : PostgresTest
     }
 
     [PostgresFact]
+    public async Task Jobs_and_freshness_are_searched_by_owner_name_and_jobs_filtered_by_type()
+    {
+        await InsertRowAsync("c-1:us", JobMode.Recurring, JobStatus.Pending, Noon, key: "1");
+        await InsertRowAsync("c-1:us", JobMode.Recurring, JobStatus.Pending, Noon, key: "2", type: "products");
+        await InsertRowAsync("c-2:us", JobMode.Recurring, JobStatus.Pending, Noon, key: "3");
+        await ExecuteAsync($"INSERT INTO {Schema}.coverage (queue, owner, type) VALUES ('{Queue}', 'c-1:us', 'orders'), ('{Queue}', 'c-2:us', 'orders')");
+        await ExecuteAsync($"INSERT INTO {Schema}.owners (queue, owner, name, updated_at) VALUES ('{Queue}', 'c-1:us', 'Acme Toys', now()), ('{Queue}', 'c-2:us', NULL, now())");
+        await using var app = await StartAsync();
+
+        var jobs = await SendAsync(app, "GET", "/synclane/jobs?search=acme&type=products", IPAddress.Loopback);
+        var fresh = await SendAsync(app, "GET", "/synclane/freshness?search=ACME", IPAddress.Loopback);
+        var tooLong = await SendAsync(app, "GET", $"/synclane/jobs?search={new string('x', JobQuery.MaxSearchLength + 1)}", IPAddress.Loopback);
+
+        Assert.Equal(200, jobs.Status);
+        Assert.Contains("\"ownerName\":\"Acme Toys\"", jobs.Body);
+        Assert.Contains("\"type\":\"products\"", jobs.Body);
+        Assert.DoesNotContain("c-2:us", jobs.Body);
+        Assert.DoesNotContain("\"type\":\"orders\"", jobs.Body);
+        Assert.Contains("\"ownerName\":\"Acme Toys\"", fresh.Body);
+        Assert.DoesNotContain("c-2:us", fresh.Body);
+        Assert.Equal(400, tooLong.Status);
+        Assert.Contains("\"code\":\"SL3011\"", tooLong.Body);
+    }
+
+    [PostgresFact]
     public async Task A_repair_needs_the_action_header_and_read_only_maps_none()
     {
         var id = await InsertRowAsync("a", JobMode.Recurring, JobStatus.Abandoned, Noon, key: "1", completedAt: Noon);

@@ -8,6 +8,16 @@ All examples use the default schema, `synclane`.
 
 `ISyncLaneMonitor` answers the usual questions without SQL: the state of each queue, whose data is old and why, failures grouped by error code, rate budgets, instances, and volume per hour or day. See [Watching it run](../README.md#watching-it-run). The queries below are for everything else.
 
+**Finding an owner by name.** Give `JobOwner` a name in your owner source, for example the customer and its store, and `GetJobsAsync` and `GetFreshnessAsync` find owners by any part of it with `Search`, ignoring case. The key and the name live in `synclane.owners`, one row per queue and owner; a search reads that small table and never the jobs:
+
+```sql
+SELECT o.queue, o.owner, o.name, count(*) FILTER (WHERE j.status = 'abandoned') AS given_up
+FROM synclane.owners AS o
+JOIN synclane.jobs AS j ON j.queue = o.queue AND j.owner = o.owner
+WHERE o.name ILIKE '%acme%'
+GROUP BY o.queue, o.owner, o.name;
+```
+
 What is running right now, and who has it:
 
 ```sql
@@ -192,6 +202,10 @@ The system this design comes from once tripled its slice from 30 to 90 days to "
 
 **`Concurrency`** is per process and per queue. Three instances with `Concurrency = 4` run up to twelve jobs of that queue at once, and still at most one per lane. Set it to `1` for an API that must be called strictly one request at a time, whatever the account.
 
+More instances or more slots make more accounts load side by side. They do not make one account load faster: its jobs share a lane, and its requests share the API's limit for that account. A new account's history is loaded newest slice first, so its recent data arrives first; `PrioritizeOwnerAsync` moves it ahead of the others in line.
+
+**Per environment.** Every number here can come from configuration instead of code, with `AddSyncLane(configuration, ...)`: see [Settings from configuration](../README.md#settings-from-configuration). Raise `Concurrency` or widen `every` in one environment without a deploy.
+
 **`MaxAttempts`** counts pick-ups since the job last saved a page, so it limits failures in a row, not over a job's life. A throttle counts only when the recipe or handler has no rate budget; with one, the budget's pause is what protects the API, and the job is postponed instead. With the defaults a job that keeps failing on one page is deferred after about fifteen minutes of ordinary failures, or more than an hour of unbudgeted throttling.
 
 A job whose budget keeps being refused waits as long as the budget's pause, which grows to five minutes, and is never deferred for it: it shows as `pending` with an `SL5105` error, and `synclane.budget.paused` grows. That is the signal to look at the account.
@@ -253,7 +267,13 @@ The application is `options.Application`. It defaults to the host's application 
 **A queue belongs to one application at a time.** A worker takes any job of a queue it declares, so two applications on one queue would take each other's jobs and abandon the types they do not know (`SL4001`). An instance that would run a queue a live instance of another application runs does not start, and says which one (`SL1011`). Rename the queue in one of them, or give both the same `Application` if they are one application.
 
 - An instance that runs neither the planner nor workers claims no queue. It can declare any queue to call `ISyncLane` on it, for example from an admin application.
-- An instance removes its row when it stops. One that dies without stopping counts as gone two minutes after its last heartbeat, and its row is deleted after a day.
+- An instance that stops marks its row stopped (`stopped_at`) and no longer holds its queues. One that dies without stopping counts as gone two minutes after its last heartbeat. Either row is deleted a day after its last heartbeat, so "was the service down last night?" has an answer the next morning:
+
+  ```sql
+  SELECT application, host, started_at, heartbeat_at, stopped_at
+  FROM synclane.instances
+  ORDER BY application, started_at;
+  ```
 - A budget that another live instance declares with another limit, period or burst is logged as a warning at start-up: instances that disagree pace a shared budget differently. During a deploy that changes a limit this passes by itself.
 - Instances of SyncLane versions before the instances table do not register, so they are not seen by this check.
 

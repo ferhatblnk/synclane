@@ -7,7 +7,7 @@ namespace SyncLane.Instances;
 /// <summary>
 /// Registers this process in the instances table before the planner and the workers start, and refuses to start when
 /// a live instance of another application runs one of its queues: their workers would take each other's jobs and give
-/// up the types they do not know. Then it says it is alive every half minute, and removes itself when it stops.
+/// up the types they do not know. Then it says it is alive every half minute, and marks itself stopped when it stops.
 /// </summary>
 internal sealed partial class InstanceRegistry(
     SyncLaneOptions options,
@@ -54,11 +54,11 @@ internal sealed partial class InstanceRegistry(
 
         try
         {
-            await store.RemoveAsync(identity.Id, cancellationToken);
+            await store.StopAsync(identity.Id, time.GetUtcNow(), cancellationToken);
         }
         catch (Exception exception) when (!cancellationToken.IsCancellationRequested)
         {
-            LogRemoveFailed(exception, identity.Id, InstanceRules.GoneAfter);
+            LogStopFailed(exception, identity.Id, InstanceRules.GoneAfter);
         }
     }
 
@@ -91,6 +91,6 @@ internal sealed partial class InstanceRegistry(
     [LoggerMessage(Level = LogLevel.Warning, Message = "SyncLane instance {Instance} could not say it is alive and tries again in half a minute.")]
     private partial void LogHeartbeatFailed(Exception exception, string instance);
 
-    [LoggerMessage(Level = LogLevel.Warning, Message = "SyncLane instance {Instance} could not remove itself; it counts as gone {GoneAfter} after its last heartbeat.")]
-    private partial void LogRemoveFailed(Exception exception, string instance, TimeSpan goneAfter);
+    [LoggerMessage(Level = LogLevel.Warning, Message = "SyncLane instance {Instance} could not mark itself stopped; it counts as gone {GoneAfter} after its last heartbeat.")]
+    private partial void LogStopFailed(Exception exception, string instance, TimeSpan goneAfter);
 }

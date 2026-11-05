@@ -49,17 +49,17 @@ public static partial class SyncLaneEndpoints
         group.MapGet("/overview", GetOverviewAsync)
             .Produces<IReadOnlyList<QueueOverview>>().WithName("SyncLane_Overview").WithSummary("One line per queue: open jobs by state, owners, instances and the last day.");
         group.MapGet("/freshness", GetFreshnessAsync)
-            .Produces<PageOf<OwnerFreshness>>().ProducesProblem(StatusCodes.Status400BadRequest).WithName("SyncLane_Freshness").WithSummary("Owners ranked by how old their completed data is, with the job that explains it.");
+            .Produces<PageOf<OwnerFreshness>>().ProducesProblem(StatusCodes.Status400BadRequest).WithName("SyncLane_Freshness").WithSummary("Owners ranked by how old their completed data is, with the job that explains it. Search finds owners by name or key.");
         group.MapGet("/problems", GetProblemsAsync)
             .Produces<IReadOnlyList<ProblemGroup>>().WithName("SyncLane_Problems").WithSummary("Failing, deferred and abandoned jobs grouped by error code.");
         group.MapGet("/budgets", GetBudgetsAsync)
             .Produces<PageOf<BudgetState>>().ProducesProblem(StatusCodes.Status400BadRequest).WithName("SyncLane_Budgets").WithSummary("Each rate budget and key: learned rate, pause and last refusal.");
         group.MapGet("/instances", GetInstancesAsync)
-            .Produces<IReadOnlyList<InstanceInfo>>().WithName("SyncLane_Instances").WithSummary("Every process of every application on the schema, alive or gone.");
+            .Produces<IReadOnlyList<InstanceInfo>>().WithName("SyncLane_Instances").WithSummary("Every process of every application on the schema: alive, stopped, or gone without stopping.");
         group.MapGet("/volume", GetVolumeAsync)
             .Produces<IReadOnlyList<VolumeBucket>>().WithName("SyncLane_Volume").WithSummary("Completed jobs, records, failures and give-ups per hour or day.");
         group.MapGet("/jobs", GetJobsAsync)
-            .Produces<PageOf<JobView>>().ProducesProblem(StatusCodes.Status400BadRequest).WithName("SyncLane_Jobs").WithSummary("Jobs by queue, owner or status, newest first. Cursors of jobs are never shown.");
+            .Produces<PageOf<JobView>>().ProducesProblem(StatusCodes.Status400BadRequest).WithName("SyncLane_Jobs").WithSummary("Jobs by queue, owner, status, type or a search of owner names and keys, newest first. Cursors of jobs are never shown.");
         group.MapGet("/pauses", GetPausesAsync)
             .Produces<IReadOnlyList<PauseInfo>>().WithName("SyncLane_Pauses").WithSummary("The pauses in force: who paused what, why, and until when.");
         group.MapGet("/budget-limits", GetBudgetLimitsAsync)
@@ -100,9 +100,9 @@ public static partial class SyncLaneEndpoints
         Answer(await monitor.GetOverviewAsync(cancellationToken));
 
     private static async Task<IResult> GetFreshnessAsync(
-        ISyncLaneMonitor monitor, string? queue, string? owner, int? limit, string? cursor, CancellationToken cancellationToken) =>
+        ISyncLaneMonitor monitor, string? queue, string? owner, string? search, int? limit, string? cursor, CancellationToken cancellationToken) =>
         Answer(await monitor.GetFreshnessAsync(
-            new FreshnessQuery { Queue = queue, Owner = owner, Limit = limit ?? 50, Cursor = cursor }, cancellationToken));
+            new FreshnessQuery { Queue = queue, Owner = owner, Search = search, Limit = limit ?? 50, Cursor = cursor }, cancellationToken));
 
     private static async Task<IResult> GetProblemsAsync(ISyncLaneMonitor monitor, string? queue, CancellationToken cancellationToken) =>
         Answer(await monitor.GetProblemsAsync(queue, cancellationToken));
@@ -121,10 +121,12 @@ public static partial class SyncLaneEndpoints
             new VolumeQuery { From = from, To = to, Queue = queue, Type = type, Unit = unit ?? VolumeUnit.Hour }, cancellationToken));
 
     private static async Task<IResult> GetJobsAsync(
-        ISyncLane syncLane, string? queue, string? owner, JobStatus? status, int? limit, string? cursor, CancellationToken cancellationToken)
+        ISyncLane syncLane, string? queue, string? owner, JobStatus? status, string? type, string? search, int? limit, string? cursor,
+        CancellationToken cancellationToken)
     {
         var jobs = await syncLane.GetJobsAsync(
-            new JobQuery { Queue = queue, Owner = owner, Status = status, Limit = limit ?? 50, Cursor = cursor }, cancellationToken);
+            new JobQuery { Queue = queue, Owner = owner, Status = status, Type = type, Search = search, Limit = limit ?? 50, Cursor = cursor },
+            cancellationToken);
         return jobs.Succeeded
             ? TypedResults.Json(new PageOf<JobView>(jobs.Items.Select(JobView.Of).ToList(), jobs.NextCursor), Json)
             : Problem(jobs.Error!);

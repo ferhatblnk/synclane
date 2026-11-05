@@ -72,10 +72,12 @@ public sealed class ConnectedShops(AppDb db) : IOwnerSource
 {
     public async Task<IReadOnlyList<JobOwner>> GetOwnersAsync(string queue, CancellationToken cancellationToken) =>
         await db.Shops.Where(shop => shop.IsConnected)
-            .Select(shop => new JobOwner(shop.Id.ToString(), shop.SellerId))
+            .Select(shop => new JobOwner(shop.Id.ToString(), shop.SellerId, shop.Name))
             .ToListAsync(cancellationToken);
 }
 ```
+
+The key identifies the owner and never changes. The lane is optional: owners that share a rate limit share one. The name is optional too: the monitor shows it next to the key and finds owners by it, and a new name replaces the old one at the next planning round.
 
 That is the whole integration. The table is created at start-up, the planner runs once a minute and the workers start pulling.
 
@@ -258,7 +260,7 @@ The whole format: [docs/recipes.md](docs/recipes.md). Add `"$schema"` to a recip
 | `EnqueueAsync(newJob)` | `SyncResult<long>` | Put one job in by hand, outside the plan. The value is the new job's id. |
 | `RequeueAsync(queue, owner?)` | `SyncResult<int>` | Give failed, deferred and abandoned jobs fresh attempts. Cursors are kept. |
 | `CancelAsync(queue, owner, reason)` | `SyncResult<int>` | Abandon what has not started, for example when an account disconnects. |
-| `GetJobsAsync(query)` | `SyncListResult<Job>` | One page of jobs by queue, owner or status, newest first. Follow `NextCursor` for the next page; set `IncludeTotal` for a count. |
+| `GetJobsAsync(query)` | `SyncListResult<Job>` | One page of jobs by queue, owner, status or type, newest first, or of the owners whose name or key contains `Search` ("acme" finds every store of "Acme Toys"). Follow `NextCursor` for the next page; set `IncludeTotal` for a count. |
 | `GetProgressAsync(queue, owner)` | `SyncResult<OwnerProgress>` | How far the first load of an owner is. Use it to show "connecting" without storing a status of your own. |
 | `MarkLoadedAsync(queue, ranges)` | `SyncResult<int>` | Moving from another system: record the history it already loaded, so only what is older and what came after is fetched. |
 | `ForgetOwnerAsync(queue, owner)` | `SyncResult<int>` | Delete everything about an owner that is gone for good. If it comes back, its history loads again. |
@@ -320,10 +322,10 @@ if (response.StatusCode == HttpStatusCode.TooManyRequests)
 | Call | Answers |
 | --- | --- |
 | `GetOverviewAsync()` | One line per queue: due, postponed, running, retrying, deferred and abandoned jobs; owners; live instances; jobs, records and failures in the last 24 hours. |
-| `GetFreshnessAsync(query)` | Owners ranked by how old their newest completed data is, each with the job that explains it (its status, error code and next run) and how much of its history has loaded. |
+| `GetFreshnessAsync(query)` | Owners ranked by how old their newest completed data is, each with the job that explains it (its status, error code and next run) and how much of its history has loaded. `Search` finds owners by name or key. |
 | `GetProblemsAsync(queue?)` | Failing, deferred and abandoned jobs grouped by error code: "SL5106: 37 jobs, 12 owners" instead of 37 rows. |
 | `GetBudgetsAsync(query)` | Each rate budget and key: the rate it learned, the limit the API reports and any operator's limit, whether it is paused, when it was last refused. |
-| `GetInstancesAsync()` | Every process of every application: host, version, queues, alive or gone. |
+| `GetInstancesAsync()` | Every process of every application: host, version, queues, and whether it is alive, stopped (and when) or gone without stopping. Stopped and gone ones stay listed for a day. |
 | `GetVolumeAsync(query)` | Completed jobs, records, failed attempts and abandoned jobs per hour or day, kept for 400 days. |
 
 ```csharp
@@ -380,6 +382,40 @@ Every run of a job is a `synclane.job` span and every page a `synclane.page` spa
 | `queue.LeaseDuration` | 5 minutes | How long a silent worker keeps its job. |
 | `queue.RetryBaseDelay`, `RetryMaxDelay` | 1 minute, 1 hour | Delay after a failure: base, doubled per attempt, capped. |
 | `queue.ThrottleBaseDelay`, `ThrottleMaxDelay` | 5 minutes, 30 minutes | The same for a `JobThrottledException` that names no wait. |
+
+### Settings from configuration
+
+The code declares queues, job types, handlers and budgets. Their numbers can then come from configuration, per environment, without a deploy:
+
+```csharp
+builder.Services.AddSyncLane(builder.Configuration.GetSection("SyncLane"), lane =>
+{
+    lane.ConnectionString = builder.Configuration.GetConnectionString("Postgres")!;
+    lane.AddBudget("shop-api", limit: 2, per: TimeSpan.FromSeconds(1), burst: 40);
+    lane.AddQueue("shops", queue => queue
+        .Owners<ConnectedShops>()
+        .Windowed<OrderHandler>("orders", horizon: TimeSpan.FromDays(730), slice: TimeSpan.FromDays(30), every: TimeSpan.FromMinutes(15)));
+});
+```
+
+```json
+"SyncLane": {
+  "RunWorkers": false,
+  "Queues": {
+    "shops": {
+      "Concurrency": 4,
+      "Types": { "orders": { "Every": "00:05:00", "Slice": "7.00:00:00" } }
+    }
+  },
+  "Budgets": { "shop-api": { "Limit": 4 } }
+}
+```
+
+- Everything in the table above can be set: top-level settings by name, `Queues:<queue>` for a queue, `Queues:<queue>:Types:<type>` for `Horizon`, `Slice`, `Every`, `Overlap` and `Offset`, and `Budgets:<budget>` for `Limit`, `Per`, `Burst` and `Start`.
+- Configuration overrides what the code declares and never adds to it. A queue, type, budget or setting the code does not know stops the start with `SL1012`, naming its path, so a typo never passes silently. Every problem is reported at once.
+- Names ignore case, as configuration keys do, so an environment variable such as `SYNCLANE__QUEUES__SHOPS__CONCURRENCY=4` works.
+- Time spans are written `hh:mm:ss` or `d.hh:mm:ss`. A value that cannot be read stops the start with `SL1013`, which names the path but never the value.
+- The values are checked like values from code.
 
 ## What it promises
 

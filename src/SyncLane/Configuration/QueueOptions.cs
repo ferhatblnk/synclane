@@ -79,6 +79,13 @@ public sealed class QueueOptions
 
     internal JobType? Find(string type) => _types.FirstOrDefault(candidate => candidate.Name == type);
 
+    /// <summary>Replaces the rule of a declared type, for settings that come from configuration.</summary>
+    internal void Override(string type, PlanRule rule)
+    {
+        var index = _types.FindIndex(candidate => candidate.Name == type);
+        _types[index] = _types[index] with { Rule = rule };
+    }
+
     internal void Validate()
     {
         Require(Concurrency >= 1, nameof(Concurrency), "must be at least 1");

@@ -1,4 +1,5 @@
 using System.Diagnostics.Metrics;
+using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
 using Microsoft.Extensions.Hosting;
@@ -25,6 +26,31 @@ public static class ServiceCollectionExtensions
 
         var options = new SyncLaneOptions();
         configure(options);
+        return Register(services, options);
+    }
+
+    /// <summary>
+    /// Adds SyncLane as <see cref="AddSyncLane(IServiceCollection, Action{SyncLaneOptions})"/> does, then applies
+    /// <paramref name="configuration"/> over what <paramref name="configure"/> declared. Pass the section that holds
+    /// SyncLane's settings, usually <c>builder.Configuration.GetSection("SyncLane")</c>. The code declares queues, job
+    /// types, handlers and budgets; the configuration changes their numbers per environment: top-level settings such as
+    /// <c>RunWorkers</c>, and <c>Queues:&lt;queue&gt;</c>, <c>Queues:&lt;queue&gt;:Types:&lt;type&gt;</c> and
+    /// <c>Budgets:&lt;budget&gt;</c>. A name the code does not declare stops the start with SL1012, and a value that
+    /// cannot be read with SL1013.
+    /// </summary>
+    public static IServiceCollection AddSyncLane(this IServiceCollection services, IConfiguration configuration, Action<SyncLaneOptions> configure)
+    {
+        ArgumentNullException.ThrowIfNull(configuration);
+        ArgumentNullException.ThrowIfNull(configure);
+
+        var options = new SyncLaneOptions();
+        configure(options);
+        SettingsFromConfiguration.Apply(options, configuration);
+        return Register(services, options);
+    }
+
+    private static IServiceCollection Register(IServiceCollection services, SyncLaneOptions options)
+    {
         options.Validate();
 
         services.TryAddSingleton(TimeProvider.System);

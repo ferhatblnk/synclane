@@ -13,6 +13,8 @@ internal sealed class JobSql
 
     public const string ActionsTableName = "actions";
 
+    public const string OwnersTableName = "owners";
+
     /// <summary>
     /// A pause in force over the job aliased <paramref name="job"/>: of its whole queue (owner '') or of its owner, and not
     /// expired. Served by the pauses primary key, on a table of a handful of rows.
@@ -37,12 +39,28 @@ internal sealed class JobSql
     {
         Schema = schema;
         var table = $"{schema}.{TableName}";
-        var columns = string.Join(", ", ColumnNames);
         var leasedColumns = string.Join(", ", ColumnNames.Select(column => $"j.{column}"));
         const string held = "id = @id AND status = 'running' AND leased_by = @worker";
 
         var coverage = $"{schema}.{CoverageTableName}";
         var stats = $"{schema}.{StatsTableName}";
+        var owners = $"{schema}.{OwnersTableName}";
+
+        // The name travels with every job read, the one a worker takes included: one primary-key lookup per job, never
+        // per page.
+        var ownerName = $"(SELECT o.name FROM {owners} AS o WHERE o.queue = j.queue AND o.owner = j.owner)";
+
+        // Every owner gets a row, named or not, so search reads this small table and never the jobs. A name replaces a
+        // different one; a missing name keeps the stored one, and an unchanged name writes nothing.
+        string Remember(string keys, string names) =>
+            $"""
+            INSERT INTO {owners} AS o (queue, owner, name, updated_at)
+            SELECT @queue, t.owner, t.name, @now
+            FROM unnest({keys}, {names}) AS t(owner, name)
+            ON CONFLICT (queue, owner) DO UPDATE
+            SET name = excluded.name, updated_at = excluded.updated_at
+            WHERE excluded.name IS NOT NULL AND o.name IS DISTINCT FROM excluded.name
+            """;
 
         // Planning facts are fixed when a job is created, so the statement that creates jobs also keeps the summary the
         // planner reads. Proposals that already exist are counted too: a job an older instance inserted during a rolling
@@ -85,9 +103,10 @@ internal sealed class JobSql
 
         // A recurring job that was given up is replaced by the next one, whose window reaches back over it. The delete
         // only takes rows still abandoned, so a job someone requeued in the meantime survives.
-        string Insert(string result) =>
+        string Insert(string result, string? remember = null) =>
             $"""
-            WITH proposed AS (
+            WITH {(remember is null ? "" : $"remembered AS ({remember}),")}
+            proposed AS (
                 SELECT *
                 FROM unnest(@owners, @lanes, @types, @modes, @priorities, @window_starts, @window_ends, @dedup_keys)
                     AS t(owner, lane, type, mode, priority, window_start, window_end, dedup_key)
@@ -108,8 +127,9 @@ internal sealed class JobSql
             {result}
             """;
 
+        RememberOwners = Remember("@owner_keys", "@owner_names");
         Enqueue = Insert("SELECT count(*)::int FROM inserted");
-        EnqueueOne = Insert("SELECT id FROM inserted");
+        EnqueueOne = Insert("SELECT id FROM inserted", Remember("ARRAY[@owner_key]", "ARRAY[@owner_name]"));
 
         MarkLoaded =
             $"""
@@ -117,6 +137,11 @@ internal sealed class JobSql
                 SELECT t.*, 'initial'::text AS mode
                 FROM unnest(@owners, @lanes, @types, @priorities, @window_starts, @window_ends, @dedup_keys)
                     AS t(owner, lane, type, priority, window_start, window_end, dedup_key)
+            ),
+            remembered AS (
+                INSERT INTO {owners} (queue, owner, updated_at)
+                SELECT DISTINCT @queue, owner, @now::timestamptz FROM proposed
+                ON CONFLICT (queue, owner) DO NOTHING
             ),
             inserted AS (
                 INSERT INTO {table}
@@ -171,7 +196,7 @@ internal sealed class JobSql
                 ORDER BY (c.status = 'deferred'), c.priority, c.window_start DESC NULLS LAST, c.next_run_at, c.id
                 LIMIT 1
                 FOR UPDATE OF c SKIP LOCKED)
-            RETURNING {leasedColumns}
+            RETURNING {leasedColumns}, {ownerName}
             """;
 
         // A saved page proves the attempt works: the count starts again at this one, so a long job that fails now and
@@ -344,6 +369,9 @@ internal sealed class JobSql
             $"""
             WITH forgotten AS (
                 DELETE FROM {coverage} WHERE queue = @queue AND owner = @owner
+            ),
+            unnamed AS (
+                DELETE FROM {owners} WHERE queue = @queue AND owner = @owner
             )
             DELETE FROM {table} WHERE queue = @queue AND owner = @owner
             """;
@@ -373,24 +401,56 @@ internal sealed class JobSql
 
         const string filters =
             """
-            (@queue::text IS NULL OR queue = @queue)
-              AND (@owner::text IS NULL OR owner = @owner)
-              AND (@status::text IS NULL OR status = @status)
+            (@queue::text IS NULL OR j.queue = @queue)
+              AND (@owner::text IS NULL OR j.owner = @owner)
+              AND (@status::text IS NULL OR j.status = @status)
+              AND (@type::text IS NULL OR j.type = @type)
+            """;
+
+        var found =
+            $"""
+            SELECT o.queue, o.owner, o.name FROM {owners} AS o
+            WHERE (@queue::text IS NULL OR o.queue = @queue)
+              AND (o.owner ILIKE @search OR o.name ILIKE @search)
             """;
 
         List =
             $"""
-            SELECT {columns}
-            FROM {table}
+            SELECT {leasedColumns}, {ownerName}
+            FROM {table} AS j
             WHERE {filters}
-              AND (@before::bigint IS NULL OR id < @before)
-            ORDER BY id DESC
+              AND (@before::bigint IS NULL OR j.id < @before)
+            ORDER BY j.id DESC
             LIMIT @limit
             """;
 
-        Count = $"SELECT count(*) FROM {table} WHERE {filters}";
+        // Owners first, from their small table, then each one's newest jobs through jobs_owner. Filtering the jobs by a
+        // search instead walked the whole table backwards when few or none matched: 190 ms on a million jobs, against
+        // under a millisecond this way and 18 ms when every owner matches.
+        ListFound =
+            $"""
+            SELECT {leasedColumns}, o.name
+            FROM ({found}) AS o
+            CROSS JOIN LATERAL (
+                SELECT *
+                FROM {table} AS j
+                WHERE j.queue = o.queue AND j.owner = o.owner AND {filters}
+                  AND (@before::bigint IS NULL OR j.id < @before)
+                ORDER BY j.id DESC
+                LIMIT @limit
+            ) AS j
+            ORDER BY j.id DESC
+            LIMIT @limit
+            """;
 
-        Find = $"SELECT {columns} FROM {table} WHERE id = @id";
+        Count =
+            $"""
+            SELECT count(*) FROM {table} AS j
+            WHERE {filters}
+              AND (@search::text IS NULL OR (j.queue, j.owner) IN (SELECT f.queue, f.owner FROM ({found}) AS f))
+            """;
+
+        Find = $"SELECT {leasedColumns}, {ownerName} FROM {table} AS j WHERE j.id = @id";
 
         LockSchema = "SELECT pg_advisory_xact_lock(hashtext('synclane.schema'))";
         AppliedMigrations = $"SELECT version FROM {schema}.{Migrations.TableName}";
@@ -398,6 +458,9 @@ internal sealed class JobSql
     }
 
     public string Schema { get; }
+
+    /// <summary>Adds the owners of a planning round and the names they were given. Runs with the coverage read.</summary>
+    public string RememberOwners { get; }
 
     /// <summary>Inserts planned jobs, replaces abandoned recurring ones and updates the summary. Returns how many were created.</summary>
     public string Enqueue { get; }
@@ -438,6 +501,9 @@ internal sealed class JobSql
     public string Progress { get; }
 
     public string List { get; }
+
+    /// <summary>The same as <see cref="List"/> for the owners whose key or name matches <c>@search</c>.</summary>
+    public string ListFound { get; }
 
     public string Count { get; }
 

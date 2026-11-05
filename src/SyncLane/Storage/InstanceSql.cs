@@ -13,14 +13,18 @@ internal sealed class InstanceSql
         Lock = "SELECT pg_advisory_xact_lock(hashtext(@lock))";
         LockKey = $"synclane.instances:{schema}";
 
+        const string columns = "id, application, host, version, queues, budgets::text, started_at, heartbeat_at, stopped_at";
+
+        // A stopped instance keeps its row so people can see when it stopped, but holds no queue.
         Live =
             $"""
-            SELECT id, application, host, version, queues, budgets::text, started_at, heartbeat_at
+            SELECT {columns}
             FROM {table}
-            WHERE id <> @id AND heartbeat_at > @alive_since
+            WHERE id <> @id AND heartbeat_at > @alive_since AND stopped_at IS NULL
             """;
 
-        // Every value is written again on a heartbeat, so a row deleted while the instance was silent comes back.
+        // Every value is written again on a heartbeat, so a row deleted while the instance was silent comes back, and a
+        // process that restarts under the same id is live again.
         Upsert =
             $"""
             INSERT INTO {table} (id, application, host, version, queues, budgets, started_at, heartbeat_at)
@@ -32,14 +36,15 @@ internal sealed class InstanceSql
                 queues = excluded.queues,
                 budgets = excluded.budgets,
                 started_at = excluded.started_at,
-                heartbeat_at = excluded.heartbeat_at
+                heartbeat_at = excluded.heartbeat_at,
+                stopped_at = NULL
             """;
 
         Forget = $"DELETE FROM {table} WHERE heartbeat_at < @forget_before";
 
-        Remove = $"DELETE FROM {table} WHERE id = @id";
+        Stop = $"UPDATE {table} SET stopped_at = @now WHERE id = @id";
 
-        All = $"SELECT id, application, host, version, queues, budgets::text, started_at, heartbeat_at FROM {table} ORDER BY application, id";
+        All = $"SELECT {columns} FROM {table} ORDER BY application, id";
     }
 
     public string All { get; }
@@ -54,5 +59,5 @@ internal sealed class InstanceSql
 
     public string Forget { get; }
 
-    public string Remove { get; }
+    public string Stop { get; }
 }

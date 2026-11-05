@@ -14,6 +14,9 @@ public sealed record JobView
     /// <summary>Its owner.</summary>
     public required string Owner { get; init; }
 
+    /// <summary>The owner's name, when its owner source or the enqueue gave one.</summary>
+    public string? OwnerName { get; init; }
+
     /// <summary>Its lane.</summary>
     public required string Lane { get; init; }
 
@@ -70,6 +73,7 @@ public sealed record JobView
         Id = job.Id,
         Queue = job.Queue,
         Owner = job.Owner,
+        OwnerName = job.OwnerName,
         Lane = job.Lane,
         Type = job.Type,
         Mode = job.Mode,

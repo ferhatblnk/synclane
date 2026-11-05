@@ -27,6 +27,12 @@ public sealed record InstanceInfo
     /// <summary>When it last said it is alive.</summary>
     public DateTimeOffset LastHeartbeatAt { get; init; }
 
-    /// <summary>It said it is alive within the last two minutes.</summary>
+    /// <summary>
+    /// When it stopped gracefully. <c>null</c> while it runs, and for an instance that died without stopping: that one is
+    /// recognised by its last heartbeat. Either kind is listed for a day after its last heartbeat.
+    /// </summary>
+    public DateTimeOffset? StoppedAt { get; init; }
+
+    /// <summary>It has not stopped and said it is alive within the last two minutes.</summary>
     public bool IsAlive { get; init; }
 }

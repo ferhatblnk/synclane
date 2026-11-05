@@ -29,6 +29,9 @@ internal sealed partial class SyncLaneMonitor(
         if (query.Limit is < 1 or > JobQuery.MaxLimit)
             return SyncListResult<OwnerFreshness>.Failure(SyncLaneErrors.LimitOutOfRange(query.Limit));
 
+        if (query.Search is { } search && !JobQuery.IsUsableSearch(search))
+            return SyncListResult<OwnerFreshness>.Failure(SyncLaneErrors.SearchInvalid(search.Length));
+
         (DateTimeOffset, string, string, string)? after = null;
         if (query.Cursor is { } cursor)
         {
@@ -41,7 +44,7 @@ internal sealed partial class SyncLaneMonitor(
         }
 
         // One row more than asked tells whether a next page exists without a second query.
-        var rows = await monitor.FreshnessAsync(query.Queue, query.Owner, after, query.Limit + 1, time.GetUtcNow(), cancellationToken);
+        var rows = await monitor.FreshnessAsync(query.Queue, query.Owner, query.Search, after, query.Limit + 1, time.GetUtcNow(), cancellationToken);
         if (rows.Count <= query.Limit)
             return SyncListResult<OwnerFreshness>.Success(rows.Select(row => row.Row).ToList());
 
@@ -91,7 +94,8 @@ internal sealed partial class SyncLaneMonitor(
             Budgets = row.Budgets,
             StartedAt = row.StartedAt,
             LastHeartbeatAt = row.HeartbeatAt,
-            IsAlive = row.HeartbeatAt > aliveSince
+            StoppedAt = row.StoppedAt,
+            IsAlive = row.StoppedAt is null && row.HeartbeatAt > aliveSince
         }).ToList());
     }
 
