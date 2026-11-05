@@ -21,7 +21,7 @@ dotnet test
 
 The build treats warnings as errors.
 
-About half of the tests need PostgreSQL. They are skipped unless `SYNCLANE_TEST_DB` holds a connection string, and CI always runs them, so a pull request that only passes the unit tests is not finished yet. Development happened against PostgreSQL 18 and CI uses 17. Each test creates a schema of its own and drops it afterwards.
+About half of the tests need PostgreSQL. They are skipped unless `SYNCLANE_TEST_DB` holds a connection string, and CI always runs them, so a pull request that only passes the unit tests is not finished yet. CI runs them on PostgreSQL 14 to 18. Each test creates a schema of its own and drops it afterwards.
 
 ```bash
 docker run -d --name synclane-test -e POSTGRES_HOST_AUTH_METHOD=trust -p 5432:5432 postgres:17
@@ -39,6 +39,35 @@ To watch the whole thing work, run the demo described in the [README](README.md#
 - Update `README.md` and `docs/` when a setting or behaviour changes.
 - Match the surrounding code: file-scoped namespaces, one type per file, names that say what a thing is, constants instead of magic values.
 - Do not add a runtime dependency to `src/SyncLane` without discussing it first.
+- Sign off every commit (see below).
+
+## Checks on a pull request
+
+A pull request is merged when all of these pass:
+
+| Check | What it does |
+| --- | --- |
+| PostgreSQL 14 to 18 | Builds and runs every test against each supported PostgreSQL. |
+| Unit tests on Windows and macOS | Builds and runs the tests that need no database. |
+| Packages | Packs the four packages, fails on a dependency with a known vulnerability, and checks that every library the `SyncLane.Cli` tool carries is listed in [THIRD-PARTY-NOTICES.txt](THIRD-PARTY-NOTICES.txt). |
+| Signed off (DCO) | Every commit has a `Signed-off-by:` line with its author's email. |
+| CodeQL | Looks for security problems in the code. |
+| Dependency review | Fails when the change adds a dependency with a known vulnerability or under a license outside the allowed list (permissive licenses such as MIT, Apache-2.0 and BSD). |
+
+Pull requests from forks get no secrets and only read access, so a change cannot reach the release credentials.
+
+## Signing off your commits (DCO)
+
+By signing off a commit you certify the [Developer Certificate of Origin](DCO): that you wrote the change, or otherwise have the right to submit it under the project's license. Nothing is signed or sent anywhere else, and you keep the copyright of your work.
+
+Sign off with `-s`. It adds a line with your name and the email of your commit:
+
+```bash
+git commit -s -m "Fix the cursor of the last page"
+# Signed-off-by: Your Name <you@example.com>
+```
+
+Forgot it? `git rebase --signoff origin/main` signs off every commit of your branch; then push it again with `--force-with-lease`.
 
 ## Releasing
 
@@ -89,4 +118,4 @@ Do not report them in a public issue. See [SECURITY.md](SECURITY.md).
 
 ## License
 
-By contributing you agree that your contribution is licensed under the [Apache License 2.0](LICENSE).
+By contributing you agree that your contribution is licensed under the [Apache License 2.0](LICENSE), and you keep the copyright of what you contributed. "The SyncLane Authors" in the notices are the people in [AUTHORS](AUTHORS) and every contributor in the history; add yourself to `AUTHORS` in your first pull request if you like.

@@ -1,0 +1,24 @@
+name: Idea or feature
+description: Something SyncLane could do for you.
+labels: [enhancement]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        SyncLane stays small on purpose: one PostgreSQL table set, no lock service, no runtime dependency beyond Npgsql and the `Microsoft.Extensions` abstractions. Describing the problem first helps find a way that fits.
+  - type: textarea
+    id: problem
+    attributes:
+      label: The problem
+      description: What you are trying to do, and where SyncLane gets in the way or falls short.
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: What you have in mind
+      description: How it could work. A sketch of the API or settings is welcome.
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: What you do today instead

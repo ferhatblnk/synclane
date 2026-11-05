@@ -1,0 +1,49 @@
+name: Bug report
+description: Something SyncLane does that it should not, or does not do that it should.
+labels: [bug]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for the report. A security problem does not belong here: see SECURITY.md.
+
+        **Never paste real data.** Remove connection strings, tokens, cursors, account ids, hostnames and customer data from everything below, including the `error` column and logs: they are exactly where secrets end up.
+  - type: textarea
+    id: what
+    attributes:
+      label: What happened
+      description: What you did, what you expected, and what happened instead.
+    validations:
+      required: true
+  - type: textarea
+    id: reproduce
+    attributes:
+      label: How to reproduce it
+      description: The smallest setup that shows it, with made-up names. A failing test is best.
+    validations:
+      required: true
+  - type: textarea
+    id: rows
+    attributes:
+      label: The job rows, log lines or error codes involved
+      description: For example the `SL` code, `status`, `attempt_count` and `error` of the job. Cleaned of real data.
+      render: text
+  - type: input
+    id: version
+    attributes:
+      label: SyncLane version
+      placeholder: "0.4.0"
+    validations:
+      required: true
+  - type: input
+    id: postgres
+    attributes:
+      label: PostgreSQL version, and the pooler in between if any
+      placeholder: "17, through PgBouncer in transaction mode"
+    validations:
+      required: true
+  - type: input
+    id: dotnet
+    attributes:
+      label: .NET version and operating system
+      placeholder: ".NET 10, Linux container"

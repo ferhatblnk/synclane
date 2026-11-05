@@ -13,3 +13,4 @@
 - [ ] Behaviour I changed has a test.
 - [ ] `README.md` and `docs/` still describe what the code does.
 - [ ] No real connection strings, tokens, hostnames or account data anywhere in the change.
+- [ ] Every commit is signed off (`git commit -s`), see [CONTRIBUTING.md](../CONTRIBUTING.md#signing-off-your-commits-dco).
