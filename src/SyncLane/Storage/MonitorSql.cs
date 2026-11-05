@@ -17,6 +17,7 @@ internal sealed class MonitorSql
         var instances = $"{schema}.{InstanceSql.TableName}";
         var pauses = $"{schema}.{JobSql.PausesTableName}";
         var actions = $"{schema}.{JobSql.ActionsTableName}";
+        var owners = $"{schema}.{JobSql.OwnersTableName}";
         Channel = ChangeChannel.For(schema);
 
         Overview =
@@ -45,7 +46,7 @@ internal sealed class MonitorSql
             live AS (
                 SELECT q AS queue, count(*) AS instances
                 FROM {instances}, unnest(queues) AS q
-                WHERE heartbeat_at > @alive_since
+                WHERE heartbeat_at > @alive_since AND stopped_at IS NULL
                 GROUP BY q
             ),
             paused AS (
@@ -74,12 +75,17 @@ internal sealed class MonitorSql
                    o.status, {CodeOf("o.error")}, o.error, o.next_run_at,
                    coalesce(h.total, 0), coalesce(h.completed, 0),
                    c.sort_key,
-                   {JobSql.PausedOver(schema, "c")}
+                   {JobSql.PausedOver(schema, "c")},
+                   (SELECT n.name FROM {owners} AS n WHERE n.queue = c.queue AND n.owner = c.owner)
             FROM (
                 SELECT queue, owner, type, completed_to, completed_at, coalesce(completed_to, completed_at, @never) AS sort_key
-                FROM {coverage}
-                WHERE (@queue::text IS NULL OR queue = @queue)
-                  AND (@owner::text IS NULL OR owner = @owner)
+                FROM {coverage} AS s
+                WHERE (@queue::text IS NULL OR s.queue = @queue)
+                  AND (@owner::text IS NULL OR s.owner = @owner)
+                  AND (@search::text IS NULL OR (s.queue, s.owner) IN (
+                          SELECT n.queue, n.owner FROM {owners} AS n
+                          WHERE (@queue::text IS NULL OR n.queue = @queue)
+                            AND (n.owner ILIKE @search OR n.name ILIKE @search)))
             ) AS c
             LEFT JOIN LATERAL (
                 SELECT j.status, j.error, j.next_run_at

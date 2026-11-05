@@ -48,13 +48,14 @@ internal sealed class MonitorStore(NpgsqlDataSource dataSource, MonitorSql sql)
 
     /// <summary>A page of owners, oldest data first, with each row's sort key for the next cursor.</summary>
     public async Task<List<(OwnerFreshness Row, DateTimeOffset SortKey)>> FreshnessAsync(
-        string? queue, string? owner, (DateTimeOffset Key, string Queue, string Owner, string Type)? after, int limit, DateTimeOffset now,
-        CancellationToken cancellationToken)
+        string? queue, string? owner, string? search, (DateTimeOffset Key, string Queue, string Owner, string Type)? after, int limit,
+        DateTimeOffset now, CancellationToken cancellationToken)
     {
         await using var command = dataSource.CreateCommand(sql.Freshness);
         command.Parameters.AddWithValue("now", now.ToUniversalTime());
         command.Parameters.Add(Text("queue", queue));
         command.Parameters.Add(Text("owner", owner));
+        command.Parameters.Add(Text("search", search is null ? null : JobStore.ContainsPattern(search)));
         command.Parameters.AddWithValue("never", MonitorSql.Never);
         command.Parameters.Add(new NpgsqlParameter("after_key", NpgsqlDbType.TimestampTz) { Value = (object?)after?.Key.ToUniversalTime() ?? DBNull.Value });
         command.Parameters.Add(Text("after_queue", after?.Queue));
@@ -73,6 +74,7 @@ internal sealed class MonitorStore(NpgsqlDataSource dataSource, MonitorSql sql)
             {
                 Queue = reader.GetString(0),
                 Owner = reader.GetString(1),
+                OwnerName = Text(reader, 13),
                 Type = reader.GetString(2),
                 DataUntil = completedTo ?? completedAt,
                 LastCompletedAt = completedAt,

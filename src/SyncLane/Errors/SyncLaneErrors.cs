@@ -50,12 +50,21 @@ internal static class SyncLaneErrors
         $"Application '{application}' is not usable as a name. Set options.Application in AddSyncLane to 1 to 100 letters, " +
         "digits, dots, underscores, colons, slashes or hyphens.");
 
+    public static SyncError SettingNotDeclared(string path, IEnumerable<string> known) => new(
+        SyncErrorCodes.SettingNotDeclared, SyncErrorKind.Configuration,
+        $"'{path}' is not something SyncLane can set. Configuration changes what the code declares and cannot add to it: " +
+        $"declare the queue, type or budget in code first, or fix the name. What can be set there: {string.Join(", ", known.DefaultIfEmpty("nothing"))}.");
+
+    public static SyncError SettingValueInvalid(string path, string expected) => new(
+        SyncErrorCodes.SettingValueInvalid, SyncErrorKind.Configuration,
+        $"'{path}' could not be read as {expected}. Fix the value in the configuration, or remove it to keep what the code sets.");
+
     public static SyncError QueueRunByAnotherApplication(string queue, string application, string instance, TimeSpan seenAgo, TimeSpan goneAfter) => new(
         SyncErrorCodes.QueueRunByAnotherApplication, SyncErrorKind.Configuration,
         $"Queue '{queue}' is already run by application '{application}' (instance '{instance}', heard from " +
         $"{Math.Max(0, (int)seenAgo.TotalSeconds)} seconds ago). Two applications on one queue take each other's jobs and give up the " +
         $"types they do not know. Give the queue another name in one of them, or give both the same options.Application if they " +
-        $"are one application. An instance that stopped without removing itself no longer counts {(int)goneAfter.TotalMinutes} minutes " +
+        $"are one application. A stopped instance never counts, and one that died without stopping no longer counts {(int)goneAfter.TotalMinutes} minutes " +
         "after its last heartbeat.");
 
     // 2xxx: schema and stored data.
@@ -111,6 +120,10 @@ internal static class SyncLaneErrors
     public static SyncError PauseEndInvalid(string queue, DateTimeOffset until, DateTimeOffset now) => new(
         SyncErrorCodes.PauseEndInvalid, SyncErrorKind.Validation,
         $"A pause of queue '{queue}' cannot end at {until:u}, which is not after now ({now:u}). Give a later end, or none to pause until resumed.");
+
+    public static SyncError SearchInvalid(int length) => new(
+        SyncErrorCodes.SearchInvalid, SyncErrorKind.Validation,
+        $"A search of {length} characters cannot be used. Search for 1 to {JobQuery.MaxSearchLength} characters of an owner's key or name, or leave Search out.");
 
     public static SyncError BudgetLimitInvalid(string budget, string problem) => new(
         SyncErrorCodes.BudgetLimitInvalid, SyncErrorKind.Validation,

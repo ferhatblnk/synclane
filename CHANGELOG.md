@@ -2,6 +2,51 @@
 
 All notable changes to this project are recorded here. The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project uses [Semantic Versioning](https://semver.org/).
 
+## [0.4.0] - 2026-11-05
+
+Ready for real use: owners people can find by name, instances that stay visible after they stop, and numbers per environment from configuration. The packages are no longer previews: install them without `--prerelease`. Before 1.0 a minor version may still change the API, as this one does.
+
+### Added
+
+- Owner names.
+  - `JobOwner` takes an optional `Name`, for example a customer and its store. The owner source gives it, and so can `NewJob.Owner`.
+  - A new name replaces the old one at the next planning round, and an owner given without a name keeps its old one.
+  - `Job.OwnerName` and `OwnerFreshness.OwnerName` carry it.
+  - The name is the owner's data. It is stored and shown, and never written to a log, a span, a metric tag or a message.
+- Search and a type filter.
+  - `JobQuery.Search` and `FreshnessQuery.Search` find owners whose key or name contains the text, ignoring case. `%` and `_` match only themselves. Code `SL3011` for a search that is empty or longer than 100 characters.
+  - `JobQuery.Type` lists the jobs of one type.
+  - A search reads the new `owners` table first, then each matching owner's newest jobs. On a million jobs it takes under a millisecond for one owner and 18 ms when every owner matches.
+- Settings from configuration: `AddSyncLane(configuration, options => ...)`.
+  - Pass the section, for example `builder.Configuration.GetSection("SyncLane")`.
+  - What it can set:
+    - top-level settings;
+    - `Queues:<queue>` for concurrency, attempts, lease and delays;
+    - `Queues:<queue>:Types:<type>` for horizon, slice, every, overlap and offset;
+    - `Budgets:<budget>` for limit, per, burst and start.
+  - It overrides what the code declares and never adds to it.
+  - Every problem is reported at once:
+    - a name the code does not declare stops the start with `SL1012`, naming its path;
+    - a value that cannot be read stops it with `SL1013`, naming the path and never the value.
+  - Names ignore case, so environment variables in capitals work.
+  - No package is added.
+- `InstanceInfo.StoppedAt`. `GET /instances` shows it too.
+- `SyncLane.AspNetCore`: `GET /jobs?type=&search=`, `GET /freshness?search=`, and `ownerName` on every job.
+- `THIRD-PARTY-NOTICES.txt`, in the repository and in the `SyncLane.Cli` package: the notices of the libraries the tool carries (Npgsql, `Microsoft.Extensions.*`, `System.CommandLine`).
+- `AUTHORS`, which says who "The SyncLane Authors" are.
+
+### Changed
+
+- **Breaking:** `JobOwner` has a third positional parameter, `Name`. Source that builds it with one or two arguments compiles as before; code compiled against an older version must be rebuilt.
+- An instance that stops gracefully now marks its row stopped instead of deleting it.
+  - The row stays for a day after the last heartbeat, so "was it down last night?" can be answered the next morning.
+  - A stopped instance holds no queue and is not counted live. `IsAlive` is false for it.
+- The schema is at version 10. Migration 10:
+  - adds the `owners` table and fills it from the existing jobs and summary, without names;
+  - adds the index `jobs_owner (queue, owner, id)`. It is built inside the migration, about a second per million jobs, and jobs cannot be written while it builds;
+  - adds `instances.stopped_at`.
+- An older instance writes no names, and for two minutes counts a stopped newer instance as live.
+
 ## [0.3.0-preview.1] - 2026-11-04
 
 Operations: an emergency stop for a queue or one owner, temporary limits on rate budgets, budgets that follow the limit the API reports, and a log of who did what and why, in C# and over HTTP.

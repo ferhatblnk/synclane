@@ -54,7 +54,36 @@ public class InstanceTests : PostgresTest
         _clock.Advance(InstanceRules.GoneAfter + TimeSpan.FromSeconds(1));
         await Registry("returns", "host-c:1", ["orders"]).StartAsync(CancellationToken.None);
 
-        Assert.Equal(["host-b:1", "host-c:1"], await IdsAsync());
+        Assert.Equal(["host-a:1", "host-b:1", "host-c:1"], await IdsAsync());
+    }
+
+    [PostgresFact]
+    public async Task A_stopped_instance_stays_listed_with_when_it_stopped_until_it_is_forgotten_and_a_restart_makes_it_live()
+    {
+        var shipping = Registry("shipping", "host-a:1", ["orders"]);
+        await shipping.StartAsync(CancellationToken.None);
+        _clock.Advance(TimeSpan.FromSeconds(10));
+        var stoppedAt = _clock.GetUtcNow();
+        await shipping.StopAsync(CancellationToken.None);
+        var monitor = MonitorTests.MonitorFor(Store, Schema, _clock);
+
+        var stopped = Assert.Single((await monitor.GetInstancesAsync()).GetValueOrThrow());
+        var overview = (await monitor.GetOverviewAsync()).GetValueOrThrow();
+
+        var restarted = Registry("shipping", "host-a:1", ["orders"]);
+        await restarted.StartAsync(CancellationToken.None);
+        var live = Assert.Single((await monitor.GetInstancesAsync()).GetValueOrThrow());
+        await restarted.StopAsync(CancellationToken.None);
+
+        _clock.Advance(InstanceRules.ForgetAfter + TimeSpan.FromMinutes(1));
+        var other = Registry("billing", "host-b:1", ["billing"]);
+        await other.StartAsync(CancellationToken.None);
+        await other.HeartbeatAsync(CancellationToken.None);
+
+        Assert.Equal((stoppedAt, false), (stopped.StoppedAt, stopped.IsAlive));
+        Assert.DoesNotContain(overview, queue => queue.Instances > 0);
+        Assert.Equal((null, true), (live.StoppedAt, live.IsAlive));
+        Assert.Equal(["host-b:1"], await IdsAsync());
     }
 
     [PostgresFact]

@@ -12,6 +12,9 @@ public sealed record Job
     /// <summary>Who the job works for: one connected account, tenant or store.</summary>
     public required string Owner { get; init; }
 
+    /// <summary>The owner's name, as its owner source or the enqueue last gave it. <c>null</c> when none was given.</summary>
+    public string? OwnerName { get; init; }
+
     /// <summary>Jobs that share a lane never run at the same time.</summary>
     public required string Lane { get; init; }
 

@@ -28,7 +28,7 @@ internal sealed class SyncLaneClient(SyncLaneOptions options, JobStore store, Qu
         var planned = new PlannedJob(
             job.Owner.Key, job.Owner.LaneOrKey, type.Name, JobMode.Manual, type.Priority, job.WindowStart, job.WindowEnd, job.DedupKey);
 
-        return await store.EnqueueOneAsync(queue.Name, planned, time.GetUtcNow(), cancellationToken) is { } id
+        return await store.EnqueueOneAsync(queue.Name, planned, job.Owner.NameOrNull, time.GetUtcNow(), cancellationToken) is { } id
             ? SyncResult<long>.Success(id)
             : SyncResult<long>.Failure(SyncLaneErrors.JobAlreadyExists(queue.Name, job.Owner.Key, type.Name, job.DedupKey));
     }
@@ -83,6 +83,9 @@ internal sealed class SyncLaneClient(SyncLaneOptions options, JobStore store, Qu
         ArgumentNullException.ThrowIfNull(query);
         if (query.Limit is < 1 or > JobQuery.MaxLimit)
             return SyncListResult<Job>.Failure(SyncLaneErrors.LimitOutOfRange(query.Limit));
+
+        if (query.Search is { } search && !JobQuery.IsUsableSearch(search))
+            return SyncListResult<Job>.Failure(SyncLaneErrors.SearchInvalid(search.Length));
 
         long? before = null;
         if (query.Cursor is { } cursor)

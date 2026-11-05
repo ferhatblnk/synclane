@@ -6,6 +6,9 @@ public sealed record JobQuery
     /// <summary>The largest page <see cref="ISyncLane.GetJobsAsync"/> returns.</summary>
     public const int MaxLimit = 1000;
 
+    /// <summary>The longest text <see cref="Search"/> may hold.</summary>
+    public const int MaxSearchLength = 100;
+
     /// <summary>Only jobs of this queue.</summary>
     public string? Queue { get; init; }
 
@@ -14,6 +17,15 @@ public sealed record JobQuery
 
     /// <summary>Only jobs in this status.</summary>
     public JobStatus? Status { get; init; }
+
+    /// <summary>Only jobs of this type.</summary>
+    public string? Type { get; init; }
+
+    /// <summary>
+    /// Only jobs of owners whose key or name contains this text, ignoring case: "acme" finds every store of
+    /// "Acme Toys". 1 to <see cref="MaxSearchLength"/> characters.
+    /// </summary>
+    public string? Search { get; init; }
 
     /// <summary>How many jobs to return, from 1 to <see cref="MaxLimit"/>.</summary>
     public int Limit { get; init; } = 100;
@@ -26,4 +38,7 @@ public sealed record JobQuery
     /// ask for it on the first page of a screen, not on every page.
     /// </summary>
     public bool IncludeTotal { get; init; }
+
+    internal static bool IsUsableSearch(string search) =>
+        !string.IsNullOrWhiteSpace(search) && search.Trim().Length <= MaxSearchLength;
 }

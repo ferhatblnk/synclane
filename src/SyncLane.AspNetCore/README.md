@@ -11,12 +11,12 @@ app.MapSyncLane("/synclane").RequireAuthorization("ops");
 | Method | Path | What it answers |
 | --- | --- | --- |
 | GET | `/overview` | One line per queue: open jobs by state, owners, instances, the last day |
-| GET | `/freshness?queue=&owner=&limit=&cursor=` | Owners ranked by how old their completed data is, with the job that explains it |
+| GET | `/freshness?queue=&owner=&search=&limit=&cursor=` | Owners ranked by how old their completed data is, with the job that explains it; `search` finds owners by name or key |
 | GET | `/problems?queue=` | Failing and abandoned jobs grouped by error code |
 | GET | `/budgets?budget=&limit=&cursor=` | Rate budgets: learned rate, pause, last refusal |
-| GET | `/instances` | Every process of every application on the schema |
+| GET | `/instances` | Every process of every application on the schema: alive, stopped (with when) or gone |
 | GET | `/volume?from=&to=&queue=&type=&unit=hour` | Completed jobs, records, failures per hour or day |
-| GET | `/jobs?queue=&owner=&status=&limit=&cursor=` | Jobs, newest first |
+| GET | `/jobs?queue=&owner=&status=&type=&search=&limit=&cursor=` | Jobs, newest first, with each owner's name; `search` finds owners by name or key |
 | GET | `/stream?queue=&owner=` | Server-sent events, one `job` event per created job or status change |
 | GET | `/pauses` | The pauses in force: who, why, until when |
 | GET | `/budget-limits` | The budget limits in force: who, why, until when |

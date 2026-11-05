@@ -104,7 +104,7 @@ User code reaches SyncLane through two small interfaces and one facade: `IJobHan
 
 ## Data model
 
-Nine tables in the configured schema.
+Ten tables in the configured schema.
 
 `jobs` holds one row per job: what it covers (`queue`, `owner`, `lane`, `type`, `mode`, `window_start`, `window_end`, `dedup_key`), where it is (`status`, `cursor`, `processed_count`, `attempt_count`, `error`, `next_run_at`) and who holds it (`leased_by`, `lease_expires_at`, `heartbeat_at`). The full definition is in [docs/schema.sql](docs/schema.sql).
 
@@ -118,7 +118,9 @@ Nine tables in the configured schema.
 
 `budget_limits` holds operators' temporary limits on rate budgets, one row per budget and key (empty for every key), with who set it, why and until when. `rate_buckets.reported_rate` holds the limit the API last reported for the key. Together they make a bucket's ceiling (D50).
 
-`instances` holds one row per running process: its application, host, version, the queues it runs and its budgets, with a heartbeat every 30 seconds. Its id is the prefix of the worker names in `jobs.leased_by`. It keeps two applications off one queue (D43) and shows what is running.
+`owners` holds one row per queue and owner SyncLane has seen, with the name its owner source or an enqueue last gave it. The planning round writes it in the same batch as the summary read; the monitor shows the name and searches this table before it reads any job (D52).
+
+`instances` holds one row per running process: its application, host, version, the queues it runs and its budgets, with a heartbeat every 30 seconds. Its id is the prefix of the worker names in `jobs.leased_by`. It keeps two applications off one queue (D43) and shows what is running. A process that stops marks its row stopped and the row stays for a day (D53).
 
 `migrations` records which schema steps the database has.
 
@@ -134,6 +136,7 @@ The guarantees are indexes, not code:
 | `jobs_open (queue, owner, type) WHERE status <> 'completed'` | The planner sees what is still under way per owner and type without reading history. |
 | `jobs_finished (queue, completed_at) WHERE status = 'completed' AND mode <> 'initial'` | Clean-up finds old jobs without scanning the table. |
 | `jobs_initial (queue, owner, type) INCLUDE (status) WHERE mode = 'initial'` | Progress and the monitor count an owner's history without reading its recurring jobs. |
+| `jobs_owner (queue, owner, id)` | A search lists the newest jobs of the owners it finds without walking the table. |
 
 Every write a worker makes to a job carries `WHERE id = @id AND status = 'running' AND leased_by = @worker`. A worker whose lease was taken over cannot overwrite the new holder; its writes match no row and it stops.
 
@@ -235,7 +238,7 @@ Round trips per operation:
 | Save a page | 1 | Primary key |
 | Heartbeat | 1 per third of `LeaseDuration` | Primary key |
 | Finish a job | 1 | Primary key |
-| Plan a queue | 2: summary read, one insert that also replaces abandoned recurring jobs and updates the summary | `coverage` primary key, `jobs_open`, `jobs_dedup` |
+| Plan a queue | 2: the owners and their names written and the summary read in one batch, then one insert that also replaces abandoned recurring jobs and updates the summary. An unchanged name writes nothing | `owners` and `coverage` primary keys, `jobs_open`, `jobs_dedup` |
 | `MarkLoadedAsync` | 1 | `jobs_dedup`, `coverage` primary key |
 | `ForgetOwnerAsync` | 1 | `jobs_dedup` prefix, `coverage` primary key |
 | Clean-up | 1 per batch of 1,000, hourly | `jobs_finished` |
@@ -247,7 +250,7 @@ Round trips per operation:
 | Pause, resume | 1, announced in the same statement | `pauses` primary key |
 | Monitor reads | 1 each. Measured on a million jobs: overview 0.2 ms, freshness page 0.9 ms, problems 0.3 ms, a week by hour 0.8 ms, 400 days by day 46 ms | `coverage`, `job_stats`, `jobs_open`, `jobs_initial`, `rate_buckets`, `instances` |
 | `EnqueueAsync` | 1 | `jobs_dedup` |
-| `GetJobsAsync` | 1, with the optional count in the same batch | Primary key, scanned backwards |
+| `GetJobsAsync` | 1, with the optional count in the same batch. With `Search`: the matching owners from `owners`, then each one's newest jobs. Measured on a million jobs and a thousand owners: 0.3 ms when nothing matches, 0.4 ms for one owner, 18 ms when every owner matches, where filtering the jobs instead took 190 ms | Primary key, scanned backwards; `jobs_owner` for a search |
 | `RequeueAsync`, `CancelAsync`, `GetProgressAsync` | 1 | `jobs_dedup` prefix |
 | Start-up migration | 3, in one transaction | |
 | Take a budget's token | 1, plus 1 read after a wait to check for a pause | `rate_buckets` primary key |
@@ -256,7 +259,8 @@ Round trips per operation:
 
 Known limits:
 
-- `GetJobsAsync` filtered by owner or status walks the primary key backwards and filters. That is fine for admin screens. If it becomes hot, add an index on `(queue, owner, id)` in a migration.
+- `GetJobsAsync` filtered only by status or type walks the primary key backwards and filters. That is fine for admin screens. Filtered by an owner it uses `jobs_owner` or `jobs_dedup`; a search finds owners first.
+- The count a search asks for (`IncludeTotal`) counts every job of the matching owners: 77 ms when all of a million jobs match. Ask for it on the first page only.
 - Every status change is announced with `NOTIFY` (D47). On this machine, eight connections doing nothing but changing statuses managed 33,000 changes a second without it and 24,000 with it, because PostgreSQL commits notifying transactions one at a time. A job changes status a few times in a life of hundreds of milliseconds of API calls, so a thousand changes a second is 4% of that ceiling. Where it matters, `ALTER TABLE synclane.jobs DISABLE TRIGGER jobs_announce_status` turns it off; workers then poll.
 - Telemetry costs nothing without a listener: instruments and spans are no-ops until something subscribes.
 
@@ -356,3 +360,6 @@ Each is a small interface the user implements; SyncLane calls it.
 | D48 | The monitor goes over HTTP in its own package, `SyncLane.AspNetCore`, with Minimal APIs and nothing else | Dependency: the ASP.NET Core shared framework (`FrameworkReference Microsoft.AspNetCore.App`), MIT, maintained by Microsoft's .NET team; the BCL has no HTTP server. It is in the host already, so it adds no download, and the engine stays free of it. Minimal APIs give routing, authorization and OpenAPI metadata, so `MapSyncLane` returns the route group and the host adds `.RequireAuthorization(...)` with its own policies: no filter interface of ours. Until it does, every endpoint answers only loopback requests without proxy headers, because a proxy on the same machine makes every request look local (a dashboard that lost this default exposed every installation). Repairs need a custom header, which a cross-site page cannot send without a CORS preflight, so cookie-authenticated hosts need no antiforgery token. Answers carry `no-store`, use fixed JSON settings with statuses as words, and leave out jobs' cursors. The stream sends `ready` first, so headers leave at once and the client knows it misses nothing after it. | Accepted |
 | D49 | A pause stops a queue or owner at once and loses nothing | The user's ask was an emergency button, used about once a month. A pause is a row the lease statement checks, and an announcement on the change channel that makes every instance cancel the jobs it covers. A cut job is handed back like one of a stopping worker: pending, the attempt not counted, the cursor at its last saved page; its cut page runs again on resume, as pages may anyway. Checkpoints and heartbeats report a pause in their own round trip, for an instance that missed the announcement. The lease reads the paused owners once per statement as an array and a paused queue as a one-time filter: on 100,000 due jobs the lease took 35 ms before and 45 ms after, and a paused queue 0.09 ms. Planning goes on, so the next window covers the pause. Every pause and repair is logged with who and why in the same statement. | Accepted |
 | D50 | The limit an API reports is a budget's ceiling, and an operator can only lower it | The user's rule: header first, then the declared or learned value. An API that raises its limit (40 to 45) should not need a deploy, and one that lowers it should not be run into. So a limit read from a named header (`rate.headers.limit`, with the window the documentation states, or the IETF `RateLimit-Policy`, which carries its own) replaces the declared ceiling, up or down, and learning stays below it as before. Only named headers are read, and a bare number needs its window: a guessed window could raise the ceiling far above what the API allows. A value that repeats the known one writes nothing, so the per-request cost is a dictionary lookup. An operator's limit (`budget_limits`) is the emergency tool and only lowers; permanent changes stay in the declaration. The ceiling is computed in the reserve statement, with the operator's limit read once per statement in a CTE: a token took 0.53 ms before, 0.62 ms after, and about 0.09 ms more while a limit is set. | Accepted |
+| D51 | Numbers come from configuration over what the code declares, read without the binder | Real use needs concurrency, periods and limits per environment without a deploy, and a test environment that does not sync. The code still declares queues, types, handlers and budgets; configuration only changes their numbers, and anything it names that the code does not declare stops the start (`SL1012`), so a typo is never ignored as the binder would ignore it. `IConfiguration` comes from `Microsoft.Extensions.Configuration.Abstractions`, already a dependency of `Hosting.Abstractions`, so nothing is added. Names ignore case as configuration keys do, because environment variables are often in capitals. A value that cannot be read (`SL1013`) is named by its path, never by its value, which could be a connection string. | Accepted |
+| D52 | An owner has an optional name, kept in a table of its own and searched before any job | Hundreds of owners are ids nobody recognises; operators look for a customer by name. The name changes, the key does not, so it is not part of the key. A table of one row per queue and owner keeps it out of every job row, lets a new name replace the old one in one place, and gives search a small table to read: the first version filtered the jobs and walked a million rows when few matched. The name is the owner's data: stored and shown, never in a log, span, tag or message (checked by `CredentialLeakTests`). | Accepted |
+| D53 | A stopped instance keeps its row for a day, marked stopped | In the first trial nobody could tell the next morning whether the service had been down overnight, because a graceful stop deleted the row. A stopped row holds no queue and is not counted live; a heartbeat clears the mark, so a process that restarts under the same id is live again. An older instance does not know the mark and treats a stopped newer one as live for two minutes, which matters only when a queue moves to another application during that deploy. | Accepted |

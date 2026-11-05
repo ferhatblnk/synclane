@@ -9,4 +9,5 @@ internal sealed record InstanceRow(
     IReadOnlyList<string> Queues,
     IReadOnlyList<BudgetDescription> Budgets,
     DateTimeOffset StartedAt,
-    DateTimeOffset HeartbeatAt);
+    DateTimeOffset HeartbeatAt,
+    DateTimeOffset? StoppedAt = null);

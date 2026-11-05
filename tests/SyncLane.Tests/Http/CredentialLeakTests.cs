@@ -30,6 +30,8 @@ public class CredentialLeakTests : PostgresTest
 
     private readonly string _marker = Guid.NewGuid().ToString("N");
 
+    private readonly string _nameMarker = "name-" + Guid.NewGuid().ToString("N");
+
     [PostgresTheory]
     [InlineData("""{ "type": "bearer", "credential": "example-shop" }""")]
     [InlineData("""{ "type": "basic", "credential": "example-shop" }""")]
@@ -50,13 +52,15 @@ public class CredentialLeakTests : PostgresTest
 
         // Sequential: one enqueue per owner; the order does not matter, and a test does not need a batch.
         foreach (var owner in Owners)
-            (await client.EnqueueAsync(new NewJob { Queue = Queue, Owner = new JobOwner(owner), Type = "orders" })).ThrowIfFailed();
+            (await client.EnqueueAsync(new NewJob { Queue = Queue, Owner = new JobOwner(owner, Name: $"Shop {owner} {_nameMarker}"), Type = "orders" })).ThrowIfFailed();
 
         var jobs = await WaitAsync(found => found.Count == Owners.Length && found.All(job => job.Status is JobStatus.Completed or JobStatus.Abandoned));
         await host.StopAsync();
 
         var stored = await DumpSchemaAsync();
-        var everything = string.Join('\n', [stored, .. seen.Logs, .. seen.Spans, .. seen.Metrics]);
+        // Snapshots: the span and metric listeners hear the whole process, so other tests keep adding while this one reads.
+        var observed = string.Join('\n', seen.Logs.ToArray().Concat(seen.Spans.ToArray()).Concat(seen.Metrics.ToArray()));
+        var everything = string.Join('\n', stored, observed);
 
         Assert.Equal(JobStatus.Completed, jobs.Single(job => job.Owner == "ok").Status);
         Assert.All(jobs.Where(job => job.Owner is "unauthorized" or "broken" or "unreachable"), job => Assert.NotNull(job.Error));
@@ -66,6 +70,10 @@ public class CredentialLeakTests : PostgresTest
         Assert.All(Forbidden(), secret => Assert.False(
             everything.Contains(secret, StringComparison.Ordinal),
             $"A secret was found: {Around(everything, secret)}"));
+
+        // An owner's name is stored and shown by the monitor, but is the owner's data: never in a log, span or metric.
+        Assert.Equal($"Shop ok {_nameMarker}", jobs.Single(job => job.Owner == "ok").OwnerName);
+        Assert.False(observed.Contains(_nameMarker, StringComparison.Ordinal), $"An owner name was found: {Around(observed, _nameMarker)}");
     }
 
     /// <summary>Every secret, and every form a request carries it in.</summary>

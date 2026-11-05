@@ -81,10 +81,12 @@ internal sealed class InstanceStore(NpgsqlDataSource dataSource, InstanceSql sql
         return rows;
     }
 
-    public async Task RemoveAsync(string id, CancellationToken cancellationToken)
+    /// <summary>Marks this instance stopped. Its row stays, so the monitor shows when it stopped, until it is forgotten.</summary>
+    public async Task StopAsync(string id, DateTimeOffset now, CancellationToken cancellationToken)
     {
-        await using var command = dataSource.CreateCommand(sql.Remove);
+        await using var command = dataSource.CreateCommand(sql.Stop);
         command.Parameters.AddWithValue("id", id);
+        command.Parameters.AddWithValue("now", now.ToUniversalTime());
         await command.ExecuteNonQueryAsync(cancellationToken);
     }
 
@@ -115,7 +117,8 @@ internal sealed class InstanceStore(NpgsqlDataSource dataSource, InstanceSql sql
         reader.GetFieldValue<string[]>(4),
         ReadBudgets(reader.GetString(5)),
         reader.GetFieldValue<DateTimeOffset>(6),
-        reader.GetFieldValue<DateTimeOffset>(7));
+        reader.GetFieldValue<DateTimeOffset>(7),
+        reader.IsDBNull(8) ? null : reader.GetFieldValue<DateTimeOffset>(8));
 
     // Written and read by hand: a few fields at start-up and every half minute, and no serializer to keep in step.
     internal static string WriteBudgets(IReadOnlyList<BudgetDescription> budgets)

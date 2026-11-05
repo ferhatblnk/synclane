@@ -108,6 +108,12 @@ public sealed partial class SyncLaneOptions
         return this;
     }
 
+    /// <summary>The declared budget called <paramref name="name"/>, or <c>null</c>.</summary>
+    internal BudgetDescription? FindBudget(string name) => _budgets.FirstOrDefault(budget => budget.Name == name);
+
+    /// <summary>Replaces a declared budget with the same name, for settings that come from configuration.</summary>
+    internal void Override(BudgetDescription budget) => _budgets[_budgets.FindIndex(declared => declared.Name == budget.Name)] = budget;
+
     /// <summary>The declared queue called <paramref name="name"/>, or <c>null</c>.</summary>
     internal QueueOptions? Find(string name) => _queues.FirstOrDefault(queue => queue.Name == name);
 

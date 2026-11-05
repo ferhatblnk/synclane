@@ -3,7 +3,8 @@ using SyncLane.Storage;
 namespace SyncLane.Planning;
 
 /// <summary>
-/// Plans a queue for a set of owners: one read for what exists, one insert for what is missing.
+/// Plans a queue for a set of owners: one round trip that remembers them and reads what exists, one insert for what is
+/// missing.
 /// The unique index on the dedup key makes the insert safe when several instances plan at once.
 /// </summary>
 internal sealed class QueuePlanner(JobStore store, TimeProvider time)
@@ -14,7 +15,7 @@ internal sealed class QueuePlanner(JobStore store, TimeProvider time)
             return 0;
 
         var now = time.GetUtcNow();
-        var coverage = await store.GetCoverageAsync(queue.Name, owners.Select(owner => owner.Key).ToHashSet(), cancellationToken);
+        var coverage = await store.GetCoverageAsync(queue.Name, owners, now, cancellationToken);
 
         var missing = owners
             .SelectMany(owner => JobPlanner.Plan(
