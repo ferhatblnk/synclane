@@ -16,6 +16,7 @@ namespace SyncLane.Tests.Http;
 /// the ways real APIs do. Another app on the same account spends part of every window, which no declared budget can
 /// know. Once the recipe names the headers, nothing is throttled; without them, the same run is.
 /// </summary>
+[Collection(WallClockCollection.Name)]
 public class HeaderGateTests : PostgresTest
 {
     private const int Owners = 4;

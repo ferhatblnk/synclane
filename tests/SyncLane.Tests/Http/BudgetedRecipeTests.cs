@@ -9,6 +9,7 @@ using SyncLane.Tests.Support;
 namespace SyncLane.Tests.Http;
 
 /// <summary>A recipe with a <c>rate</c> section, one page at a time, against the database that holds the buckets.</summary>
+[Collection(WallClockCollection.Name)]
 public class BudgetedRecipeTests : PostgresTest
 {
     [PostgresFact]
