@@ -1,4 +1,3 @@
-using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
@@ -153,20 +152,6 @@ public class OrderedQueueTests : PostgresTest
 
         await host.StopAsync();
         Assert.Equal(JobStatus.Pending, held);
-    }
-
-    [Fact]
-    public void Ordered_can_be_set_from_configuration()
-    {
-        var configuration = new ConfigurationBuilder()
-            .AddInMemoryCollection(new Dictionary<string, string?> { ["SyncLane:Queues:stores:Ordered"] = "true" })
-            .Build();
-        var options = new SyncLaneOptions { ConnectionString = "Host=localhost;Database=app" };
-        options.AddQueue(Queue, queue => queue.Handle<ProductHandler>("orders"));
-
-        SettingsFromConfiguration.Apply(options, configuration.GetSection("SyncLane"));
-
-        Assert.True(options.Queue(Queue).Ordered);
     }
 
     private Task<Job?> LeaseOrderedAsync(string worker) =>

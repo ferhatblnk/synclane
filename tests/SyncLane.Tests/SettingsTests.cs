@@ -11,6 +11,14 @@ public class SettingsTests
     private const string AnyConnection = "Host=localhost;Database=app";
 
     [Fact]
+    public void A_queue_can_be_made_ordered_from_configuration()
+    {
+        var options = Configure(new() { ["SyncLane:Queues:orders:Ordered"] = "true" });
+
+        Assert.True(options.Queue("orders").Ordered);
+    }
+
+    [Fact]
     public void Every_setting_in_the_section_overrides_what_the_code_declared()
     {
         var options = Configure(new()
