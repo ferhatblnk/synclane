@@ -15,6 +15,11 @@ internal static class DedupKeys
 
     public static string Loaded(DateTimeOffset start, DateTimeOffset end) => $"loaded:{Format(start)}/{Format(end)}";
 
+    /// <summary>What every job made by a sync-now starts with; the rest only keeps it unique.</summary>
+    public const string SyncNowPrefix = "sync-now:";
+
+    public static string SyncNow(Guid id) => $"{SyncNowPrefix}{id:N}";
+
     private static string Format(DateTimeOffset moment) =>
         moment.UtcDateTime.ToString(TimestampFormat, CultureInfo.InvariantCulture);
 }

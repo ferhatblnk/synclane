@@ -157,6 +157,7 @@ public class InstanceTests : PostgresTest
             new InstanceStore(Store.DataSource, new InstanceSql(Schema)),
             new InstanceIdentity(id, id.Split(':')[0], application, "1.0.0"),
             _clock,
+            new Monitoring.HealthSignals(),
             NullLogger<InstanceRegistry>.Instance);
     }
 

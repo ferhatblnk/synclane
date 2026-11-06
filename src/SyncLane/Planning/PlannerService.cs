@@ -12,6 +12,7 @@ internal sealed partial class PlannerService(
     IServiceScopeFactory scopes,
     TimeProvider time,
     SyncLaneMetrics metrics,
+    Monitoring.HealthSignals health,
     ILogger<PlannerService> logger) : BackgroundService
 {
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
@@ -38,6 +39,7 @@ internal sealed partial class PlannerService(
 
             var owners = await source.GetOwnersAsync(queue.Name, stoppingToken);
             var planned = await planner.PlanAsync(queue, owners, stoppingToken);
+            health.Planned(queue.Name);
             if (planned > 0)
             {
                 metrics.Planned(queue.Name, planned);
@@ -47,6 +49,7 @@ internal sealed partial class PlannerService(
         catch (Exception exception) when (!stoppingToken.IsCancellationRequested)
         {
             metrics.PlanFailed(queue.Name);
+            health.PlanFailed(queue.Name, time.GetUtcNow());
             LogFailed(exception, queue.Name);
         }
     }

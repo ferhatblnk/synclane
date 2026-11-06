@@ -14,6 +14,7 @@ licenses that follow.
 - Microsoft.Extensions.DependencyInjection.Abstractions (MIT License) https://github.com/dotnet/runtime
 - Microsoft.Extensions.Diagnostics (MIT License) https://github.com/dotnet/runtime
 - Microsoft.Extensions.Diagnostics.Abstractions (MIT License) https://github.com/dotnet/runtime
+- Microsoft.Extensions.Diagnostics.HealthChecks.Abstractions (MIT License) https://github.com/dotnet/aspnetcore
 - Microsoft.Extensions.FileProviders.Abstractions (MIT License) https://github.com/dotnet/runtime
 - Microsoft.Extensions.Hosting.Abstractions (MIT License) https://github.com/dotnet/runtime
 - Microsoft.Extensions.Http (MIT License) https://github.com/dotnet/runtime

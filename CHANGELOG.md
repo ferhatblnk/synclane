@@ -4,6 +4,29 @@ All notable changes to this project are recorded here. The format follows [Keep 
 
 ## [Unreleased]
 
+### Added
+
+- Priority levels: `JobPriority` (`Urgent`, `High`, `Normal`, `Low`).
+  - `NewJob.Priority` gives one job its level; `JobOwner.Priority`, from the owner source or the enqueue, gives an owner's jobs theirs, for example `High` for a new customer whose history should load first.
+  - Due jobs run urgent first, then owners an operator moved forward, then high, normal and low; within a level, types keep their declared order. A running job is never cut.
+  - `Job.PriorityLevel` and `Job.Prioritized` say where a job stands; the monitor's job view carries both.
+  - No migration: rows written before read as normal, and owners moved forward before stay moved.
+
+- `SyncLaneHealthCheck` for .NET health checks: `services.AddHealthChecks().AddCheck<SyncLaneHealthCheck>("synclane")`.
+  - Unhealthy when the database cannot be reached, the schema lacks migrations, or this instance has not renewed its registration for two minutes.
+  - Degraded while starting, when a queue's latest planning round failed, or when the instance does not hear job changes.
+  - New dependency of the engine: `Microsoft.Extensions.Diagnostics.HealthChecks.Abstractions` (MIT, Microsoft).
+
+- `ISyncLaneMonitor.SyncNowAsync(queue, owner, type)` and `POST /sync-now`: fetch an owner's new data now, for example when a webhook says something changed.
+  - The job covers from where the owner's completed data reaches to now, or the whole of a type without windows, at `High` priority, in the owner's lane.
+  - While it waits, another call stretches its window to now instead of adding a job, so a burst of webhooks is one fetch; calls at the same moment make one job too.
+  - Like the other repairs it needs no queue declared, and it is written to the actions log with who asked. Code `SL3012` when the queue never planned that owner and type.
+
+### Changed
+
+- A completed manual job whose window starts within an owner's completed data extends it, never past now. One past a gap does not, so a gap is never hidden.
+- `PrioritizeOwnerAsync` now moves high and low jobs too, and leaves urgent ones where they are.
+
 ## [0.4.1] - 2026-11-06
 
 Live changes behind a connection pooler.

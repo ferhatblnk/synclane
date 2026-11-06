@@ -27,8 +27,18 @@ public sealed record Job
     /// <summary>Where the job is in its life.</summary>
     public required JobStatus Status { get; init; }
 
-    /// <summary>Lower runs first. Taken from the order in which the job types were declared.</summary>
+    /// <summary>
+    /// The stored order, lower first: the level's band plus the type's place in the order the types were declared, less a
+    /// fixed amount when an operator moved the owner forward. <see cref="PriorityLevel"/> and <see cref="Prioritized"/>
+    /// say the same in words.
+    /// </summary>
     public int Priority { get; init; }
+
+    /// <summary>The level the job was created with, from <see cref="NewJob.Priority"/> or the owner's.</summary>
+    public JobPriority PriorityLevel => Planning.Priorities.LevelOf(Priority);
+
+    /// <summary>Whether an operator moved the owner's waiting jobs forward.</summary>
+    public bool Prioritized => Planning.Priorities.IsMoved(Priority);
 
     /// <summary>Start of the range the job covers, or <c>null</c> for a job without a window.</summary>
     public DateTimeOffset? WindowStart { get; init; }

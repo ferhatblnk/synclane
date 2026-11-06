@@ -13,6 +13,13 @@ namespace SyncLane;
 /// </param>
 public sealed record JobOwner(string Key, string? Lane = null, string? Name = null)
 {
+    /// <summary>
+    /// How soon the owner's jobs run compared with other owners' in the queue, for example <see cref="JobPriority.High"/>
+    /// for a new customer whose history should load first. It applies to jobs created from now on; jobs already waiting
+    /// keep theirs. A job enqueued with its own <see cref="NewJob.Priority"/> uses that instead.
+    /// </summary>
+    public JobPriority Priority { get; init; } = JobPriority.Normal;
+
     internal string LaneOrKey => string.IsNullOrEmpty(Lane) ? Key : Lane;
 
     internal string? NameOrNull => string.IsNullOrWhiteSpace(Name) ? null : Name.Trim();

@@ -77,9 +77,10 @@ public interface ISyncLaneMonitor
     Task<SyncResult<int>> RequeueByCodeAsync(string queue, string code, string? by = null, CancellationToken cancellationToken = default);
 
     /// <summary>
-    /// Moves the owner's waiting jobs on the queue ahead of every other owner's, for example for an account that has just
-    /// connected and is waiting for its history. Among its own jobs the order of the types stays. Jobs planned later get
-    /// the usual priority. Asking again changes nothing.
+    /// Moves the owner's waiting jobs on the queue ahead of every other owner's, at every level but
+    /// <see cref="JobPriority.Urgent"/>, for example for an account that has just connected and is waiting for its
+    /// history. Among its own jobs the order of levels and types stays. Jobs planned later get the usual priority: to keep
+    /// an owner ahead for good, give it a <see cref="JobOwner.Priority"/>. Asking again changes nothing.
     /// </summary>
     /// <param name="queue">The queue.</param>
     /// <param name="owner">The owner.</param>
@@ -87,6 +88,24 @@ public interface ISyncLaneMonitor
     /// <param name="cancellationToken">Cancels the call.</param>
     /// <returns>How many jobs were moved forward.</returns>
     Task<SyncResult<int>> PrioritizeOwnerAsync(string queue, string owner, string? by = null, CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Fetches an owner's new data now instead of at its next period, for example when the other side announces a change
+    /// with a webhook. The job covers from where the owner's completed data reaches to now; a type without windows is
+    /// fetched whole. It runs at <see cref="JobPriority.High"/>. While it waits, another call stretches it to now instead
+    /// of adding a job, so a burst of announcements is one fetch. It needs no queue declared, like the other repairs, and
+    /// is written to the actions log with <paramref name="by"/>. The planner's own jobs go on as before.
+    /// </summary>
+    /// <param name="queue">The queue.</param>
+    /// <param name="owner">The owner's key.</param>
+    /// <param name="type">The job type to fetch.</param>
+    /// <param name="by">Who asks, for the actions log.</param>
+    /// <param name="cancellationToken">Cancels the call.</param>
+    /// <returns>
+    /// The id of the job that will fetch, new or already waiting. <see cref="SyncErrorCodes.OwnerTypeNotPlanned"/> when
+    /// the queue has never planned that owner and type.
+    /// </returns>
+    Task<SyncResult<long>> SyncNowAsync(string queue, string owner, string type, string? by = null, CancellationToken cancellationToken = default);
 
     /// <summary>
     /// Stops a queue, or one owner on it, at once: an emergency stop. No job of it is taken, and jobs of it running on any

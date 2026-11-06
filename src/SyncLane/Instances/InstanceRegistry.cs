@@ -14,6 +14,7 @@ internal sealed partial class InstanceRegistry(
     InstanceStore store,
     InstanceIdentity identity,
     TimeProvider time,
+    Monitoring.HealthSignals health,
     ILogger<InstanceRegistry> logger) : BackgroundService
 {
     private InstanceRow? _me;
@@ -33,6 +34,7 @@ internal sealed partial class InstanceRegistry(
             LogBudgetDisagrees(mine.Name, mine.Limit, mine.Per, mine.Burst, other.Id, other.Application, theirs.Limit, theirs.Per, theirs.Burst);
 
         _me = me;
+        health.Heartbeat(now);
         LogRegistered(identity.Id, identity.Application, queues.Count);
         await base.StartAsync(cancellationToken);
     }
@@ -71,6 +73,7 @@ internal sealed partial class InstanceRegistry(
         {
             var now = time.GetUtcNow();
             await store.HeartbeatAsync(_me, now, now - InstanceRules.ForgetAfter, cancellationToken);
+            health.Heartbeat(now);
         }
         catch (Exception exception) when (!cancellationToken.IsCancellationRequested)
         {

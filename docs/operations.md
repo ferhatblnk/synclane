@@ -98,7 +98,8 @@ ORDER BY budget, rate;
 | `RequeueJobAsync(id)` | Gives one failed, deferred or abandoned job fresh attempts, keeping its cursor. |
 | `RestartJobAsync(id)` | Runs one job again from its first page, a completed one too, for a window whose data has to be fetched again. |
 | `RequeueByCodeAsync(queue, code)` | Requeues every failing, deferred and abandoned job of the queue with that error code, after you fixed the cause. |
-| `PrioritizeOwnerAsync(queue, owner)` | Moves the owner's waiting jobs ahead of every other owner's, keeping its own type order. |
+| `SyncNowAsync(queue, owner, type)` | Fetches the owner's new data now, from where its completed data reaches, at high priority. While that job waits, later calls stretch it to now instead of adding jobs, so a webhook storm is one fetch. A type without windows is fetched whole. The planner's own jobs are not touched. |
+| `PrioritizeOwnerAsync(queue, owner)` | Moves the owner's waiting jobs ahead of every other owner's, urgent jobs excepted, keeping its own order of levels and types. Jobs created later get the owner's usual priority; to keep it ahead, give it a `JobOwner.Priority`. |
 
 Apart from the pause, none of them touches a running job. A call about one job that cannot act says why (`SL3008`, `SL3102`); the others return how many jobs they changed.
 
@@ -132,10 +133,10 @@ SET next_run_at = now() + interval '1 hour'
 WHERE owner = 'globex' AND status IN ('pending', 'failed');
 ```
 
-Let one job jump the queue:
+Let one job jump the queue, as if it had been enqueued urgent:
 
 ```sql
-UPDATE synclane.jobs SET priority = -1 WHERE id = 33;
+UPDATE synclane.jobs SET priority = priority - 10000000 WHERE id = 33;
 ```
 
 Do not set a row to `running` by hand, and do not change `leased_by`. Those two columns are how a worker proves a job is still its own.
@@ -240,6 +241,26 @@ Four signals worth an alert:
 - `synclane.job.throttled` growing faster than `synclane.job.taken`. The pace is too high for the other side: give the recipe or handler a rate budget.
 - `synclane.job.finished{outcome="lease_lost"}` above zero. A worker stalled longer than `LeaseDuration`, or clocks disagree.
 - `synclane.budget.paused` growing steadily. The declared budget is above what the API allows now: lower it. Another app on the same account can cause this too. `synclane.budget.exhausted` growing is not a problem: it means SyncLane stopped at zero instead of being throttled.
+
+## Health checks
+
+Register `SyncLaneHealthCheck` with your health checks and point your orchestrator's probe at the endpoint:
+
+```csharp
+builder.Services.AddHealthChecks().AddCheck<SyncLaneHealthCheck>("synclane", tags: ["ready"]);
+app.MapHealthChecks("/health/ready", new() { Predicate = check => check.Tags.Contains("ready") });
+```
+
+| Status | When | What to do |
+| --- | --- | --- |
+| Unhealthy | The database cannot be reached | Check PostgreSQL and `ConnectionString`. The description names the error's type only. |
+| Unhealthy | The schema lacks migrations | Apply `SyncLaneSchema.Script()`, or set `CreateSchema` to true. |
+| Unhealthy | No heartbeat for two minutes | Other instances count this one as gone, and another application may take its queues. The log says why the heartbeat fails. |
+| Degraded | Starting | Nothing: it has not registered yet. |
+| Degraded | The latest planning round of a queue failed | No new jobs are planned for it until a round succeeds. The log says why, usually the owner source. |
+| Degraded | It does not hear job changes | Workers poll every `PollInterval`. See [Behind a connection pooler](#behind-a-connection-pooler). |
+
+ASP.NET Core answers 200 for degraded and 503 for unhealthy by default, so a readiness probe keeps a degraded instance in service. Use it for readiness rather than liveness: a database outage makes every instance unhealthy at once, and restarting them all helps nothing.
 
 ## Several instances
 

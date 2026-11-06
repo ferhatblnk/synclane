@@ -91,6 +91,9 @@ public static partial class SyncLaneEndpoints
                 .Produces<int>().WithName("SyncLane_ClearBudgetLimit").WithSummary("Lifts a temporary limit on a rate budget.");
             repairs.MapPost("/prioritize", PrioritizeOwnerAsync)
                 .Produces<int>().WithName("SyncLane_PrioritizeOwner").WithSummary("Moves an owner's waiting jobs ahead of every other owner's.");
+            repairs.MapPost("/sync-now", SyncNowAsync)
+                .Produces<long>().WithName("SyncLane_SyncNow")
+                .WithSummary("Fetches an owner's new data now, for example on a webhook; a burst of calls is one fetch.");
         }
 
         return group;
@@ -180,6 +183,14 @@ public static partial class SyncLaneEndpoints
     {
         var result = await monitor.PrioritizeOwnerAsync(queue, owner, Who(http), http.RequestAborted);
         LogRepair(loggers.CreateLogger(Producer), Who(http), "prioritized owner", $"{queue} {owner}", result.Succeeded);
+        return Answer(result);
+    }
+
+    private static async Task<IResult> SyncNowAsync(
+        string queue, string owner, string type, ISyncLaneMonitor monitor, HttpContext http, ILoggerFactory loggers)
+    {
+        var result = await monitor.SyncNowAsync(queue, owner, type, Who(http), http.RequestAborted);
+        LogRepair(loggers.CreateLogger(Producer), Who(http), "synced now", $"{queue} {owner} {type}", result.Succeeded);
         return Answer(result);
     }
 

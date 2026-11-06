@@ -85,6 +85,12 @@ public static class ServiceCollectionExtensions
             provider.GetRequiredService<TimeProvider>(),
             provider.GetRequiredService<Microsoft.Extensions.Logging.ILogger<JobChangeFeed>>()));
         services.AddSingleton<ISyncLaneMonitor, SyncLaneMonitor>();
+        services.AddSingleton<HealthSignals>();
+        services.AddSingleton(static provider => new SyncLaneHealthCheck(
+            provider.GetRequiredService<JobStore>(),
+            provider.GetRequiredService<HealthSignals>(),
+            provider.GetRequiredService<JobChangeFeed>(),
+            provider.GetRequiredService<TimeProvider>()));
         services.AddSingleton<QueuePlanner>();
         services.AddSingleton<RunningJobs>();
         services.AddSingleton<JobRunner>();

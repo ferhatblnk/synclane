@@ -35,6 +35,9 @@ internal sealed partial class JobChangeFeed(
 
     private Probe? _probe;
 
+    /// <summary>Whether the feed hears changes now, for the health check.</summary>
+    internal FeedState State { get; private set; } = FeedState.NotStarted;
+
     /// <summary>Changes a reader may fall behind by before the oldest are dropped, so a slow reader never holds up the rest.</summary>
     internal const int ReaderCapacity = 1000;
 
@@ -142,6 +145,7 @@ internal sealed partial class JobChangeFeed(
 
                 if (!heard)
                 {
+                    State = FeedState.Stopped;
                     LogDeaf(_channel, ProbePatience);
                     return;
                 }
@@ -150,6 +154,7 @@ internal sealed partial class JobChangeFeed(
                     await listen.ExecuteNonQueryAsync(stopping);
 
                 pause = FirstPause;
+                State = FeedState.Listening;
                 _listeningNow.TrySetResult();
                 LogListening(_channel);
 
@@ -172,6 +177,8 @@ internal sealed partial class JobChangeFeed(
                 // A new signal for the next connection: changes made before it listens again are not seen.
                 if (_listeningNow.Task.IsCompleted)
                     _listeningNow = NewSignal();
+
+                State = FeedState.Reconnecting;
 
                 LogBroken(exception, _channel, pause);
                 try
@@ -325,4 +332,20 @@ internal sealed partial class JobChangeFeed(
         "ListenConnectionString to a connection straight to the server, or through a pooler in session mode. Until then " +
         "workers look for jobs every PollInterval and live views stay quiet.")]
     private partial void LogDeaf(string channel, TimeSpan patience);
+}
+
+/// <summary>Where the change feed stands.</summary>
+internal enum FeedState
+{
+    /// <summary>Nothing has read changes yet, so it has not connected.</summary>
+    NotStarted,
+
+    /// <summary>It hears changes.</summary>
+    Listening,
+
+    /// <summary>Its connection broke and it connects again after a pause.</summary>
+    Reconnecting,
+
+    /// <summary>It heard no probe and stopped until the next start.</summary>
+    Stopped
 }

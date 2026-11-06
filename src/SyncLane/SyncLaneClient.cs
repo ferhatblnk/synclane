@@ -19,6 +19,10 @@ internal sealed class SyncLaneClient(SyncLaneOptions options, JobStore store, Qu
     public async Task<SyncResult<long>> EnqueueAsync(NewJob job, CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(job);
+        var level = job.Priority ?? job.Owner.Priority;
+        if (!Enum.IsDefined(level))
+            throw new ArgumentOutOfRangeException(nameof(job));
+
         if (options.Find(job.Queue) is not { } queue)
             return SyncResult<long>.Failure(SyncLaneErrors.QueueNotDeclared(job.Queue));
 
@@ -26,7 +30,8 @@ internal sealed class SyncLaneClient(SyncLaneOptions options, JobStore store, Qu
             return SyncResult<long>.Failure(SyncLaneErrors.JobTypeNotDeclared(queue.Name, job.Type));
 
         var planned = new PlannedJob(
-            job.Owner.Key, job.Owner.LaneOrKey, type.Name, JobMode.Manual, type.Priority, job.WindowStart, job.WindowEnd, job.DedupKey);
+            job.Owner.Key, job.Owner.LaneOrKey, type.Name, JobMode.Manual, Priorities.Of(level, type.Priority),
+            job.WindowStart, job.WindowEnd, job.DedupKey);
 
         return await store.EnqueueOneAsync(queue.Name, planned, job.Owner.NameOrNull, time.GetUtcNow(), cancellationToken) is { } id
             ? SyncResult<long>.Success(id)
