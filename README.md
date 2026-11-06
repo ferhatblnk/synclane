@@ -469,7 +469,7 @@ builder.Services.AddSyncLane(builder.Configuration.GetSection("SyncLane"), lane 
 
 ## Project status
 
-Version 0.4, early. Before 1.0 a minor version may still change the API; every such change is listed under its version in [CHANGELOG.md](CHANGELOG.md). The design comes from a job system that has been syncing external APIs for many accounts in production, and the rules in [docs/planning.md](docs/planning.md) were learned there the hard way. This repository is a clean, general rewrite of that design. It has its own tests, including ones that run many workers against a real PostgreSQL, but this code has not run in production itself. Try it on something that is allowed to fail first; [docs/production-trial.md](docs/production-trial.md) is the checklist we use for that. `SyncLane.Http` is newer still: it has synced five public APIs, not yet the APIs of a production integration.
+Version 0.5, early. Before 1.0 a minor version may still change the API; every such change is listed under its version in [CHANGELOG.md](CHANGELOG.md). The design comes from a job system that has been syncing external APIs for many accounts in production, and the rules in [docs/planning.md](docs/planning.md) were learned there the hard way. This repository is a clean, general rewrite of that design. It has its own tests, including ones that run many workers against a real PostgreSQL, but this code has not run in production itself. Try it on something that is allowed to fail first; [docs/production-trial.md](docs/production-trial.md) is the checklist we use for that. `SyncLane.Http` is newer still: it has synced five public APIs, not yet the APIs of a production integration.
 
 ## Development
 
