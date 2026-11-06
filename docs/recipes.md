@@ -370,7 +370,7 @@ A recipe names a credential; it never holds one. For every page, SyncLane asks y
 | `bearer` | `Authorization: Bearer <Token>` | `Token` | |
 | `basic` | `Authorization: Basic`, user name and password in UTF-8 | `Username`, and `Password` if there is one | |
 | `apiKey` | The key in a header or a query parameter | `Token` | `name` (required); `in`: `header` (default) or `query`; `prefix` before a key in a header, such as `"Token "` |
-| `oauth2` | `Authorization: Bearer` with an access token from `tokenUrl` | Client credentials: `ClientId`, `ClientSecret`. Refresh token: `ClientId`, `RefreshToken`, and `ClientSecret` if the client has one | `grant`: `clientCredentials` or `refreshToken` (required); `tokenUrl` (required); `scope`; `clientAuth`: `basic` (default) or `body` |
+| `oauth2` | `Authorization: Bearer` with an access token from `tokenUrl`, or the token in the header `name` names | Client credentials: `ClientId`, `ClientSecret`. Refresh token: `ClientId`, `RefreshToken`, and `ClientSecret` if the client has one | `grant`: `clientCredentials` or `refreshToken` (required); `tokenUrl` (required); `scope`; `clientAuth`: `basic` (default) or `body`; `name`: a header for the token, for an API that does not take it in `Authorization`; `prefix` before it, none by default |
 | `signed` | Whatever your signer adds | Any, including `Values` | `signer` (required) |
 
 `credential` is required for every type. A field that does not apply to the type is an error, as with pagination. Prefer a header for an API key when the API accepts one: a URL is recorded in more places than a header, by proxies and by the API's own access logs.
@@ -541,7 +541,8 @@ How far it goes:
 | --- | --- | --- |
 | `name` | yes | A name for messages and logs. |
 | `request.method` | no | `GET` (default) or `POST`. |
-| `request.url` | yes | Absolute `https` URL. Placeholders may appear in the path and the query, never in the scheme, host or port. |
+| `request.url` | yes | Absolute `https` URL. Placeholders may appear in the path and the query, never in the scheme or port. The host is written out, or made from the owner's values when `request.hosts` lists where it may be. |
+| `request.hosts` | no | For a host made from the owner's values: every host it may be. See [A host per owner](#a-host-per-owner). |
 | `request.query` | no | Parameters added to the URL. Values are strings and may contain placeholders. |
 | `request.headers` | no | Request headers. Values may contain placeholders. `Host`, `Content-Length`, `Transfer-Encoding` and `Connection` cannot be set; `Authorization` and `Proxy-Authorization` are refused, because credentials never go in a recipe. |
 | `request.body` | no | A JSON body, for `POST` only. Placeholders are filled in string values. |
@@ -559,8 +560,43 @@ How far it goes:
 | `{{window.start}}` | Start of the job's window, in `window.format`. |
 | `{{window.end}}` | End of the job's window, in `window.format`. |
 | `{{owner.key}}` | The job's owner key. |
+| `{{owner.<value>}}` | One of the owner's values, such as `{{owner.region}}`: what the owner source gave in `JobOwner.Values`. A job whose owner lacks it sends nothing (`SL5132`). |
+| `{{request.id}}` | A new UUID for every request, the same wherever it appears in that request: for APIs that want a correlation id per call. |
 
 A placeholder is a name and nothing more: no expressions, no filters, no nesting. Any other name is an error when the recipe is loaded.
+
+### Values per owner
+
+Many APIs need more about an account than its key: the marketplace it sells on, its region, its store's id. The owner source gives them, beside the name:
+
+```csharp
+new JobOwner(account.Id, Name: account.StoreName)
+{
+    Values = new Dictionary<string, string> { ["market"] = account.Market, ["region"] = account.Region }
+}
+```
+
+and the recipe writes them where the API wants them, as `{{owner.market}}`. They are kept with the owner, like its name, and come with every job a worker takes: no lookup per page. An owner given without values keeps the ones it had. Names are letters, digits and underscores, starting with a letter; `key` is taken (`SL3013`).
+
+Values are not secrets: they may land in a URL, which the API's logs record, and in a saved cursor. Credentials go in the credential store. Like names, values are never written to a log, a trace or a metric. `synclane test` takes them as `--value region=eu`.
+
+### A host per owner
+
+Some APIs give each account its own host: one per region, or one per store. The host may then be made from the owner's values, if the recipe lists every host it may be:
+
+```jsonc
+"request": {
+  "url": "https://{{owner.endpoint}}/v1/orders",
+  "hosts": ["api-na.example.com", "api-eu.example.com", "api-fe.example.com"]
+}
+```
+
+`*.` and a domain allows any one name under it, for a host per store: `"https://{{owner.shop}}.stores.example.com/v1/orders"` with `"hosts": ["*.stores.example.com"]`. It allows `acme.stores.example.com`, and neither `stores.example.com` nor `a.acme.stores.example.com`.
+
+- The host is checked on every request, a next page's included, before it is sent. One outside the list sends nothing and abandons the job (`SL5133`), so a wrong or hostile value can never send the request, or its credential, elsewhere.
+- A made host holds letters, digits, dots, hyphens and the owner's values only: no user name, no port, no window. The scheme and port stay written out.
+- A next page must stay on the very host the job's request went to, not only on one of the list.
+- A recipe that writes its host out cannot have `hosts`.
 
 A job without a window cannot run a recipe that uses `{{window.start}}` or `{{window.end}}` (`SL5101`). Declare such job types with `Windowed`.
 
@@ -579,7 +615,7 @@ All formats are in UTC.
 
 These are deliberate limits, checked when the recipe is loaded or the request is built:
 
-- **Call a host it does not name.** The scheme, host and port are fixed text. A placeholder cannot change where the request goes.
+- **Call a host it does not name.** The scheme and port are fixed text, and so is the host, unless `request.hosts` lists every host it may be; then a host outside the list is never sent to. See [A host per owner](#a-host-per-owner).
 - **Hold a credential.** `https://user:password@host` and an `Authorization` header are refused. A recipe names a credential; the credential store gives its values. See [Authentication](#authentication).
 - **Inject into the request.** Placeholder values are percent-encoded in the URL and written as JSON strings in the body, so a value cannot add a parameter or change the shape of the body. A header that would contain a line break after filling is not sent.
 - **Put a secret into an error message.** Messages name the recipe and the field, never a header value, a credential, a URL or a response body. A network error keeps only its kind, never the exception's own text.

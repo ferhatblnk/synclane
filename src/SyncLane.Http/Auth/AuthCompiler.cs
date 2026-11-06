@@ -41,8 +41,10 @@ internal static partial class AuthCompiler
             Fail("credential", "must be 1 to 200 letters, digits, dots, underscores, colons, slashes or hyphens");
 
         if (auth.Type != AuthType.ApiKey)
-        {
             NotFor("in", auth.In);
+
+        if (auth.Type is not (AuthType.ApiKey or AuthType.OAuth2))
+        {
             NotFor("name", auth.Name);
             NotFor("prefix", auth.Prefix);
         }
@@ -78,6 +80,10 @@ internal static partial class AuthCompiler
 
                 Required("tokenUrl", auth.TokenUrl);
                 tokenUrl = CheckTokenUrl(auth.TokenUrl, request.AllowHttp, Fail);
+                if (auth.Name is not null)
+                    CheckHeader(auth, source, reservedHeaders, Fail);
+                else if (auth.Prefix is not null)
+                    Fail("prefix", "applies only with name: the default header is 'Authorization: Bearer'");
                 break;
 
             case AuthType.Signed:
@@ -96,7 +102,9 @@ internal static partial class AuthCompiler
             AuthType.Bearer => new BearerAuth(recipe, credential),
             AuthType.Basic => new BasicAuth(recipe, credential),
             AuthType.ApiKey => new ApiKeyAuth(recipe, credential, auth.In ?? ApiKeyLocation.Header, auth.Name!, auth.Prefix ?? ""),
-            AuthType.OAuth2 => new OAuth2Auth(recipe, credential, auth.Grant!.Value, tokenUrl!, auth.Scope, auth.ClientAuth ?? OAuth2ClientAuth.Basic),
+            AuthType.OAuth2 => new OAuth2Auth(
+                recipe, credential, auth.Grant!.Value, tokenUrl!, auth.Scope, auth.ClientAuth ?? OAuth2ClientAuth.Basic,
+                auth.Name ?? "Authorization", auth.Name is null ? "Bearer " : auth.Prefix ?? ""),
             _ => new SignedAuth(recipe, credential, auth.Signer!)
         };
     }
@@ -126,11 +134,17 @@ internal static partial class AuthCompiler
             return;
         }
 
+        CheckHeader(auth, source, reservedHeaders, fail);
+    }
+
+    /// <summary>A header the credential goes in, for an API key or an OAuth 2.0 access token, and the text before it.</summary>
+    private static void CheckHeader(HttpRecipeAuth auth, HttpRecipe source, IReadOnlySet<string> reservedHeaders, Action<string, string> fail)
+    {
+        var name = auth.Name!;
         if (!HttpToken().IsMatch(name) || reservedHeaders.Contains(name) || name.StartsWith("Content-", StringComparison.OrdinalIgnoreCase))
             fail("name", $"'{name}' is not a header SyncLane can set");
         else if (source.Request.Headers.Keys.Contains(name, StringComparer.OrdinalIgnoreCase))
             fail("name", $"'{name}' is also set in request.headers; set it in one place");
-
         if (auth.Prefix is { } prefix && prefix.AsSpan().ContainsAnyExceptInRange(' ', '~'))
             fail("prefix", "must be printable ASCII on one line");
     }

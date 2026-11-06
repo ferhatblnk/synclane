@@ -17,6 +17,7 @@ internal static class Migrations
         new(8, "change notifications", ChangeNotifications),
         new(9, "operations", Operations),
         new(10, "owners", Owners),
+        new(11, "owner values", OwnerValues),
     ];
 
     public static int Latest => All[^1].Version;
@@ -357,5 +358,12 @@ internal static class Migrations
 
         ALTER TABLE {schema}.{InstanceSql.TableName}
             ADD COLUMN IF NOT EXISTS stopped_at timestamptz;
+        """;
+
+    /// <summary>Values per owner that recipes put into requests, such as a marketplace or a region, kept with its name.</summary>
+    private static string OwnerValues(string schema) =>
+        $"""
+        ALTER TABLE {schema}.{JobSql.OwnersTableName}
+            ADD COLUMN IF NOT EXISTS owner_values jsonb;
         """;
 }

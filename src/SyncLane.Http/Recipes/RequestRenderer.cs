@@ -26,15 +26,29 @@ internal static class RequestRenderer
         if (recipe.UsesWindow && (job.WindowStart is null || job.WindowEnd is null))
             return SyncResult<HttpRequestMessage>.Failure(HttpErrors.WindowMissing(recipe.Name));
 
+        foreach (var value in recipe.OwnerValues)
+        {
+            if (job.OwnerValues?.ContainsKey(value) != true)
+                return SyncResult<HttpRequestMessage>.Failure(HttpErrors.OwnerValueMissing(recipe.Name, value));
+        }
+
+        string? requestId = null;
         string Value(string name) => name switch
         {
             Placeholders.WindowStart => Format(job.WindowStart!.Value, recipe.WindowFormat),
             Placeholders.WindowEnd => Format(job.WindowEnd!.Value, recipe.WindowFormat),
             Placeholders.OwnerKey => job.Owner,
+            Placeholders.RequestId => requestId ??= Guid.NewGuid().ToString("D"),
+            _ when Placeholders.OwnerValue(name) is { } owned => job.OwnerValues![owned],
             _ => throw new UnreachableException()
         };
 
-        var request = new HttpRequestMessage(recipe.Method, page.Url ?? Url(recipe, page.Query, Value));
+        // A host made from the owner's values is checked on every request, a next page's included, before anything is sent.
+        var url = page.Url ?? Url(recipe, page.Query, Value);
+        if (url is null || (recipe.Origin.Hosts is not null && !recipe.Origin.Matches(url)))
+            return SyncResult<HttpRequestMessage>.Failure(HttpErrors.HostNotAllowed(recipe.Name));
+
+        var request = new HttpRequestMessage(recipe.Method, url);
 
         foreach (var (header, template) in recipe.Headers)
         {
@@ -76,7 +90,8 @@ internal static class RequestRenderer
         };
     }
 
-    private static Uri Url(CompiledRecipe recipe, IReadOnlyList<KeyValuePair<string, string>> paging, Func<string, string> value)
+    /// <summary>The URL with the placeholders filled in, or <c>null</c> when a value of the owner left no valid URL.</summary>
+    private static Uri? Url(CompiledRecipe recipe, IReadOnlyList<KeyValuePair<string, string>> paging, Func<string, string> value)
     {
         var url = new StringBuilder(recipe.Url.Render(name => Uri.EscapeDataString(value(name))));
         var separator = url.ToString().Contains('?') ? '&' : '?';
@@ -93,7 +108,7 @@ internal static class RequestRenderer
         foreach (var (name, text) in paging)
             Add(name, text);
 
-        return new Uri(url.ToString(), UriKind.Absolute);
+        return Uri.TryCreate(url.ToString(), UriKind.Absolute, out var made) ? made : null;
     }
 
     private static byte[] Body(JsonElement body, IReadOnlyDictionary<string, Template> strings, Func<string, string> value)

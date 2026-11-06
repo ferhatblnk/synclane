@@ -1,6 +1,7 @@
 using System.CommandLine;
 using System.Globalization;
 using System.Text.Json;
+using System.Text.RegularExpressions;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Http;
 using SyncLane.Http;
@@ -12,7 +13,7 @@ namespace SyncLane.Cli.Commands;
 /// database, and reports what a person needs to trust it: the records' fields, whether the key is unique, and whether
 /// page 2 brought new records. It prints structure, never values: no record, cursor, URL or credential.
 /// </summary>
-internal static class TestCommand
+internal static partial class TestCommand
 {
     private const string JobType = "recipe";
     private const int Pages = 2;
@@ -21,7 +22,13 @@ internal static class TestCommand
     public static Command Create(CliHost host)
     {
         var recipe = new Argument<string>("recipe") { Description = "The recipe file, such as one 'synclane init' wrote." };
-        var owner = new Option<string?>("--owner") { Description = "The owner key to test with, for a recipe that uses {{owner.*}}." };
+        var owner = new Option<string?>("--owner") { Description = "The owner key to test with, for a recipe that uses {{owner.key}}." };
+        var values = new Option<string[]>("--value")
+        {
+            Description = "A value of the owner, as name=value, for a recipe that uses {{owner.name}}. Repeat it for each.",
+            Arity = ArgumentArity.ZeroOrMore,
+            AllowMultipleArgumentsPerToken = false
+        };
         var since = new Option<string>("--since")
         {
             Description = "How far back the window reaches: a length such as 7d, 12h or 30m, or a date.",
@@ -30,14 +37,15 @@ internal static class TestCommand
 
         var command = new Command("test", "Runs a recipe for two pages through the real handler, without a database, and says whether its records, key and paging work.")
         {
-            recipe, owner, since
+            recipe, owner, since, values
         };
         command.SetAction((result, cancellationToken) =>
-            RunAsync(result.GetValue(recipe)!, result.GetValue(owner), result.GetValue(since)!, host, cancellationToken));
+            RunAsync(result.GetValue(recipe)!, result.GetValue(owner), result.GetValue(since)!, host, cancellationToken, Pairs(result.GetValue(values))));
         return command;
     }
 
-    internal static async Task<int> RunAsync(string file, string? owner, string since, CliHost host, CancellationToken cancellationToken)
+    internal static async Task<int> RunAsync(
+        string file, string? owner, string since, CliHost host, CancellationToken cancellationToken, IReadOnlyDictionary<string, string>? values = null)
     {
         var path = Path.GetFullPath(file, host.Directory);
         if (!File.Exists(path))
@@ -54,8 +62,13 @@ internal static class TestCommand
         // The placeholders say what the recipe needs; a window section is left out when it has the default format.
         var text = JsonSerializer.Serialize(recipe);
         var windowed = recipe.Window is not null || text.Contains("{{window.", StringComparison.Ordinal);
-        if (owner is null && text.Contains("{{owner.", StringComparison.Ordinal))
+        if (owner is null && text.Contains("{{owner.key}}", StringComparison.Ordinal))
             return host.Fail(CliErrors.OwnerNeeded(recipe.Name));
+
+        var needed = OwnerValue().Matches(text).Select(match => match.Groups["name"].Value).Where(name => name != "key").Distinct(StringComparer.Ordinal).ToList();
+        var missing = needed.Where(name => values?.ContainsKey(name) != true).ToList();
+        if (missing.Count > 0)
+            return host.Fail(CliErrors.OwnerValuesNeeded(recipe.Name, missing));
 
         var now = host.Time.GetUtcNow();
         if (Start(since, now) is not { } start)
@@ -93,6 +106,7 @@ internal static class TestCommand
                 Type = JobType,
                 Mode = JobMode.Manual,
                 Status = JobStatus.Running,
+                OwnerValues = values,
                 WindowStart = windowed ? start : null,
                 WindowEnd = windowed ? now : null,
                 CreatedAt = now,
@@ -298,4 +312,23 @@ internal static class TestCommand
                 first.ValueKind == JsonValueKind.Object ? [.. first.EnumerateObject().Select(property => property.Name)] : []);
         }
     }
+
+    /// <summary>name=value pairs as a dictionary; a pair without '=' is a value named by the whole text, which no recipe uses.</summary>
+    internal static IReadOnlyDictionary<string, string>? Pairs(string[]? pairs)
+    {
+        if (pairs is not { Length: > 0 })
+            return null;
+
+        var values = new Dictionary<string, string>(StringComparer.Ordinal);
+        foreach (var pair in pairs)
+        {
+            var equals = pair.IndexOf('=', StringComparison.Ordinal);
+            values[equals < 0 ? pair : pair[..equals]] = equals < 0 ? "" : pair[(equals + 1)..];
+        }
+
+        return values;
+    }
+
+    [GeneratedRegex(@"\{\{owner\.(?<name>[A-Za-z][A-Za-z0-9_]{0,63})\}\}")]
+    private static partial Regex OwnerValue();
 }

@@ -99,6 +99,7 @@ public class HeaderGateTests : PostgresTest
         builder.Services.AddSyncLane(options =>
         {
             options.ConnectionString = ConnectionString!;
+            options.ListenConnectionString = ListenConnectionString;
             options.Schema = Schema;
             options.PollInterval = TimeSpan.FromMilliseconds(20);
 

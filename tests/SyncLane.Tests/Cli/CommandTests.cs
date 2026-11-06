@@ -215,6 +215,26 @@ public sealed class CommandTests : IDisposable
         Assert.Equal(["init", "--", "curl"], SynclaneCommand.Separate(["init", "--", "curl"]));
     }
 
+    [Fact]
+    public async Task A_recipe_that_uses_the_owner_s_values_is_tested_with_them_and_names_the_ones_missing()
+    {
+        var api = new ShopApi();
+        await Run(api, null, "init", "curl", "-H", $"Authorization: Bearer {Token}", Curl);
+        var path = Path.Combine(_folder.FullName, "orders.jsonc");
+        var recipe = await File.ReadAllTextAsync(path);
+        await File.WriteAllTextAsync(path, recipe.Replace("\"query\": {", "\"query\": {\n    \"region\": \"{{owner.region}}\",", StringComparison.Ordinal));
+        _error.GetStringBuilder().Clear();
+
+        var without = await Run(api, null, "test", "orders.jsonc");
+        var missing = _error.ToString();
+        var with = await Run(api, null, "test", "orders.jsonc", "--value", "region=eu");
+
+        Assert.Equal((1, 0), (without, with));
+        Assert.Contains(CliErrorCodes.OwnerValuesNeeded, missing);
+        Assert.Contains("--value region=...", missing);
+        Assert.Equal(new Dictionary<string, string> { ["a"] = "1", ["b"] = "x=y" }, TestCommand.Pairs(["a=1", "b=x=y"]));
+    }
+
     private Task<int> Run(ShopApi api, TextReader? piped, params string[] args) =>
         SynclaneCommand.RunAsync(args, Host(api, piped), CancellationToken.None);
 

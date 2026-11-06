@@ -224,6 +224,27 @@ public class LiveChangeTests : PostgresTest
     }
 
     [PostgresFact]
+    public async Task With_listening_turned_off_nothing_connects_and_workers_still_take_jobs_every_poll_interval()
+    {
+        var log = new LogLines();
+        using var host = await StartAsync(log, options =>
+        {
+            options.ListenForChanges = false;
+            options.ListenConnectionString = "Host=127.0.0.1;Port=1;Database=nowhere;Username=nobody;Timeout=1";
+            options.PollInterval = TimeSpan.FromMilliseconds(200);
+        });
+
+        await host.Services.GetRequiredService<ISyncLane>()
+            .EnqueueAsync(new NewJob { Queue = Queue, Owner = new JobOwner("a"), Type = "orders" });
+        await CompletedAsync();
+        await Task.Delay(TimeSpan.FromSeconds(1));
+
+        Assert.Equal(FeedState.Off, host.Services.GetRequiredService<JobChangeFeed>().State);
+        Assert.DoesNotContain(log.Lines, line => line.Level >= LogLevel.Warning);
+        await host.StopAsync();
+    }
+
+    [PostgresFact]
     public async Task A_listen_connection_string_of_its_own_carries_the_changes_that_wake_an_idle_worker()
     {
         var name = $"listen-{Schema}"[..30];
@@ -253,6 +274,7 @@ public class LiveChangeTests : PostgresTest
         builder.Services.AddSyncLane(options =>
         {
             options.ConnectionString = ConnectionString!;
+            options.ListenConnectionString = ListenConnectionString;
             options.Schema = Schema;
             options.RunPlanner = false;
             options.AddQueue(Queue, queue => queue.Handle<ProductHandler>("orders"));

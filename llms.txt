@@ -1,0 +1,34 @@
+# SyncLane
+
+> SyncLane is a .NET library that runs sync jobs against other people's APIs from one PostgreSQL table: it plans what each connected account needs (history in slices, then periodic refreshes), runs it page by page with leases and retries, keeps to each API's rate limit across every instance, and saves a cursor after every page so nothing is lost on a crash. Instead of a hand-written handler, a job can run a recipe: a JSON file (`.jsonc`) that says how to read one API resource, page by page, into a destination.
+
+Notes for writing recipes:
+
+- Start from a curl that works. `synclane init` (the `SyncLane.Cli` tool) sends it once and writes a draft with a comment beside every guess; `synclane test` runs a recipe for two pages without a database and reports structure, never data. `synclane mcp` gives an AI assistant the same as tools.
+- A recipe never holds a credential. It names one (`"auth": { "type": "bearer", "credential": "example-shop" }`); the application's credential store, or an environment variable when testing, supplies the value. Never write a token, key or password into a recipe, a curl you suggest, or a reply.
+- Every field is described in the JSON Schema; put `"$schema"` at the top of a recipe for completion in an editor.
+- Requests go only to the host a recipe names, or to one of the hosts it lists in `request.hosts` when the host is made from the owner's values; redirects are not followed. Values an account needs besides its key (a marketplace, a region) come from the owner as `{{owner.<value>}}`; `{{request.id}}` is a new UUID per request.
+- Errors carry a stable code such as `SL5106`; the catalog says what each means and how to fix it.
+
+## Docs
+
+- [Recipes](https://raw.githubusercontent.com/ferhatblnk/synclane/main/docs/recipes.md): every part of a recipe: requests, records, paging styles, windows, keys, destinations, authentication, rate budgets, placeholders, what a recipe can never do
+- [Recipe JSON Schema](https://raw.githubusercontent.com/ferhatblnk/synclane/main/schemas/recipe.schema.json): every field and value with its description, generated from the types
+- [Writing recipes with an AI assistant](https://raw.githubusercontent.com/ferhatblnk/synclane/main/docs/ai.md): `synclane mcp`, its tools, and how credentials stay out of the conversation
+- [Error codes](https://raw.githubusercontent.com/ferhatblnk/synclane/main/docs/errors.md): every code with its cause and fix
+- [The command](https://raw.githubusercontent.com/ferhatblnk/synclane/main/src/SyncLane.Cli/README.md): `synclane init`, `synclane test` and `synclane mcp`
+- [README](https://raw.githubusercontent.com/ferhatblnk/synclane/main/README.md): what SyncLane is, quick start, handlers, priorities, rate budgets, the monitor, configuration
+
+## Running it
+
+- [How it works](https://raw.githubusercontent.com/ferhatblnk/synclane/main/docs/how-it-works.md): the jobs table, the lease statement, the indexes behind the guarantees
+- [Planning](https://raw.githubusercontent.com/ferhatblnk/synclane/main/docs/planning.md): history, slices, periods, overlap, and why
+- [Operations](https://raw.githubusercontent.com/ferhatblnk/synclane/main/docs/operations.md): looking, repairing, keeping the table small, health checks, poolers, several applications
+- [Production trial](https://raw.githubusercontent.com/ferhatblnk/synclane/main/docs/production-trial.md): the checklist for a first run on something allowed to fail
+- [The HTTP monitor](https://raw.githubusercontent.com/ferhatblnk/synclane/main/src/SyncLane.AspNetCore/README.md): `MapSyncLane` and its endpoints
+
+## Optional
+
+- [Architecture and decisions](https://raw.githubusercontent.com/ferhatblnk/synclane/main/ARCHITECTURE.md): why things are the way they are
+- [Changelog](https://raw.githubusercontent.com/ferhatblnk/synclane/main/CHANGELOG.md)
+- [Security](https://raw.githubusercontent.com/ferhatblnk/synclane/main/SECURITY.md)

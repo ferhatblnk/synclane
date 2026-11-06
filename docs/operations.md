@@ -293,6 +293,8 @@ To keep live changes, give the listening connection a way around the pooler:
 
 It costs one server connection per process. A pooler in session mode works too, and so does a proxy that pins a session to one server connection when it sees `LISTEN`. Without a pooler, leave `ListenConnectionString` out.
 
+Where nothing can get around the pooler, turn listening off with `ListenForChanges = false` (`"ListenForChanges": false` in configuration). No connection is opened and no probe is sent; workers look for jobs every `PollInterval`, which you may want shorter, and the health check does not count it as a problem. Do this rather than leaving the warning: the probe itself is one notification, sent at each start, and behind PgBouncer in transaction mode it can reach whichever client the pooler lends that server connection to just then.
+
 Versions before 0.4.1 listened on the schema's channel through the pooler. PgBouncer then logs `got packet 'A' from server when not linked` for each change, and its other clients can see read timeouts. After upgrading, run `RECONNECT` on PgBouncer's admin console, or restart it, so the server connections that still hold that `LISTEN` are closed; otherwise they close at the latest after `server_lifetime` (an hour by default).
 
 ## Several applications on one schema

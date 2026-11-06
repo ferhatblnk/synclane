@@ -58,6 +58,20 @@ internal static class CliErrors
         $"Page {page} brought the same records as page {page - 1}: the API did not read the {paging}. " +
         "Check the parameter's name in the API's documentation and correct the recipe's pagination.");
 
+    public static SyncError PathOutsideFolder(string file) => new(
+        CliErrorCodes.PathOutsideFolder, SyncErrorKind.Validation,
+        $"'{file}' is outside the folder synclane mcp was started in, and its tools read and write only inside it. " +
+        "Give a path inside that folder, or start the server in the folder that holds the recipes.");
+
+    public static SyncError FolderMissing(string folder) => new(
+        CliErrorCodes.FolderMissing, SyncErrorKind.Validation,
+        $"The folder '{folder}' does not exist. Give --folder a folder that holds recipes, or leave it out to work in the folder the server starts in.");
+
+    public static SyncError OwnerValuesNeeded(string recipe, IReadOnlyList<string> names) => new(
+        CliErrorCodes.OwnerValuesNeeded, SyncErrorKind.Validation,
+        $"The recipe '{recipe}' uses values of the owner that were not given: {string.Join(", ", names)}. " +
+        $"Pass them as {string.Join(" ", names.Select(name => $"--value {name}=..."))}.");
+
     public static SyncError SinceInvalid(string value) => new(
         CliErrorCodes.SinceInvalid, SyncErrorKind.Validation,
         $"--since '{value}' is neither a length of time nor a date. Give a length such as 7d, 12h or 30m, or a date such as 2026-10-01.");

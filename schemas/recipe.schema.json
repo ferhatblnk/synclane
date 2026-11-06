@@ -22,8 +22,15 @@
           "type": "string"
         },
         "url": {
-          "description": "The absolute https URL. Placeholders may appear in the path and the query, never in the scheme, host or port, so a recipe can only call the host it names. Placeholder values are escaped.",
+          "description": "The absolute https URL. Placeholders may appear in the path and the query, and are escaped. The scheme and port are always written out. So is the host, unless Hosts lists where it may be: then it may be made from the owner, such as \u0060https://{{owner.endpoint}}/v1/orders\u0060.",
           "type": "string"
+        },
+        "hosts": {
+          "description": "For a host made from the owner\u0027s values: every host it may be, such as \u0060api-eu.example.com\u0060, or \u0060*.example.com\u0060 for any one name under a domain. A request to any other host is never sent. Leave it out when the URL names its host.",
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
         },
         "query": {
           "description": "Query parameters added to the URL. Values may contain placeholders and are escaped.",
@@ -170,11 +177,11 @@
           ]
         },
         "name": {
-          "description": "For ApiKey: the header or query parameter that carries the key, such as \u0060X-Api-Key\u0060.",
+          "description": "For ApiKey: the header or query parameter that carries the key, such as \u0060X-Api-Key\u0060. For OAuth2: the header that carries the access token, for an API that does not take it in \u0060Authorization: Bearer\u0060, such as \u0060X-Access-Token\u0060.",
           "type": "string"
         },
         "prefix": {
-          "description": "For ApiKey in a header: text written before the key, such as \u0060Token \u0060.",
+          "description": "For ApiKey in a header, or OAuth2 with Name: text written before the key or token, such as \u0060Token \u0060. Left out, nothing is.",
           "type": "string"
         },
         "grant": {

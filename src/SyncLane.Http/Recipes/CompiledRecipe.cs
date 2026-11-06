@@ -32,10 +32,14 @@ internal sealed partial class CompiledRecipe
         IReadOnlyDictionary<string, Template> bodyStrings,
         RecordPath records,
         bool usesWindow,
+        IReadOnlyList<string> ownerValues,
+        Origin origin,
         IPaginator paginator,
         RecipeAuth? auth,
         CompiledRate? rate)
     {
+        OwnerValues = ownerValues;
+        Origin = origin;
         Recipe = recipe;
         Method = method;
         Url = url;
@@ -69,6 +73,12 @@ internal sealed partial class CompiledRecipe
     public WindowFormat WindowFormat => Recipe.Window?.Format ?? WindowFormat.Iso8601;
 
     public bool UsesWindow { get; }
+
+    /// <summary>The names of the owner's values the recipe uses, as in <c>{{owner.region}}</c>.</summary>
+    public IReadOnlyList<string> OwnerValues { get; }
+
+    /// <summary>Where requests may go. With hosts listed, every request's host is checked against them before it is sent.</summary>
+    public Origin Origin { get; }
 
     public IPaginator Paginator { get; }
 
@@ -164,8 +174,9 @@ internal sealed partial class CompiledRecipe
             return SyncResult<CompiledRecipe>.Failure(errors);
 
         var usesWindow = placeholders.Any(found => Placeholders.IsWindow(found.Placeholder));
+        var ownerValues = placeholders.Select(found => Placeholders.OwnerValue(found.Placeholder)).OfType<string>().Distinct(StringComparer.Ordinal).ToList();
         return SyncResult<CompiledRecipe>.Success(
-            new CompiledRecipe(recipe, method!, url!, query, headers, bodyStrings, records!, usesWindow, paginator!, auth, rate));
+            new CompiledRecipe(recipe, method!, url!, query, headers, bodyStrings, records!, usesWindow, ownerValues, origin!, paginator!, auth, rate));
     }
 
     private static HttpMethod? ParseMethod(string? method) => method?.ToUpperInvariant() switch
@@ -198,13 +209,38 @@ internal sealed partial class CompiledRecipe
         var authorityStart = schemeEnd + 3;
         var authorityEnd = request.Url.IndexOfAny(['/', '?', '#'], authorityStart);
         var beforePath = request.Url[..(authorityEnd < 0 ? request.Url.Length : authorityEnd)];
-        if (beforePath.Contains("{{", StringComparison.Ordinal))
+        var madeHost = beforePath.Contains("{{", StringComparison.Ordinal);
+        if (madeHost && request.Hosts is null)
         {
             errors.Add(HttpErrors.PlaceholderInHost(name));
             return null;
         }
 
-        // Placeholders only appear after the host, so filling them with a plain letter checks the rest of the URL.
+        if (!madeHost && request.Hosts is not null)
+        {
+            errors.Add(HttpErrors.UrlInvalid(name, "names its host, so request.hosts does not apply; list hosts only for a host made from the owner's values"));
+            return null;
+        }
+
+        IReadOnlyList<string>? hosts = null;
+        if (madeHost)
+        {
+            // A made host is letters, digits, dots, hyphens and the owner's values: no user name, no port.
+            if (!MadeHost().IsMatch(beforePath[authorityStart..]))
+            {
+                errors.Add(HttpErrors.UrlInvalid(name, "makes its host from something other than letters, digits, dots, hyphens and {{owner.*}} placeholders"));
+                return null;
+            }
+
+            hosts = request.Hosts!.Select(host => host?.Trim().ToLowerInvariant() ?? "").ToList();
+            if (hosts.Count == 0 || hosts.Any(host => !HostPattern().IsMatch(host)))
+            {
+                errors.Add(HttpErrors.UrlInvalid(name, "lists hosts that are not all host names, or *. and a domain with at least two parts, such as *.example.com"));
+                return null;
+            }
+        }
+
+        // Placeholders only appear after the host, or make it up, so filling them with a plain letter checks the rest of the URL.
         var sample = template.Render(_ => "x");
         if (!Uri.TryCreate(sample, UriKind.Absolute, out var uri) || string.IsNullOrEmpty(uri.Host))
             errors.Add(HttpErrors.UrlInvalid(name, "is not an absolute URL"));
@@ -214,7 +250,7 @@ internal sealed partial class CompiledRecipe
             errors.Add(HttpErrors.UrlInvalid(name, "must not contain a user name or password; put credentials in headers"));
         else
         {
-            origin = Origin.Of(uri);
+            origin = hosts is null ? Origin.Of(uri) : new Origin(uri.Scheme, "", uri.Port, hosts);
             return template;
         }
 
@@ -255,4 +291,10 @@ internal sealed partial class CompiledRecipe
     /// <summary>An HTTP token as RFC 9110 defines it.</summary>
     [GeneratedRegex(@"^[!#$%&'*+\-.^_`|~0-9A-Za-z]+$")]
     private static partial Regex HeaderName();
+
+    [GeneratedRegex(@"^([A-Za-z0-9.\-]|\{\{(owner\.[A-Za-z][A-Za-z0-9_]{0,63})\}\})+$")]
+    private static partial Regex MadeHost();
+
+    [GeneratedRegex(@"^(\*\.)?([a-z0-9]([a-z0-9\-]*[a-z0-9])?\.)+[a-z0-9]([a-z0-9\-]*[a-z0-9])?$")]
+    private static partial Regex HostPattern();
 }

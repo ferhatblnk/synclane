@@ -9,8 +9,8 @@
     <IncludeSourceRevisionInInformationalVersion>false</IncludeSourceRevisionInInformationalVersion>
     <IsPackable>true</IsPackable>
     <PackageId>SyncLane.Cli</PackageId>
-    <Description>The synclane command: turns a working curl into a SyncLane recipe by looking at a real answer, and runs a recipe for two pages without a database.</Description>
-    <PackageTags>sync;http;rest;api;recipe;curl;cli</PackageTags>
+    <Description>The synclane command: turns a working curl into a SyncLane recipe by looking at a real answer, runs a recipe for two pages without a database, and serves both to an AI assistant over MCP.</Description>
+    <PackageTags>sync;http;rest;api;recipe;curl;cli;mcp</PackageTags>
     <PackageReadmeFile>README.md</PackageReadmeFile>
   </PropertyGroup>
 
@@ -21,6 +21,13 @@
   <ItemGroup>
     <PackageReference Include="System.CommandLine" Version="2.0.14" />
     <PackageReference Include="Microsoft.Extensions.DependencyInjection" Version="10.0.14" />
+    <PackageReference Include="ModelContextProtocol.Core" Version="2.3.1" />
+  </ItemGroup>
+
+  <!-- What 'synclane mcp' gives an AI assistant to read: the recipe guide and the error catalog, as they are in docs. -->
+  <ItemGroup>
+    <EmbeddedResource Include="..\..\docs\recipes.md" LogicalName="SyncLane.Cli.recipes.md" />
+    <EmbeddedResource Include="..\..\docs\errors.md" LogicalName="SyncLane.Cli.errors.md" />
   </ItemGroup>
 
   <ItemGroup>

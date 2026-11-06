@@ -20,6 +20,15 @@ public sealed record JobOwner(string Key, string? Lane = null, string? Name = nu
     /// </summary>
     public JobPriority Priority { get; init; } = JobPriority.Normal;
 
+    /// <summary>
+    /// Values of this owner that a recipe puts into its requests as <c>{{owner.&lt;name&gt;}}</c>, such as a marketplace,
+    /// a region or a store's host. They are not secrets: they may land in a URL and a saved cursor, so credentials go in
+    /// the credential store instead. Leave them out to keep the values last given. Names are letters, digits and
+    /// underscores, starting with a letter; <c>key</c> is taken. Like the name, they are the owner's data: SyncLane
+    /// stores them with the owner and never writes them to a log, a trace or a metric.
+    /// </summary>
+    public IReadOnlyDictionary<string, string>? Values { get; init; }
+
     internal string LaneOrKey => string.IsNullOrEmpty(Lane) ? Key : Lane;
 
     internal string? NameOrNull => string.IsNullOrWhiteSpace(Name) ? null : Name.Trim();

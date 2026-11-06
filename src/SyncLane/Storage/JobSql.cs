@@ -48,18 +48,23 @@ internal sealed class JobSql
 
         // The name travels with every job read, the one a worker takes included: one primary-key lookup per job, never
         // per page.
-        var ownerName = $"(SELECT o.name FROM {owners} AS o WHERE o.queue = j.queue AND o.owner = j.owner)";
+        var ownerName =
+            $"(SELECT o.name FROM {owners} AS o WHERE o.queue = j.queue AND o.owner = j.owner), " +
+            $"(SELECT o.owner_values::text FROM {owners} AS o WHERE o.queue = j.queue AND o.owner = j.owner)";
 
-        // Every owner gets a row, named or not, so search reads this small table and never the jobs. A name replaces a
-        // different one; a missing name keeps the stored one, and an unchanged name writes nothing.
-        string Remember(string keys, string names) =>
+        // Every owner gets a row, named or not, so search reads this small table and never the jobs. A name or values
+        // replace different ones; missing ones keep what is stored, and unchanged ones write nothing.
+        string Remember(string keys, string names, string values) =>
             $"""
-            INSERT INTO {owners} AS o (queue, owner, name, updated_at)
-            SELECT @queue, t.owner, t.name, @now
-            FROM unnest({keys}, {names}) AS t(owner, name)
+            INSERT INTO {owners} AS o (queue, owner, name, owner_values, updated_at)
+            SELECT @queue, t.owner, t.name, t.owner_values::jsonb, @now
+            FROM unnest({keys}, {names}, {values}) AS t(owner, name, owner_values)
             ON CONFLICT (queue, owner) DO UPDATE
-            SET name = excluded.name, updated_at = excluded.updated_at
-            WHERE excluded.name IS NOT NULL AND o.name IS DISTINCT FROM excluded.name
+            SET name = coalesce(excluded.name, o.name),
+                owner_values = coalesce(excluded.owner_values, o.owner_values),
+                updated_at = excluded.updated_at
+            WHERE (excluded.name IS NOT NULL AND o.name IS DISTINCT FROM excluded.name)
+               OR (excluded.owner_values IS NOT NULL AND o.owner_values IS DISTINCT FROM excluded.owner_values)
             """;
 
         // Planning facts are fixed when a job is created, so the statement that creates jobs also keeps the summary the
@@ -127,9 +132,9 @@ internal sealed class JobSql
             {result}
             """;
 
-        RememberOwners = Remember("@owner_keys", "@owner_names");
+        RememberOwners = Remember("@owner_keys", "@owner_names", "@owner_values");
         Enqueue = Insert("SELECT count(*)::int FROM inserted");
-        EnqueueOne = Insert("SELECT id FROM inserted", Remember("ARRAY[@owner_key]", "ARRAY[@owner_name]"));
+        EnqueueOne = Insert("SELECT id FROM inserted", Remember("ARRAY[@owner_key]", "ARRAY[@owner_name]", "ARRAY[@owner_values]"));
 
         MarkLoaded =
             $"""
@@ -412,7 +417,7 @@ internal sealed class JobSql
 
         var found =
             $"""
-            SELECT o.queue, o.owner, o.name FROM {owners} AS o
+            SELECT o.queue, o.owner, o.name, o.owner_values FROM {owners} AS o
             WHERE (@queue::text IS NULL OR o.queue = @queue)
               AND (o.owner ILIKE @search OR o.name ILIKE @search)
             """;
@@ -432,7 +437,7 @@ internal sealed class JobSql
         // under a millisecond this way and 18 ms when every owner matches.
         ListFound =
             $"""
-            SELECT {leasedColumns}, o.name
+            SELECT {leasedColumns}, o.name, o.owner_values::text
             FROM ({found}) AS o
             CROSS JOIN LATERAL (
                 SELECT *

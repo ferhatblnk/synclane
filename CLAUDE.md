@@ -35,7 +35,7 @@ Run the PostgreSQL tests before calling any change to storage, running or the pu
 | `src/SyncLane/Instances` | Registering this process, the heartbeat, and which applications may run which queues. |
 | `src/SyncLane/Telemetry` | Metrics instruments and outcome names. |
 | `src/SyncLane.Http` | The declarative HTTP source: recipes, request building, record paths, paging, authentication, its own codes (`HttpErrorCodes`) and catalog (`HttpErrors`). Uses only the engine's public API. |
-| `src/SyncLane.Cli` | The `synclane` command, a `dotnet tool`: `init` turns a curl into a recipe, `test` runs one for two pages without a database. Its own codes (`CliErrorCodes`, `SL6xxx`) and catalog (`CliErrors`). Uses only the public API of the other packages; `CliHost` is everything it reaches outside itself, so tests replace the terminal and the network. |
+| `src/SyncLane.Cli` | The `synclane` command, a `dotnet tool`: `init` turns a curl into a recipe, `test` runs one for two pages without a database, `mcp` serves both to an AI assistant (D58). Its own codes (`CliErrorCodes`, `SL6xxx`) and catalog (`CliErrors`). Uses only the public API of the other packages; `CliHost` is everything it reaches outside itself, so tests replace the terminal and the network. |
 | `src/SyncLane.AspNetCore` | `MapSyncLane`: the monitor over HTTP and server-sent events, listed in the host's OpenAPI document. Local requests only until the group requires authorization. Its own codes (`EndpointErrorCodes`, `SL7xxx`) and catalog (`EndpointErrors`). Uses only the engine's public API. |
 | `tests/SyncLane.Tests` | Unit tests, PostgreSQL tests (`[PostgresFact]`) and `ConventionTests`. |
 | `schemas` | `recipe.schema.json`, generated; embedded in `SyncLane.Http`. |
@@ -50,6 +50,7 @@ Each rule has a reason. If a rule is in your way, change the rule here first, wi
 - The engine depends on the BCL, `Npgsql` and `Microsoft.Extensions.*.Abstractions` (health checks' included, D56). Nothing else. `SyncLane.Http` adds `Microsoft.Extensions.Http` (decision D13). `SyncLane.AspNetCore` adds the ASP.NET Core shared framework and nothing else (D48).
 - No platform is named in `src`: not in code, not in comments. Platform knowledge belongs in recipes. **(checked)**
 - **No in-house or company packages in this solution.** Nothing private, from any employer or client. SyncLane is public and must build for anyone. An adapter to such a package (for example mapping `SyncResult<T>` to `ApiResult<T>`) lives in a separate solution that references SyncLane, never the other way round.
+- `SyncLane.Cli` adds `System.CommandLine` and `ModelContextProtocol.Core` (D37, D58). It carries them inside the tool, so each is listed with its license in `THIRD-PARTY-NOTICES.txt` (checked by CI).
 - `SyncLane.Http` uses only the engine's public API. If it needs something internal, make a small, read-only public API in the engine instead (as `SyncLaneOptions.Describe()`).
 - Adding any dependency needs an entry in the decision log of ARCHITECTURE.md: what it does, why the BCL is not enough, its license, and who maintains it.
 

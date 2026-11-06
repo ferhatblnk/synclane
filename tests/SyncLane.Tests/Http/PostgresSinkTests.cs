@@ -122,6 +122,7 @@ public class PostgresSinkTests : PostgresTest
         services.AddSyncLane(options =>
         {
             options.ConnectionString = ConnectionString!;
+            options.ListenConnectionString = ListenConnectionString;
             options.Schema = Schema;
             options.AddQueue("shops", queue => queue.Handle<HttpRecipeHandler>("orders"));
         });

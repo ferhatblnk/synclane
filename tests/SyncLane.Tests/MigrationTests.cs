@@ -115,6 +115,7 @@ public class MigrationTests : PostgresTest
         builder.Services.AddSyncLane(options =>
         {
             options.ConnectionString = ConnectionString!;
+            options.ListenConnectionString = ListenConnectionString;
             options.Schema = Schema;
             options.CreateSchema = createSchema;
             options.RunPlanner = false;

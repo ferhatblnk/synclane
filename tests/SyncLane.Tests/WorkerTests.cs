@@ -72,6 +72,7 @@ public class WorkerTests : PostgresTest
         builder.Services.AddSyncLane(options =>
         {
             options.ConnectionString = ConnectionString!;
+            options.ListenConnectionString = ListenConnectionString;
             options.Schema = Schema;
             options.PlanInterval = TimeSpan.FromMilliseconds(200);
             options.PollInterval = TimeSpan.FromMilliseconds(50);

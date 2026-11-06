@@ -13,6 +13,9 @@ internal sealed class SyncLaneClient(SyncLaneOptions options, JobStore store, Qu
         if (options.Find(queue) is not { } declared)
             return SyncResult<int>.Failure(SyncLaneErrors.QueueNotDeclared(queue));
 
+        if (OwnerValues.Check(owner) is { } invalid)
+            return SyncResult<int>.Failure(invalid);
+
         return SyncResult<int>.Success(await planner.PlanAsync(declared, [owner], cancellationToken));
     }
 
@@ -29,11 +32,14 @@ internal sealed class SyncLaneClient(SyncLaneOptions options, JobStore store, Qu
         if (queue.Find(job.Type) is not { } type)
             return SyncResult<long>.Failure(SyncLaneErrors.JobTypeNotDeclared(queue.Name, job.Type));
 
+        if (OwnerValues.Check(job.Owner) is { } invalid)
+            return SyncResult<long>.Failure(invalid);
+
         var planned = new PlannedJob(
             job.Owner.Key, job.Owner.LaneOrKey, type.Name, JobMode.Manual, Priorities.Of(level, type.Priority),
             job.WindowStart, job.WindowEnd, job.DedupKey);
 
-        return await store.EnqueueOneAsync(queue.Name, planned, job.Owner.NameOrNull, time.GetUtcNow(), cancellationToken) is { } id
+        return await store.EnqueueOneAsync(queue.Name, planned, job.Owner.NameOrNull, job.Owner.Values, time.GetUtcNow(), cancellationToken) is { } id
             ? SyncResult<long>.Success(id)
             : SyncResult<long>.Failure(SyncLaneErrors.JobAlreadyExists(queue.Name, job.Owner.Key, type.Name, job.DedupKey));
     }

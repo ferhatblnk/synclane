@@ -159,6 +159,7 @@ public class DestinationGateTests : PostgresTest
         builder.Services.AddSyncLane(options =>
         {
             options.ConnectionString = ConnectionString!;
+            options.ListenConnectionString = ListenConnectionString;
             options.Schema = Schema;
             options.PollInterval = TimeSpan.FromMilliseconds(20);
             options.AddQueue(Queue, queue =>

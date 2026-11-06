@@ -242,11 +242,13 @@ builder.Services.AddSyncLaneHttp(http =>
 `WriteToPostgres` creates the table and keeps one row per account and record: no DDL, no upsert to write. A page that runs twice changes nothing, and an older copy of a record never replaces a newer one. Records are keyed by `$.id` when every record has a unique one; otherwise the job stops and names the fields that could serve. `WriteToHttp(url)` posts the same records, with their keys and versions, to a service of yours. Any other store takes an `IRecordSink` of your own, and `SinkConformance.CheckAsync` tells you, in a test, whether it survives pages written twice.
 
 - **Paging:** page number, offset, cursor, next URL, `Link` header. **Auth:** bearer, basic, API key, OAuth 2.0 (client credentials and refresh token), signed requests.
-- A recipe holds no secret and can only call the host it names. Every problem in it is reported, with a code, before anything runs.
+- A recipe holds no secret and can only call the hosts it names. Values per owner (a marketplace, a region) and a host per owner, from a list, come from your owner source. Every problem in a recipe is reported, with a code, before anything runs.
 - Checked against five public APIs, one per paging style: [samples/LiveCheck](samples/LiveCheck).
-- Not covered yet: a different host per owner, values per owner other than its key, multi-step flows (start a report, wait, download), GraphQL, XML or CSV answers. Write a handler for those; the engine is the same.
+- Not covered yet: multi-step flows (start a report, wait, download), GraphQL, XML or CSV answers. Write a handler for those; the engine is the same.
 
 You do not have to write the first recipe yourself. Put `synclane init` in front of a curl that works, and it sends the request once and writes the recipe from what the answer shows, with a comment above every field it inferred. `synclane test orders.jsonc` then runs the recipe for two pages without a database, and says whether the records, the key and the paging work ([Starting from a curl](docs/recipes.md#starting-from-a-curl)).
+
+Or let an AI assistant write it. `synclane mcp` gives your assistant those commands as tools over the Model Context Protocol: it drafts the recipe from your curl, checks it, runs it for two pages and fixes what the results say. It runs on your machine with your own assistant; SyncLane calls no AI service, and a token you write as `$NAME` in the curl is read from the environment, so it never enters the conversation. Any assistant can also start from [llms.txt](llms.txt). See [docs/ai.md](docs/ai.md).
 
 The whole format: [docs/recipes.md](docs/recipes.md). Add `"$schema"` to a recipe and your editor completes, explains and checks every field as you type ([schemas/recipe.schema.json](schemas/recipe.schema.json)).
 
@@ -398,6 +400,7 @@ app.MapHealthChecks("/health");
 | --- | --- | --- |
 | `ConnectionString` | required | The database that holds the table. |
 | `ListenConnectionString` | `ConnectionString` | The same database, for the one connection per process that hears job changes. Set it when `ConnectionString` goes through a pooler in transaction mode. See [Behind a connection pooler](docs/operations.md#behind-a-connection-pooler). |
+| `ListenForChanges` | `true` | Turn it off where no connection can listen: workers then look for jobs every `PollInterval`, and nothing is opened or sent to hear changes. |
 | `Schema` | `synclane` | The schema of the `jobs` table. |
 | `CreateSchema` | `true` | Create the schema and apply missing migrations at start-up. Turn it off if you manage migrations: put `SyncLaneSchema.Script()` into one of yours, and SyncLane only checks at start-up that it has been applied. See [docs/operations.md](docs/operations.md#running-the-schema-yourself). |
 | `RunPlanner`, `RunWorkers` | `true` | Turn them off in instances that should only enqueue and read. |

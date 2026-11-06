@@ -22,7 +22,7 @@ namespace SyncLane.Monitoring;
 /// not stops listening for good, and workers poll.
 /// </remarks>
 internal sealed partial class JobChangeFeed(
-    string listenConnectionString, NpgsqlDataSource sending, string schema, TimeProvider time, ILogger<JobChangeFeed> logger)
+    string listenConnectionString, NpgsqlDataSource sending, string schema, TimeProvider time, ILogger<JobChangeFeed> logger, bool listens = true)
     : IAsyncDisposable
 {
     /// <summary>How long a new connection waits to hear its probe before it gives up listening.</summary>
@@ -120,6 +120,12 @@ internal sealed partial class JobChangeFeed(
 
     private void EnsureListening()
     {
+        if (!listens)
+        {
+            State = FeedState.Off;
+            return;
+        }
+
         lock (_gate)
             _listening ??= Task.Run(() => ListenAsync(_stopping.Token));
     }
@@ -347,5 +353,8 @@ internal enum FeedState
     Reconnecting,
 
     /// <summary>It heard no probe and stopped until the next start.</summary>
-    Stopped
+    Stopped,
+
+    /// <summary>Listening is turned off (<see cref="SyncLaneOptions.ListenForChanges"/>): it never connects.</summary>
+    Off
 }
