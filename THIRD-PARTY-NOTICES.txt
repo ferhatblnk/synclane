@@ -6,23 +6,23 @@ dependencies separately, each with its own license.
 The SyncLane.Cli package is a .NET tool, so it carries the libraries below inside it. They are distributed under the
 licenses that follow.
 
-- Npgsql 10.0.0, PostgreSQL License, https://github.com/npgsql/npgsql
-- Microsoft.Extensions.Configuration 10.0.0, MIT License, https://github.com/dotnet/runtime
-- Microsoft.Extensions.Configuration.Abstractions 10.0.0, MIT License, https://github.com/dotnet/runtime
-- Microsoft.Extensions.Configuration.Binder 10.0.0, MIT License, https://github.com/dotnet/runtime
-- Microsoft.Extensions.DependencyInjection 10.0.0, MIT License, https://github.com/dotnet/runtime
-- Microsoft.Extensions.DependencyInjection.Abstractions 10.0.0, MIT License, https://github.com/dotnet/runtime
-- Microsoft.Extensions.Diagnostics 10.0.0, MIT License, https://github.com/dotnet/runtime
-- Microsoft.Extensions.Diagnostics.Abstractions 10.0.0, MIT License, https://github.com/dotnet/runtime
-- Microsoft.Extensions.FileProviders.Abstractions 10.0.0, MIT License, https://github.com/dotnet/runtime
-- Microsoft.Extensions.Hosting.Abstractions 10.0.0, MIT License, https://github.com/dotnet/runtime
-- Microsoft.Extensions.Http 10.0.0, MIT License, https://github.com/dotnet/runtime
-- Microsoft.Extensions.Logging 10.0.0, MIT License, https://github.com/dotnet/runtime
-- Microsoft.Extensions.Logging.Abstractions 10.0.0, MIT License, https://github.com/dotnet/runtime
-- Microsoft.Extensions.Options 10.0.0, MIT License, https://github.com/dotnet/runtime
-- Microsoft.Extensions.Options.ConfigurationExtensions 10.0.0, MIT License, https://github.com/dotnet/runtime
-- Microsoft.Extensions.Primitives 10.0.0, MIT License, https://github.com/dotnet/runtime
-- System.CommandLine 2.0.14, MIT License, https://github.com/dotnet/command-line-api
+- Npgsql (PostgreSQL License) https://github.com/npgsql/npgsql
+- Microsoft.Extensions.Configuration (MIT License) https://github.com/dotnet/runtime
+- Microsoft.Extensions.Configuration.Abstractions (MIT License) https://github.com/dotnet/runtime
+- Microsoft.Extensions.Configuration.Binder (MIT License) https://github.com/dotnet/runtime
+- Microsoft.Extensions.DependencyInjection (MIT License) https://github.com/dotnet/runtime
+- Microsoft.Extensions.DependencyInjection.Abstractions (MIT License) https://github.com/dotnet/runtime
+- Microsoft.Extensions.Diagnostics (MIT License) https://github.com/dotnet/runtime
+- Microsoft.Extensions.Diagnostics.Abstractions (MIT License) https://github.com/dotnet/runtime
+- Microsoft.Extensions.FileProviders.Abstractions (MIT License) https://github.com/dotnet/runtime
+- Microsoft.Extensions.Hosting.Abstractions (MIT License) https://github.com/dotnet/runtime
+- Microsoft.Extensions.Http (MIT License) https://github.com/dotnet/runtime
+- Microsoft.Extensions.Logging (MIT License) https://github.com/dotnet/runtime
+- Microsoft.Extensions.Logging.Abstractions (MIT License) https://github.com/dotnet/runtime
+- Microsoft.Extensions.Options (MIT License) https://github.com/dotnet/runtime
+- Microsoft.Extensions.Options.ConfigurationExtensions (MIT License) https://github.com/dotnet/runtime
+- Microsoft.Extensions.Primitives (MIT License) https://github.com/dotnet/runtime
+- System.CommandLine (MIT License) https://github.com/dotnet/command-line-api
 
 ================================================================================
 Npgsql

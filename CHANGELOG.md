@@ -2,6 +2,13 @@
 
 All notable changes to this project are recorded here. The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project uses [Semantic Versioning](https://semver.org/).
 
+## [Unreleased]
+
+### Changed
+
+- Dependencies: `Npgsql` 10.0.3 and `Microsoft.Extensions.*` 10.0.14. An application that uses SyncLane needs at least these versions.
+- `THIRD-PARTY-NOTICES.txt` names the libraries the tool carries without their versions, so an update cannot leave it stale.
+
 ## [0.4.0] - 2026-11-05
 
 Ready for real use: owners people can find by name, instances that stay visible after they stop, and numbers per environment from configuration. The packages are no longer previews: install them without `--prerelease`. Before 1.0 a minor version may still change the API, as this one does.
