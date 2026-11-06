@@ -10,6 +10,7 @@ using SyncLane.Tests.Support;
 namespace SyncLane.Tests.Budgets;
 
 /// <summary>Budgets as handlers use them, on real time, with each <see cref="RateBudgets"/> standing for one instance.</summary>
+[Collection(WallClockCollection.Name)]
 public class RateBudgetsTests : PostgresTest
 {
     private readonly List<NpgsqlDataSource> _instances = [];

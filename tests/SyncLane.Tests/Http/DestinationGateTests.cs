@@ -16,6 +16,7 @@ namespace SyncLane.Tests.Http;
 /// The gate for destinations: pages are written again and again by crashes at random points, against an API whose
 /// records change between fetches, and the table still ends with every record once, at its newest version.
 /// </summary>
+[Collection(WallClockCollection.Name)]
 public class DestinationGateTests : PostgresTest
 {
     private const int Owners = 6;

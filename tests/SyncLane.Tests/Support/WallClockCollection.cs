@@ -1,9 +1,11 @@
 namespace SyncLane.Tests.Support;
 
 /// <summary>
-/// Tests that measure real time against a rate limit run alone, after every other test. Run beside the rest of the suite
-/// on a busy CI runner, the process stalled for a moment and the requests that had waited arrived together, so the fake
-/// API refused a few although no budget was exceeded. They measure SyncLane, not how busy the machine is.
+/// Tests whose outcome depends on how fast requests go, against rate limits and windows on the real clock, run alone,
+/// after every other test. Beside the rest of the suite on a busy CI runner they failed both ways: requests that had
+/// waited through a stall arrived together and were refused although no budget was exceeded, and a run slowed down so
+/// much that the API was never pushed past its limit when it should have been. They measure SyncLane, not how busy the
+/// machine is. Tests that only wait for a job to finish need no place here: a slow machine only makes them later.
 /// </summary>
 [CollectionDefinition(Name, DisableParallelization = true)]
 public sealed class WallClockCollection
