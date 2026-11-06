@@ -160,7 +160,7 @@ Every operator call is logged with who and why, and is also on HTTP with `SyncLa
 
 ## Project status
 
-Version 0.5. Before 1.0 a minor version may still change the API; every change is listed in [CHANGELOG.md](CHANGELOG.md). The design comes from a job system that has synced external APIs for many accounts in production; this repository is a clean, general rewrite with its own tests, run on PostgreSQL 14 to 18 and through PgBouncer, but this code has not yet run in production itself. Try it on something that is allowed to fail first.
+Version 0.6. Before 1.0 a minor version may still change the API; every change is listed in [CHANGELOG.md](CHANGELOG.md). The design comes from a job system that has synced external APIs for many accounts in production; this repository is a clean, general rewrite with its own tests, run on PostgreSQL 14 to 18 and through PgBouncer, but this code has not yet run in production itself. Try it on something that is allowed to fail first.
 
 ## Development
 
