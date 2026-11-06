@@ -109,6 +109,21 @@ internal sealed partial class SyncLaneMonitor(
     public Task<SyncResult<int>> RequeueJobAsync(long id, string? by = null, CancellationToken cancellationToken = default) =>
         ChangeJobAsync(sql.RequeueJob, id, by, "a requeue", "failed, deferred and abandoned", cancellationToken);
 
+    public async Task<SyncResult<int>> SkipJobAsync(long id, string reason, string? by = null, CancellationToken cancellationToken = default)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(reason);
+
+        var (status, skipped) = await monitor.SkipJobAsync(id, Who(by), reason, time.GetUtcNow(), cancellationToken);
+        if (status is null)
+            return SyncResult<int>.Failure(SyncLaneErrors.JobNotFound(id));
+
+        if (!skipped)
+            return SyncResult<int>.Failure(SyncLaneErrors.JobStatusNotAllowed(id, status, "a skip", "pending, failed, deferred and abandoned"));
+
+        LogSkipped(id, status);
+        return SyncResult<int>.Success(1);
+    }
+
     public Task<SyncResult<int>> RestartJobAsync(long id, string? by = null, CancellationToken cancellationToken = default) =>
         ChangeJobAsync(sql.RestartJob, id, by, "a restart", "pending, completed, failed, deferred and abandoned", cancellationToken);
 
@@ -256,6 +271,9 @@ internal sealed partial class SyncLaneMonitor(
 
     [LoggerMessage(Level = LogLevel.Information, Message = "Job {JobId} was {Status}; {Action} put it back in line.")]
     private partial void LogJobChanged(long jobId, string action, string status);
+
+    [LoggerMessage(Level = LogLevel.Warning, Message = "Job {JobId} was {Status} and was skipped: it will not run, and the jobs behind it go on.")]
+    private partial void LogSkipped(long jobId, string status);
 
     [LoggerMessage(Level = LogLevel.Information, Message = "Requeued {Count} jobs of queue {Queue} that failed with {Code}.")]
     private partial void LogRequeuedByCode(int count, string queue, string code);

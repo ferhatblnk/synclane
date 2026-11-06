@@ -157,6 +157,18 @@ internal sealed class MonitorStore(NpgsqlDataSource dataSource, MonitorSql sql)
         return await reader.ReadAsync(cancellationToken) ? (reader.GetString(0), reader.GetInt32(1) == 1) : (null, false);
     }
 
+    /// <summary>Deletes one job that is not running and logs it with the reason. Returns its status before, and whether it went.</summary>
+    public async Task<(string? Status, bool Skipped)> SkipJobAsync(long id, string by, string reason, DateTimeOffset now, CancellationToken cancellationToken)
+    {
+        await using var command = dataSource.CreateCommand(sql.SkipJob);
+        command.Parameters.AddWithValue("id", id);
+        command.Parameters.AddWithValue("now", now.ToUniversalTime());
+        AddWho(command.Parameters, by, reason);
+
+        await using var reader = await command.ExecuteReaderAsync(cancellationToken);
+        return await reader.ReadAsync(cancellationToken) ? (reader.GetString(0), reader.GetInt32(1) == 1) : (null, false);
+    }
+
     public async Task<int> RequeueByCodeAsync(string queue, string code, string by, DateTimeOffset now, CancellationToken cancellationToken)
     {
         await using var command = dataSource.CreateCommand(sql.RequeueByCode);

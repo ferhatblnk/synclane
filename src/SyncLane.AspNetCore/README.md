@@ -26,6 +26,7 @@ app.MapSyncLane("/synclane").RequireAuthorization("ops");
 | POST | `/budgets/limit?budget=&key=&limit=&per=&reason=&until=` | Lower a rate budget, or one key of it, for a while (`per` as `00:01:00`) |
 | POST | `/budgets/clear-limit?budget=&key=` | Lift a budget limit |
 | POST | `/jobs/{id}/requeue`, `/jobs/{id}/restart` | Repair one job |
+| POST | `/jobs/{id}/skip?reason=` | Take one job out of line for good, so an ordered lane goes on |
 | POST | `/requeue-by-code?queue=&code=` | Requeue every failing job with one error code |
 | POST | `/prioritize?queue=&owner=` | Move an owner's waiting jobs ahead of the others |
 | POST | `/sync-now?queue=&owner=&type=` | Fetch an owner's new data now, for example on a webhook; a burst of calls is one fetch |

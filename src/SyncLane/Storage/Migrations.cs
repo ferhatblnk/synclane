@@ -18,6 +18,7 @@ internal static class Migrations
         new(9, "operations", Operations),
         new(10, "owners", Owners),
         new(11, "owner values", OwnerValues),
+        new(12, "ordered lanes", OrderedLanes),
     ];
 
     public static int Latest => All[^1].Version;
@@ -358,6 +359,19 @@ internal static class Migrations
 
         ALTER TABLE {schema}.{InstanceSql.TableName}
             ADD COLUMN IF NOT EXISTS stopped_at timestamptz;
+        """;
+
+    /// <summary>
+    /// Who asked for a job, and the index an ordered queue's lease reads: for a candidate, any older unfinished job of
+    /// its lane. Finished jobs are most of the table, and are left out of the index.
+    /// </summary>
+    private static string OrderedLanes(string schema) =>
+        $"""
+        ALTER TABLE {schema}.{JobSql.TableName}
+            ADD COLUMN IF NOT EXISTS requested_by text;
+
+        CREATE INDEX IF NOT EXISTS jobs_lane_order
+            ON {schema}.{JobSql.TableName} (queue, lane, id) WHERE status <> 'completed';
         """;
 
     /// <summary>Values per owner that recipes put into requests, such as a marketplace or a region, kept with its name.</summary>

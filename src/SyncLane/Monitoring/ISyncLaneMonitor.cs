@@ -56,6 +56,18 @@ public interface ISyncLaneMonitor
     Task<SyncResult<int>> RequeueJobAsync(long id, string? by = null, CancellationToken cancellationToken = default);
 
     /// <summary>
+    /// Takes one job out of line for good, without running it, for example a stock movement that must no longer be sent,
+    /// so the jobs behind it in an ordered lane go on. The job is deleted, and the actions log keeps who skipped which job
+    /// and why. Its dedup key is free again. A running job is not skipped: pause its owner first.
+    /// </summary>
+    /// <param name="id">The job.</param>
+    /// <param name="reason">Why, for the actions log.</param>
+    /// <param name="by">Who asks, for the actions log. Endpoints fill in the signed-in user.</param>
+    /// <param name="cancellationToken">Cancels the call.</param>
+    /// <returns>1. Fails with <see cref="SyncErrorCodes.JobNotFound"/> or, for a running or completed job, <see cref="SyncErrorCodes.JobStatusNotAllowed"/>.</returns>
+    Task<SyncResult<int>> SkipJobAsync(long id, string reason, string? by = null, CancellationToken cancellationToken = default);
+
+    /// <summary>
     /// Runs one job again from its first page, with its cursor and record count cleared: for a window whose data has to be
     /// fetched again. Any job that is not running can be restarted, a completed one too.
     /// </summary>

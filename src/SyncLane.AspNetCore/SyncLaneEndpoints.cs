@@ -75,6 +75,8 @@ public static partial class SyncLaneEndpoints
             var repairs = group.MapGroup("").AddEndpointFilter(RequireActionHeader).ProducesProblem(StatusCodes.Status400BadRequest);
             repairs.MapPost("/jobs/{id:long}/requeue", RequeueJobAsync)
                 .Produces<int>().ProducesProblem(StatusCodes.Status404NotFound).ProducesProblem(StatusCodes.Status409Conflict).WithName("SyncLane_RequeueJob").WithSummary("Fresh attempts for one failed, deferred or abandoned job.");
+            repairs.MapPost("/jobs/{id:long}/skip", SkipJobAsync)
+                .Produces<int>().ProducesProblem(StatusCodes.Status404NotFound).ProducesProblem(StatusCodes.Status409Conflict).WithName("SyncLane_SkipJob").WithSummary("Takes one job that is not running out of line for good, so an ordered lane goes on.");
             repairs.MapPost("/jobs/{id:long}/restart", RestartJobAsync)
                 .Produces<int>().ProducesProblem(StatusCodes.Status404NotFound).ProducesProblem(StatusCodes.Status409Conflict).WithName("SyncLane_RestartJob").WithSummary("Runs one job that is not running again from its first page.");
             repairs.MapPost("/requeue-by-code", RequeueByCodeAsync)
@@ -162,6 +164,13 @@ public static partial class SyncLaneEndpoints
     {
         var result = await monitor.RequeueJobAsync(id, Who(http), http.RequestAborted);
         LogRepair(loggers.CreateLogger(Producer), Who(http), "requeued job", id.ToString(System.Globalization.CultureInfo.InvariantCulture), result.Succeeded);
+        return Answer(result);
+    }
+
+    private static async Task<IResult> SkipJobAsync(long id, string reason, ISyncLaneMonitor monitor, HttpContext http, ILoggerFactory loggers)
+    {
+        var result = await monitor.SkipJobAsync(id, reason, Who(http), http.RequestAborted);
+        LogRepair(loggers.CreateLogger(Producer), Who(http), "skipped job", id.ToString(System.Globalization.CultureInfo.InvariantCulture), result.Succeeded);
         return Answer(result);
     }
 

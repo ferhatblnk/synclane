@@ -114,7 +114,7 @@ internal sealed partial class JobWorker(
     private async Task<bool> RunNextAsync(QueueOptions queue, string worker, CancellationToken stopping)
     {
         var now = time.GetUtcNow();
-        var job = await store.LeaseAsync(queue.Name, worker, now, now + queue.LeaseDuration, stopping);
+        var job = await store.LeaseAsync(queue.Name, worker, now, now + queue.LeaseDuration, stopping, queue.Ordered);
         if (job is null)
             return false;
 

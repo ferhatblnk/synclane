@@ -16,6 +16,15 @@ public sealed class QueueOptions
     public int Concurrency { get; set; } = 1;
 
     /// <summary>
+    /// Take each lane's jobs strictly in the order they were created: a job waits while an older one of its lane is
+    /// unfinished, a failed or abandoned one included, until that one completes or is skipped
+    /// (<see cref="ISyncLaneMonitor.SkipJobAsync"/>). For deliveries that must arrive in order, such as stock movements.
+    /// Other queues and other lanes are not held up. A deferred job is tried again when due instead of stepping aside.
+    /// Default <c>false</c>.
+    /// </summary>
+    public bool Ordered { get; set; }
+
+    /// <summary>
     /// Attempts in a row without saving a page before a job is deferred. A deferred job gets one more. A saved page starts
     /// the count again, so failures spread over a long job never add up to this.
     /// </summary>

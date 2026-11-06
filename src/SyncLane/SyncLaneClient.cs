@@ -35,9 +35,12 @@ internal sealed class SyncLaneClient(SyncLaneOptions options, JobStore store, Qu
         if (OwnerValues.Check(job.Owner) is { } invalid)
             return SyncResult<long>.Failure(invalid);
 
+        if (job.RequestedBy is { } by && (by.Length > NewJobLimits.RequestedBy || by.AsSpan().ContainsAnyInRange('\0', '\u001f')))
+            return SyncResult<long>.Failure(SyncLaneErrors.RequestedByInvalid(by.Length));
+
         var planned = new PlannedJob(
             job.Owner.Key, job.Owner.LaneOrKey, type.Name, JobMode.Manual, Priorities.Of(level, type.Priority),
-            job.WindowStart, job.WindowEnd, job.DedupKey);
+            job.WindowStart, job.WindowEnd, job.DedupKey, RequestedBy: job.RequestedBy);
 
         return await store.EnqueueOneAsync(queue.Name, planned, job.Owner.NameOrNull, job.Owner.Values, time.GetUtcNow(), cancellationToken) is { } id
             ? SyncResult<long>.Success(id)
@@ -125,4 +128,9 @@ internal sealed class SyncLaneClient(SyncLaneOptions options, JobStore store, Qu
 
         return SyncResult<OwnerProgress>.Success(await store.GetProgressAsync(declared.Name, owner, cancellationToken));
     }
+}
+
+internal static class NewJobLimits
+{
+    public const int RequestedBy = 200;
 }

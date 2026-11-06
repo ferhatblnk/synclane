@@ -15,6 +15,9 @@ public sealed record Job
     /// <summary>The owner's name, as its owner source or the enqueue last gave it. <c>null</c> when none was given.</summary>
     public string? OwnerName { get; init; }
 
+    /// <summary>Who or what asked for the job (<see cref="NewJob.RequestedBy"/>); for a sync-now, who called it. <c>null</c> for planned jobs.</summary>
+    public string? RequestedBy { get; init; }
+
     /// <summary>The owner's values, as its owner source or the enqueue last gave them (<see cref="JobOwner.Values"/>). <c>null</c> when none were given.</summary>
     public IReadOnlyDictionary<string, string>? OwnerValues { get; init; }
 

@@ -278,6 +278,10 @@ if (!result.Succeeded)
 return Results.Ok(result.Value);
 ```
 
+### Who asked
+
+`NewJob.RequestedBy` says who or what asked for a job, such as a user's id or `scheduler`: the handler reads it as `job.RequestedBy`, for example to send it along, and the monitor shows it. A sync-now records its caller there. It is the caller's data, never logged.
+
 ### Priority
 
 Jobs that are due run in this order: `Urgent` jobs, then the owners an operator moved forward with `PrioritizeOwnerAsync`, then `High`, `Normal` and `Low`. Within a level, types run in the order you declared them. A job takes its level from `NewJob.Priority`, or else from its owner:
@@ -411,6 +415,7 @@ app.MapHealthChecks("/health");
 | `KeepCompletedJobs` | 7 days | How long completed recurring and manual jobs stay before instances that run the planner delete them. Initial jobs and unfinished jobs stay. `null` keeps everything. |
 | `MaxBudgetWait` | 30 seconds | The longest a request waits for a budget's token inside a job; a longer wait postpones the job. |
 | `queue.Concurrency` | `1` | Jobs of the queue one process runs at once. `1` makes the queue strictly sequential. |
+| `queue.Ordered` | `false` | Take each lane's jobs strictly in the order they were created: one that failed or was abandoned holds the jobs behind it until it completes or is skipped. Only that queue and lane wait. See [Ordered queues](docs/operations.md#ordered-queues). |
 | `queue.MaxAttempts` | `5` | Attempts in a row without saving a page before a job is deferred. |
 | `queue.LeaseDuration` | 5 minutes | How long a silent worker keeps its job. |
 | `queue.RetryBaseDelay`, `RetryMaxDelay` | 1 minute, 1 hour | Delay after a failure: base, doubled per attempt, capped. |
