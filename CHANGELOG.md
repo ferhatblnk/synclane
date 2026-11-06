@@ -4,6 +4,16 @@ All notable changes to this project are recorded here. The format follows [Keep 
 
 ## [Unreleased]
 
+### Added
+
+- Ordered queues: `queue.Ordered` (also from configuration) takes each lane's jobs strictly in the order they were created. A job that failed or was abandoned holds the jobs behind it in its lane until it completes or is skipped; other lanes and other queues go on. The lease finds the head of each lane through a new index (migration 12): about 6 ms on 100,000 waiting jobs in 1,000 lanes.
+- `ISyncLaneMonitor.SkipJobAsync(id, reason)` and `POST /jobs/{id}/skip`: take one job that is not running out of line for good, logged with who and why.
+- `NewJob.RequestedBy` and `Job.RequestedBy`: who or what asked for a job, for the handler and the monitor. A sync-now records its caller. Code `SL3014` for one that cannot be used.
+
+### Changed
+
+- The README is a way in: what SyncLane is, a quick start with a recipe or a handler, and "What do I use for..." tables for getting data sooner, stopping and repairing, and sending data out. The reference moved to [docs/jobs.md](docs/jobs.md), [docs/monitoring.md](docs/monitoring.md), [docs/configuration.md](docs/configuration.md) and [docs/demo.md](docs/demo.md); a job's row, its life and the two indexes to [docs/how-it-works.md](docs/how-it-works.md).
+
 ## [0.5.0] - 2026-11-06
 
 Priorities, a health check and sync-now for operators; recipes for APIs that need values and hosts per account; and recipes written with an AI assistant. Migration 11 adds one column; apply it before or with the upgrade.

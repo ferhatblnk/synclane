@@ -150,14 +150,15 @@ internal sealed class JobStore(NpgsqlDataSource dataSource, JobSql sql) : IAsync
     /// Two workers can pick different jobs of one lane in the same instant. The index on running jobs lets one of them
     /// through; the other asks again and no longer sees that lane.
     /// </summary>
-    public async Task<Job?> LeaseAsync(string queue, string worker, DateTimeOffset now, DateTimeOffset leaseExpiresAt, CancellationToken cancellationToken)
+    public async Task<Job?> LeaseAsync(
+        string queue, string worker, DateTimeOffset now, DateTimeOffset leaseExpiresAt, CancellationToken cancellationToken, bool ordered = false)
     {
         // Sequential: a retry; the next try only happens when this one lost the race for a lane.
         for (var race = 0; race < LeaseRaceRetries; race++)
         {
             try
             {
-                await using var command = dataSource.CreateCommand(sql.Lease);
+                await using var command = dataSource.CreateCommand(ordered ? sql.LeaseOrdered : sql.Lease);
                 command.Parameters.AddWithValue("queue", queue);
                 command.Parameters.AddWithValue("worker", worker);
                 command.Parameters.AddWithValue("now", now.ToUniversalTime());
@@ -393,6 +394,7 @@ internal sealed class JobStore(NpgsqlDataSource dataSource, JobSql sql) : IAsync
         command.Parameters.Add(Moments("window_starts", jobs.Select(job => job.WindowStart)));
         command.Parameters.Add(Moments("window_ends", jobs.Select(job => job.WindowEnd)));
         command.Parameters.Add(Texts("dedup_keys", jobs.Select(job => job.DedupKey)));
+        command.Parameters.Add(Texts("requested_bys", jobs.Select(job => job.RequestedBy)));
         command.Parameters.AddWithValue("replaced", jobs.SelectMany(job => job.Replaces ?? []).ToArray());
 
         return command;
@@ -446,7 +448,8 @@ internal sealed class JobStore(NpgsqlDataSource dataSource, JobSql sql) : IAsync
         StartedAt = Moment(reader, 19),
         HeartbeatAt = Moment(reader, 20),
         CompletedAt = Moment(reader, 21),
-        OwnerName = Text(reader, 22),
-        OwnerValues = OwnerValues.FromJson(Text(reader, 23))
+        RequestedBy = Text(reader, 22),
+        OwnerName = Text(reader, 23),
+        OwnerValues = OwnerValues.FromJson(Text(reader, 24))
     };
 }

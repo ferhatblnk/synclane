@@ -131,8 +131,10 @@ Every failure falls into exactly one category. Pick the mechanism from the categ
 ### 9. Public API and documentation
 
 - Every public member has an XML doc comment; the build fails without one.
-- A change to public behaviour updates, in the same change: the README section that describes it, `docs/*` where relevant, `docs/errors.md` for new codes, and `CHANGELOG.md`.
+- A change to public behaviour updates, in the same change: the `docs/*` page that describes it (and the README when it changes the quick start or the "What do I use for" tables), `docs/errors.md` for new codes, and `CHANGELOG.md`.
 - Breaking changes are allowed before 1.0 and must be listed under the version in `CHANGELOG.md`.
+- **Every new setting has a default the user never has to think about.** Leaving it out must be right for most users and safe for all; a setting only exists for the case its default cannot cover, and its doc comment names that case. Where SyncLane can tell what is needed (a pooler, a limit header), it finds out and says so in a warning that names the setting, instead of asking up front. Reason: SyncLane is meant to be quick to adopt, and every setting a newcomer must understand before data flows is a cost on every installation.
+- The README is the way in: what SyncLane is, a quick start that gets data flowing, and where to read on. Reference tables live in `docs/`. Keep it short enough to read in a few minutes.
 
 ### 10. Tests
 

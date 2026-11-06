@@ -161,6 +161,21 @@ internal sealed class MonitorSql
             SELECT t.status, (SELECT count(*)::int FROM changed) FROM target AS t
             """;
 
+        // A skip deletes the job, so an ordered lane goes on, and keeps its trace in the actions log: who, why, and which
+        // job of which type and key. A running job is never skipped; stop it with a pause first.
+        SkipJob =
+            $"""
+            WITH target AS (SELECT status FROM {jobs} WHERE id = @id),
+            removed AS (
+                DELETE FROM {jobs}
+                WHERE id = @id AND status IN ('pending', 'failed', 'deferred', 'abandoned')
+                RETURNING queue, owner, type, dedup_key
+            ),
+            {Logged("skip job", "(SELECT queue FROM removed)", "(SELECT owner FROM removed)",
+                "(SELECT @id::text || ' ' || type || coalesce(' ' || dedup_key, '') FROM removed)", "(SELECT count(*) FROM removed)")}
+            SELECT t.status, (SELECT count(*)::int FROM removed) FROM target AS t
+            """;
+
         RestartJob =
             $"""
             WITH target AS (SELECT status FROM {jobs} WHERE id = @id),
@@ -238,13 +253,13 @@ internal sealed class MonitorSql
             ),
             added AS (
                 INSERT INTO {jobs}
-                    (queue, owner, lane, type, mode, status, priority, window_start, window_end, dedup_key, next_run_at, created_at, updated_at)
+                    (queue, owner, lane, type, mode, status, priority, window_start, window_end, dedup_key, requested_by, next_run_at, created_at, updated_at)
                 SELECT @queue, @owner,
                        coalesce((SELECT lane FROM {jobs} WHERE queue = @queue AND owner = @owner ORDER BY id DESC LIMIT 1), @owner),
                        @type, 'manual', 'pending', @priority,
                        CASE WHEN k.covered_to IS NULL THEN NULL ELSE coalesce(k.completed_to, k.covered_to) END,
                        CASE WHEN k.covered_to IS NULL THEN NULL ELSE @now END,
-                       @key, @now, @now, @now
+                       @key, @by, @now, @now, @now
                 FROM known AS k
                 WHERE NOT EXISTS (SELECT 1 FROM waiting)
                 RETURNING id
@@ -351,6 +366,8 @@ internal sealed class MonitorSql
 
     /// <summary>Runs one job again from its first page, whatever its status but running.</summary>
     public string RestartJob { get; }
+
+    public string SkipJob { get; }
 
     public string RequeueByCode { get; }
 

@@ -6,7 +6,7 @@ All examples use the default schema, `synclane`.
 
 ## Looking
 
-`ISyncLaneMonitor` answers the usual questions without SQL: the state of each queue, whose data is old and why, failures grouped by error code, rate budgets, instances, and volume per hour or day. See [Watching it run](../README.md#watching-it-run). The queries below are for everything else.
+`ISyncLaneMonitor` answers the usual questions without SQL: the state of each queue, whose data is old and why, failures grouped by error code, rate budgets, instances, and volume per hour or day. See [Watching it run](monitoring.md). The queries below are for everything else.
 
 **Finding an owner by name.** Give `JobOwner` a name in your owner source, for example the customer and its store, and `GetJobsAsync` and `GetFreshnessAsync` find owners by any part of it with `Search`, ignoring case. The key and the name live in `synclane.owners`, one row per queue and owner; a search reads that small table and never the jobs:
 
@@ -96,6 +96,7 @@ ORDER BY budget, rate;
 | `LimitBudgetAsync(budget, key?, limit, per, reason, by, until?)` | Lowers a rate budget, or one key of it, for a while: "the API answers slowly, halve our rate for an hour". Every instance obeys from its next request. It only ever lowers: the declared limit, or the one the API reports, stays the upper bound. When it ends, the rate climbs back as it learns. Permanent changes belong in the budget's declaration. |
 | `ClearBudgetLimitAsync(budget, key?, by)` | Lifts it. |
 | `RequeueJobAsync(id)` | Gives one failed, deferred or abandoned job fresh attempts, keeping its cursor. |
+| `SkipJobAsync(id, reason)` | Takes one job that is not running out of line for good, without running it, so the jobs behind it in an ordered lane go on. The job is deleted; the actions log keeps who skipped which job and why. Its dedup key is free again. |
 | `RestartJobAsync(id)` | Runs one job again from its first page, a completed one too, for a window whose data has to be fetched again. |
 | `RequeueByCodeAsync(queue, code)` | Requeues every failing, deferred and abandoned job of the queue with that error code, after you fixed the cause. |
 | `SyncNowAsync(queue, owner, type)` | Fetches the owner's new data now, from where its completed data reaches, at high priority. While that job waits, later calls stretch it to now instead of adding jobs, so a webhook storm is one fetch. A type without windows is fetched whole. The planner's own jobs are not touched. |
@@ -205,7 +206,7 @@ The system this design comes from once tripled its slice from 30 to 90 days to "
 
 More instances or more slots make more accounts load side by side. They do not make one account load faster: its jobs share a lane, and its requests share the API's limit for that account. A new account's history is loaded newest slice first, so its recent data arrives first; `PrioritizeOwnerAsync` moves it ahead of the others in line.
 
-**Per environment.** Every number here can come from configuration instead of code, with `AddSyncLane(configuration, ...)`: see [Settings from configuration](../README.md#settings-from-configuration). Raise `Concurrency` or widen `every` in one environment without a deploy.
+**Per environment.** Every number here can come from configuration instead of code, with `AddSyncLane(configuration, ...)`: see [Settings from configuration](configuration.md#settings-from-configuration). Raise `Concurrency` or widen `every` in one environment without a deploy.
 
 **`MaxAttempts`** counts pick-ups since the job last saved a page, so it limits failures in a row, not over a job's life. A throttle counts only when the recipe or handler has no rate budget; with one, the budget's pause is what protects the API, and the job is postponed instead. With the defaults a job that keeps failing on one page is deferred after about fifteen minutes of ordinary failures, or more than an hour of unbudgeted throttling.
 
@@ -241,6 +242,25 @@ Four signals worth an alert:
 - `synclane.job.throttled` growing faster than `synclane.job.taken`. The pace is too high for the other side: give the recipe or handler a rate budget.
 - `synclane.job.finished{outcome="lease_lost"}` above zero. A worker stalled longer than `LeaseDuration`, or clocks disagree.
 - `synclane.budget.paused` growing steadily. The declared budget is above what the API allows now: lower it. Another app on the same account can cause this too. `synclane.budget.exhausted` growing is not a problem: it means SyncLane stopped at zero instead of being throttled.
+
+## Ordered queues
+
+Some deliveries must arrive in the order they were made: a stock movement, then the next one for the same company. Declare their queue ordered:
+
+```csharp
+options.AddQueue("movements", queue =>
+{
+    queue.Ordered = true;
+    queue.Handle<MovementHandler>("movement");
+});
+```
+
+- A job waits while an older job of its lane is unfinished: pending, running, failed, deferred or abandoned. When movement 1 is abandoned, movement 2 and the rest of that lane wait.
+- Only that queue and that lane wait. Other lanes go on, and so does every other queue, pulls included.
+- Fix the cause and requeue the job (`RequeueJobAsync`); when it completes, the lane goes on. A job that must not be sent at all is skipped (`SkipJobAsync(id, reason)`): it is deleted, the actions log keeps who skipped it and why, and the lane goes on.
+- A deferred job is tried again when due instead of stepping aside, since the jobs behind it are waiting for it.
+- Priority still orders the heads of different lanes; within a lane, order of creation wins over priority.
+- The lease finds the head of each lane through the index `jobs_lane_order`: on 100,000 waiting jobs in 1,000 lanes, about 6 ms.
 
 ## Health checks
 

@@ -13,4 +13,5 @@ internal sealed record PlannedJob(
     DateTimeOffset? WindowStart,
     DateTimeOffset? WindowEnd,
     string? DedupKey,
-    IReadOnlyList<long>? Replaces = null);
+    IReadOnlyList<long>? Replaces = null,
+    string? RequestedBy = null);

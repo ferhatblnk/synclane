@@ -53,6 +53,7 @@ internal static class SettingsFromConfiguration
         {
             [nameof(QueueOptions.Concurrency)] = entry => Read<int>(entry, WholeNumber, Whole, value => queue.Concurrency = value, errors),
             [nameof(QueueOptions.MaxAttempts)] = entry => Read<int>(entry, WholeNumber, Whole, value => queue.MaxAttempts = value, errors),
+            [nameof(QueueOptions.Ordered)] = entry => Read<bool>(entry, Flag, bool.TryParse, value => queue.Ordered = value, errors),
             [nameof(QueueOptions.LeaseDuration)] = entry => Read<TimeSpan>(entry, Span, Spans, value => queue.LeaseDuration = value, errors),
             [nameof(QueueOptions.RetryBaseDelay)] = entry => Read<TimeSpan>(entry, Span, Spans, value => queue.RetryBaseDelay = value, errors),
             [nameof(QueueOptions.RetryMaxDelay)] = entry => Read<TimeSpan>(entry, Span, Spans, value => queue.RetryMaxDelay = value, errors),

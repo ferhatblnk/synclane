@@ -25,6 +25,13 @@ public sealed record NewJob
     public JobPriority? Priority { get; init; }
 
     /// <summary>
+    /// Who or what asked for the job, such as a user's id or <c>scheduler</c>, for the handler and the monitor. Up to
+    /// 200 characters on one line. It is the caller's data: stored with the job, never written to a log, a trace or a
+    /// metric.
+    /// </summary>
+    public string? RequestedBy { get; init; }
+
+    /// <summary>
     /// Enqueueing the same key twice for the same owner and type creates one job.
     /// Leave it <c>null</c> to always create a new one.
     /// </summary>

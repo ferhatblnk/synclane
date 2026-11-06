@@ -2,6 +2,77 @@
 
 SyncLane is four pieces around one table: a planner that inserts rows, worker slots that take them, a runner that drives your handler, and a handful of statements that move a row from one status to the next. This page goes through them in the order a job meets them.
 
+## At a glance
+
+```mermaid
+flowchart LR
+    owners["Your accounts<br/>(IOwnerSource)"] --> planner["Planner<br/>what should exist<br/>minus what exists"]
+    planner -->|"insert, on conflict do nothing"| table[("synclane.jobs")]
+    table -->|"take the next job<br/>whose lane is free"| worker["Worker slot"]
+    worker --> handler["Your handler<br/>one page"]
+    handler -->|"cursor + count"| worker
+    worker -->|"save cursor, renew lease"| table
+```
+
+1. **Plan.** Once a minute the planner asks your `IOwnerSource` who is connected, reads in one query what already exists for them, and inserts what is missing. A snapshot type gets one initial job. A windowed type gets its history in slices back to the horizon, anchored to midnight UTC so that two calls on the same day produce the same slices. Each period adds one recurring job; for a windowed type its window starts where coverage ends.
+2. **Take.** A worker slot takes the next job that is due and whose lane has nothing running. Urgent jobs run first, then owners moved forward, then high, normal and low; within a level, types run in the order you declared them, and within a type the newest window runs first, so what is new is never stuck behind history. The row is marked `running` with the worker's name and a lease.
+3. **Run.** The handler is called page by page. After every page the cursor and the record count are saved and the lease is renewed. A heartbeat renews the lease while a slow page is in flight.
+4. **Finish.** No next cursor means `completed`. An exception means `failed` and a delay that doubles with every attempt; a `JobThrottledException` means a longer delay. Attempts count since the last saved page, so a long job that fails now and then still finishes. When the regular attempts are used up the job is `deferred`: it steps aside, the rest of its lane runs, and it gets one more attempt once the lane is idle. If that fails too it is `abandoned` and waits for you.
+5. **Recover.** A worker that stops hands its job back with the cursor. A worker that dies stops renewing its lease, and another worker takes the job over; the dead worker's writes are refused from then on.
+
+```mermaid
+stateDiagram-v2
+    [*] --> pending: planned
+    pending --> running: taken
+    running --> completed: no next cursor
+    running --> failed: attempt failed
+    failed --> running: delay is over
+    running --> pending: worker is stopping
+    running --> deferred: regular attempts used up
+    deferred --> running: lane is idle
+    running --> abandoned: deferred attempt failed
+    abandoned --> pending: requeue
+    completed --> [*]
+```
+
+### What a job looks like
+
+This is a row from the demo, taken while it was running. The job covers one 30-day slice of an account's orders. Its second page keeps failing, so it has done 50 records, is on its fourth attempt and will run again at `next_run_at`, from cursor `50`:
+
+```
+id               | 33
+queue            | shops
+owner            | globex
+lane             | globex
+type             | orders
+mode             | initial
+status           | failed
+priority         | 1
+window_start     | 2026-08-08 00:00:00+00
+window_end       | 2026-09-07 00:00:00+00
+dedup_key        | initial:2026-08-08T00:00:00Z
+cursor           | 50
+processed_count  | 50
+attempt_count    | 4
+error            | InvalidOperationException: The shop returned a page that could not be read.
+next_run_at      | 2026-10-07 12:15:50.548901+00
+leased_by        |
+lease_expires_at |
+created_at       | 2026-10-07 12:15:12.39661+00
+started_at       | 2026-10-07 12:15:17.621544+00
+heartbeat_at     | 2026-10-07 12:15:35.045812+00
+completed_at     |
+```
+
+### Two indexes carry the guarantees
+
+Neither guarantee depends on a lock or on code remembering to check something:
+
+- `UNIQUE (queue, owner, type, dedup_key)` makes planning repeatable. Several instances can plan at the same moment and every job is created once.
+- `UNIQUE (queue, lane) WHERE status = 'running'` makes a lane exclusive. Two workers can pick different jobs of one lane in the same instant; the database lets one through and the other asks again.
+
+The second one is not decoration. With that index dropped, 24 workers taking jobs from 3 lanes put two jobs of one lane to work 170 times in a run of 600 jobs. With the index: zero.
+
 ## The table
 
 Jobs are in `synclane.jobs`. The full definition is in [schema.sql](schema.sql). Beside it, `synclane.coverage` keeps what the planner needs per owner and type, `synclane.rate_buckets` the rate budgets, `synclane.pauses` and `synclane.budget_limits` what operators set, `synclane.actions` what they did, `synclane.instances` the running processes, and `synclane.migrations` which schema version the database has.

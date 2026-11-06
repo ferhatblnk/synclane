@@ -135,6 +135,11 @@ internal static class SyncLaneErrors
         $"Owner '{owner}' has a value '{name}' that cannot be used: {rule}. Fix it where the owner's values are made (the owner " +
         "source or the NewJob).");
 
+    public static SyncError RequestedByInvalid(int length) => new(
+        SyncErrorCodes.RequestedByInvalid, SyncErrorKind.Validation,
+        $"NewJob.RequestedBy of {length} characters cannot be used: it is up to {NewJobLimits.RequestedBy} characters on one line, " +
+        "such as a user's id. Nothing was enqueued.");
+
     public static SyncError BudgetLimitInvalid(string budget, string problem) => new(
         SyncErrorCodes.BudgetLimitInvalid, SyncErrorKind.Validation,
         $"The limit on budget '{budget}' was not set: {problem} Give at least 1 request per a positive period, and an end after now or none.");

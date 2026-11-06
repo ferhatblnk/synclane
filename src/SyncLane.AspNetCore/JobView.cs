@@ -32,6 +32,9 @@ public sealed record JobView
     /// <summary>The stored order, lower first.</summary>
     public int Priority { get; init; }
 
+    /// <summary>Who or what asked for it, when it was enqueued by hand or by a sync-now.</summary>
+    public string? RequestedBy { get; init; }
+
     /// <summary>The level it was created with.</summary>
     public required JobPriority PriorityLevel { get; init; }
 
@@ -86,6 +89,7 @@ public sealed record JobView
         Status = job.Status,
         Priority = job.Priority,
         PriorityLevel = job.PriorityLevel,
+        RequestedBy = job.RequestedBy,
         Prioritized = job.Prioritized,
         DedupKey = job.DedupKey,
         WindowStart = job.WindowStart,

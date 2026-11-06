@@ -172,7 +172,7 @@ public class EndpointTests : PostgresTest
             .Where(description => description.RelativePath!.StartsWith("synclane/", StringComparison.Ordinal))
             .ToList();
 
-        Assert.Equal(20, descriptions.Count);
+        Assert.Equal(21, descriptions.Count);
         Assert.All(descriptions, description => Assert.Contains(
             description.ActionDescriptor.EndpointMetadata.OfType<ITagsMetadata>(), tags => tags.Tags.Contains("SyncLane")));
         var overview = Assert.Single(descriptions, description => description.RelativePath == "synclane/overview");
