@@ -22,6 +22,14 @@ public sealed partial class SyncLaneOptions
     /// </summary>
     public string? ListenConnectionString { get; set; }
 
+    /// <summary>
+    /// Keep a connection open to hear job changes. Turn it off where no connection can listen, such as behind a pooler
+    /// in transaction mode with no way around it: then no connection is opened and no probe is sent, workers look for
+    /// jobs every <see cref="PollInterval"/>, and <see cref="ISyncLaneMonitor.WatchAsync"/> stays quiet. Default
+    /// <c>true</c>.
+    /// </summary>
+    public bool ListenForChanges { get; set; } = true;
+
     /// <summary>The connection string the change feed listens on.</summary>
     internal string ListenConnection => string.IsNullOrWhiteSpace(ListenConnectionString) ? ConnectionString : ListenConnectionString;
 

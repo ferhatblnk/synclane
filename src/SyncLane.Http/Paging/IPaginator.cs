@@ -24,16 +24,30 @@ internal readonly record struct PageRequest(IReadOnlyList<KeyValuePair<string, s
 /// <summary>What the pagination may look at in an answer.</summary>
 internal readonly record struct PageAnswer(JsonElement Root, JsonElement Records, IReadOnlyList<string> LinkHeaders, Uri RequestUri);
 
-/// <summary>Scheme, host and port: where a recipe is allowed to send requests.</summary>
-internal sealed record Origin(string Scheme, string Host, int Port)
+/// <summary>
+/// Scheme, host and port: where a recipe is allowed to send requests. With <see cref="Hosts"/>, the host is any of them:
+/// a name, or <c>*.</c> and a domain for one name under it.
+/// </summary>
+internal sealed record Origin(string Scheme, string Host, int Port, IReadOnlyList<string>? Hosts = null)
 {
     public static Origin Of(Uri uri) => new(uri.Scheme, uri.Host, uri.Port);
 
     public bool Matches(Uri uri) =>
         uri.IsAbsoluteUri
         && string.Equals(uri.Scheme, Scheme, StringComparison.OrdinalIgnoreCase)
-        && string.Equals(uri.Host, Host, StringComparison.OrdinalIgnoreCase)
-        && uri.Port == Port;
+        && uri.Port == Port
+        && (Hosts is null ? string.Equals(uri.Host, Host, StringComparison.OrdinalIgnoreCase) : Hosts.Any(pattern => Allows(pattern, uri.Host)));
+
+    private static bool Allows(string pattern, string host)
+    {
+        if (!pattern.StartsWith("*.", StringComparison.Ordinal))
+            return string.Equals(host, pattern, StringComparison.OrdinalIgnoreCase);
+
+        var domain = pattern[1..];
+        return host.Length > domain.Length
+            && host.EndsWith(domain, StringComparison.OrdinalIgnoreCase)
+            && !host.AsSpan(0, host.Length - domain.Length).Contains('.');
+    }
 }
 
 /// <summary>No paging: one request returns everything.</summary>

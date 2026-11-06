@@ -31,6 +31,7 @@ public class CredentialLeakTests : PostgresTest
     private readonly string _marker = Guid.NewGuid().ToString("N");
 
     private readonly string _nameMarker = "name-" + Guid.NewGuid().ToString("N");
+    private readonly string _valueMarker = "value-" + Guid.NewGuid().ToString("N");
 
     [PostgresTheory]
     [InlineData("""{ "type": "bearer", "credential": "example-shop" }""")]
@@ -52,7 +53,7 @@ public class CredentialLeakTests : PostgresTest
 
         // Sequential: one enqueue per owner; the order does not matter, and a test does not need a batch.
         foreach (var owner in Owners)
-            (await client.EnqueueAsync(new NewJob { Queue = Queue, Owner = new JobOwner(owner, Name: $"Shop {owner} {_nameMarker}"), Type = "orders" })).ThrowIfFailed();
+            (await client.EnqueueAsync(new NewJob { Queue = Queue, Owner = new JobOwner(owner, Name: $"Shop {owner} {_nameMarker}") { Values = new Dictionary<string, string> { ["region"] = _valueMarker } }, Type = "orders" })).ThrowIfFailed();
 
         var jobs = await WaitAsync(found => found.Count == Owners.Length && found.All(job => job.Status is JobStatus.Completed or JobStatus.Abandoned));
         await host.StopAsync();
@@ -74,6 +75,8 @@ public class CredentialLeakTests : PostgresTest
         // An owner's name is stored and shown by the monitor, but is the owner's data: never in a log, span or metric.
         Assert.Equal($"Shop ok {_nameMarker}", jobs.Single(job => job.Owner == "ok").OwnerName);
         Assert.False(observed.Contains(_nameMarker, StringComparison.Ordinal), $"An owner name was found: {Around(observed, _nameMarker)}");
+        Assert.Equal(_valueMarker, jobs.Single(job => job.Owner == "ok").OwnerValues!["region"]);
+        Assert.False(observed.Contains(_valueMarker, StringComparison.Ordinal), $"An owner value was found: {Around(observed, _valueMarker)}");
     }
 
     /// <summary>Every secret, and every form a request carries it in.</summary>
@@ -116,6 +119,7 @@ public class CredentialLeakTests : PostgresTest
         builder.Services.AddSyncLane(options =>
         {
             options.ConnectionString = ConnectionString!;
+            options.ListenConnectionString = ListenConnectionString;
             options.Schema = Schema;
             options.PollInterval = TimeSpan.FromMilliseconds(50);
             options.AddQueue(Queue, queue =>

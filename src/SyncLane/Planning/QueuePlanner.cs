@@ -14,6 +14,11 @@ internal sealed class QueuePlanner(JobStore store, TimeProvider time)
         if (owners.Count == 0)
             return 0;
 
+        // An owner source that gives values a recipe cannot use fails the round, which the log and the health check show.
+        var invalid = owners.Select(OwnerValues.Check).OfType<SyncError>().ToList();
+        if (invalid.Count > 0)
+            throw new SyncLaneException(invalid);
+
         var now = time.GetUtcNow();
         var coverage = await store.GetCoverageAsync(queue.Name, owners, now, cancellationToken);
 

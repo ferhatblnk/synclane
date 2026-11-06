@@ -44,4 +44,7 @@ public static class CliErrorCodes
 
     /// <summary>The folder given to <c>synclane mcp --folder</c> does not exist.</summary>
     public const string FolderMissing = "SL6013";
+
+    /// <summary>The recipe uses values of the owner, and <c>synclane test</c> was not given them.</summary>
+    public const string OwnerValuesNeeded = "SL6014";
 }

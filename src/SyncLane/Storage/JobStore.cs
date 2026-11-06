@@ -88,11 +88,13 @@ internal sealed class JobStore(NpgsqlDataSource dataSource, JobSql sql) : IAsync
     /// Inserts one job and remembers its owner, with <paramref name="ownerName"/> when given. Returns its id, or
     /// <c>null</c> when a job with the same dedup key exists.
     /// </summary>
-    public async Task<long?> EnqueueOneAsync(string queue, PlannedJob job, string? ownerName, DateTimeOffset now, CancellationToken cancellationToken)
+    public async Task<long?> EnqueueOneAsync(
+        string queue, PlannedJob job, string? ownerName, IReadOnlyDictionary<string, string>? ownerValues, DateTimeOffset now, CancellationToken cancellationToken)
     {
         await using var command = EnqueueCommand(sql.EnqueueOne, queue, [job], now);
         command.Parameters.Add(Text("owner_key", job.Owner));
         command.Parameters.Add(Text("owner_name", ownerName));
+        command.Parameters.Add(Text("owner_values", OwnerValues.ToJson(ownerValues)));
         return await command.ExecuteScalarAsync(cancellationToken) is long id ? id : null;
     }
 
@@ -261,10 +263,14 @@ internal sealed class JobStore(NpgsqlDataSource dataSource, JobSql sql) : IAsync
         if (owners.Count == 0)
             return coverage;
 
-        // One row per key: a source that lists an owner twice keeps the last name it gave.
+        // One row per key: a source that lists an owner twice keeps the last name and values it gave.
         var named = new Dictionary<string, string?>(StringComparer.Ordinal);
+        var valued = new Dictionary<string, string?>(StringComparer.Ordinal);
         foreach (var owner in owners)
+        {
             named[owner.Key] = owner.NameOrNull ?? named.GetValueOrDefault(owner.Key);
+            valued[owner.Key] = OwnerValues.ToJson(owner.Values) ?? valued.GetValueOrDefault(owner.Key);
+        }
 
         await using var batch = dataSource.CreateBatch();
 
@@ -273,6 +279,7 @@ internal sealed class JobStore(NpgsqlDataSource dataSource, JobSql sql) : IAsync
         remember.Parameters.AddWithValue("now", now.ToUniversalTime());
         remember.Parameters.Add(Texts("owner_keys", named.Keys));
         remember.Parameters.Add(Texts("owner_names", named.Values));
+        remember.Parameters.Add(Texts("owner_values", named.Keys.Select(key => valued[key])));
         batch.BatchCommands.Add(remember);
 
         var read = new NpgsqlBatchCommand(sql.Coverage);
@@ -439,6 +446,7 @@ internal sealed class JobStore(NpgsqlDataSource dataSource, JobSql sql) : IAsync
         StartedAt = Moment(reader, 19),
         HeartbeatAt = Moment(reader, 20),
         CompletedAt = Moment(reader, 21),
-        OwnerName = Text(reader, 22)
+        OwnerName = Text(reader, 22),
+        OwnerValues = OwnerValues.FromJson(Text(reader, 23))
     };
 }

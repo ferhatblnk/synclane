@@ -94,6 +94,9 @@ public static class SyncErrorCodes
     /// <summary>A sync was asked for an owner and type the queue has never planned.</summary>
     public const string OwnerTypeNotPlanned = "SL3012";
 
+    /// <summary>An owner's values have a name or a value that cannot be used.</summary>
+    public const string OwnerValueInvalid = "SL3013";
+
     /// <summary>A job with the same owner, type and dedup key already exists.</summary>
     public const string JobAlreadyExists = "SL3101";
 

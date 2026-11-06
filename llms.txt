@@ -7,7 +7,7 @@ Notes for writing recipes:
 - Start from a curl that works. `synclane init` (the `SyncLane.Cli` tool) sends it once and writes a draft with a comment beside every guess; `synclane test` runs a recipe for two pages without a database and reports structure, never data. `synclane mcp` gives an AI assistant the same as tools.
 - A recipe never holds a credential. It names one (`"auth": { "type": "bearer", "credential": "example-shop" }`); the application's credential store, or an environment variable when testing, supplies the value. Never write a token, key or password into a recipe, a curl you suggest, or a reply.
 - Every field is described in the JSON Schema; put `"$schema"` at the top of a recipe for completion in an editor.
-- The host is fixed by the recipe: requests go only to the URL it names, and redirects are not followed.
+- Requests go only to the host a recipe names, or to one of the hosts it lists in `request.hosts` when the host is made from the owner's values; redirects are not followed. Values an account needs besides its key (a marketplace, a region) come from the owner as `{{owner.<value>}}`; `{{request.id}}` is a new UUID per request.
 - Errors carry a stable code such as `SL5106`; the catalog says what each means and how to fix it.
 
 ## Docs

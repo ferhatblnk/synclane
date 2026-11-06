@@ -67,6 +67,11 @@ internal static class CliErrors
         CliErrorCodes.FolderMissing, SyncErrorKind.Validation,
         $"The folder '{folder}' does not exist. Give --folder a folder that holds recipes, or leave it out to work in the folder the server starts in.");
 
+    public static SyncError OwnerValuesNeeded(string recipe, IReadOnlyList<string> names) => new(
+        CliErrorCodes.OwnerValuesNeeded, SyncErrorKind.Validation,
+        $"The recipe '{recipe}' uses values of the owner that were not given: {string.Join(", ", names)}. " +
+        $"Pass them as {string.Join(" ", names.Select(name => $"--value {name}=..."))}.");
+
     public static SyncError SinceInvalid(string value) => new(
         CliErrorCodes.SinceInvalid, SyncErrorKind.Validation,
         $"--since '{value}' is neither a length of time nor a date. Give a length such as 7d, 12h or 30m, or a date such as 2026-10-01.");

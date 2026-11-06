@@ -97,10 +97,18 @@ public sealed record HttpRecipeRequest
     public string Method { get => _method; init => _method = value ?? "GET"; }
 
     /// <summary>
-    /// The absolute https URL. Placeholders may appear in the path and the query, never in the scheme, host or port,
-    /// so a recipe can only call the host it names. Placeholder values are escaped.
+    /// The absolute https URL. Placeholders may appear in the path and the query, and are escaped. The scheme and port
+    /// are always written out. So is the host, unless <see cref="Hosts"/> lists where it may be: then it may be made from
+    /// the owner, such as <c>https://{{owner.endpoint}}/v1/orders</c>.
     /// </summary>
     public required string Url { get; init; }
+
+    /// <summary>
+    /// For a host made from the owner's values: every host it may be, such as <c>api-eu.example.com</c>,
+    /// or <c>*.example.com</c> for any one name under a domain. A request to any other host is never sent. Leave it out
+    /// when the URL names its host.
+    /// </summary>
+    public IReadOnlyList<string>? Hosts { get; init; }
 
     /// <summary>Query parameters added to the URL. Values may contain placeholders and are escaped.</summary>
     public IReadOnlyDictionary<string, string> Query { get => _query; init => _query = value ?? None; }
@@ -186,10 +194,17 @@ public sealed record HttpRecipeAuth
     /// <summary>For <see cref="AuthType.ApiKey"/>: where the key goes. Defaults to a header.</summary>
     public ApiKeyLocation? In { get; init; }
 
-    /// <summary>For <see cref="AuthType.ApiKey"/>: the header or query parameter that carries the key, such as <c>X-Api-Key</c>.</summary>
+    /// <summary>
+    /// For <see cref="AuthType.ApiKey"/>: the header or query parameter that carries the key, such as <c>X-Api-Key</c>.
+    /// For <see cref="AuthType.OAuth2"/>: the header that carries the access token, for an API that does not take it in
+    /// <c>Authorization: Bearer</c>, such as <c>X-Access-Token</c>.
+    /// </summary>
     public string? Name { get; init; }
 
-    /// <summary>For <see cref="AuthType.ApiKey"/> in a header: text written before the key, such as <c>Token </c>.</summary>
+    /// <summary>
+    /// For <see cref="AuthType.ApiKey"/> in a header, or <see cref="AuthType.OAuth2"/> with <see cref="Name"/>: text
+    /// written before the key or token, such as <c>Token </c>. Left out, nothing is.
+    /// </summary>
     public string? Prefix { get; init; }
 
     /// <summary>For <see cref="AuthType.OAuth2"/>: how the access token is obtained.</summary>

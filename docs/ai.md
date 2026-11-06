@@ -48,7 +48,7 @@ The tools read and write recipes only in the folder the assistant starts the ser
 | `synclane_recipe_schema` | The recipe's JSON Schema, with every field described. | No |
 | `synclane_init` | `synclane init`: sends your curl once, writes a draft with a comment beside every guess, and returns it. | Yes, once, to the URL in the curl |
 | `synclane_check` | Reads a recipe file and names every problem with how to fix it. | No |
-| `synclane_test` | `synclane test`: runs the recipe for two pages without a database and reports the records' fields, whether the key is unique and whether paging works. | Yes, to the recipe's URL |
+| `synclane_test` | `synclane test`: runs the recipe for two pages without a database and reports the records' fields, whether the key is unique and whether paging works. A recipe that uses the owner's values (`{{owner.region}}`) takes them in `values`. | Yes, to the recipe's URL |
 | `synclane_explain_error` | What a code such as `SL5106` means and how to fix it. | No |
 
 The tools run the same code as the commands, so they return what the commands print and nothing more: field names, counts and comments, never a record, a cursor, a URL's key or a credential. Most assistants ask you before they call a tool that reaches the network.

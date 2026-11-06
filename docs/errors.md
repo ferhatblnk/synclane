@@ -58,6 +58,7 @@ The first digit is the area:
 | `SL3010` | Validation | `LimitBudgetAsync` was given a limit below 1, a period of zero or less, or an end (`until`) that is not after now. Nothing was changed. | Give at least 1 request per a positive period, and a later end or none. To lift a limit, use `ClearBudgetLimitAsync`. |
 | `SL3011` | Validation | `JobQuery.Search` or `FreshnessQuery.Search` is empty, only spaces, or longer than `JobQuery.MaxSearchLength` (100) characters. Nothing was read. | Search for part of an owner's key or name, or leave `Search` out to list every owner. |
 | `SL3012` | NotFound | `SyncNowAsync` was asked for an owner and job type that the queue has never planned, so there is no coverage to sync from. Nothing was created. | Check the queue, owner and type against `GetFreshnessAsync`. A new owner is planned by the application that runs the queue; call `PlanAsync` there, or wait for the next planning round. |
+| `SL3013` | Validation | An owner's `Values` hold a name that is not letters, digits and underscores starting with a letter, the name `key`, more than 20 values, or a value with a control character or over 1,000 characters. The message names the value, never shows it. `EnqueueAsync` and `PlanAsync` return it; a planning round that meets it fails and is tried again. | Fix the values where they are made: the owner source, or the `NewJob`'s owner. |
 | `SL3101` | Conflict | `EnqueueAsync` found a job with the same owner, type and dedup key. | Requeue the existing job, or use another key. |
 | `SL3102` | Conflict | The job's status does not allow the action: a requeue takes failed, deferred and abandoned jobs, a restart takes any job that is not running. Nothing was changed. | Wait for a running job to end, or use the action that fits its status. |
 
@@ -81,7 +82,7 @@ Recipes are checked when they are loaded, and every problem is reported at once.
 | `SL5002` | Validation | A required field is empty, such as `name` or `request.url`. | Fill it in. |
 | `SL5003` | Validation | `request.url` is not absolute, does not use https, or contains a user name or password. | Use an absolute https URL. Put credentials in headers. Set `allowHttp` only for a local test server. |
 | `SL5004` | Validation | A placeholder names a value that does not exist. The message lists the ones that do. | Use `{{window.start}}`, `{{window.end}}` or `{{owner.key}}`. |
-| `SL5005` | Validation | A placeholder appears in the scheme, host or port of the URL. A recipe may only call the host it names. | Write the host out. Use the path or the query for values that change. |
+| `SL5005` | Validation | A placeholder appears in the scheme, host or port of the URL, and the recipe lists no `request.hosts`. A recipe may only call the hosts it names. | Write the host out, and use the path or the query for values that change. For a host per owner, list every host it may be in `request.hosts` and make it from the owner's values. |
 | `SL5006` | Validation | `records` is not `$` or `$.name.name`. Filters, indexes and `..` are not supported. | Point the path at the array of records by property names. |
 | `SL5007` | Validation | `window.format` is not a known format. | Use `iso8601`, `unix`, `unixMilliseconds` or `date`. |
 | `SL5008` | Validation | `request.method` is not GET or POST. | Use GET or POST. |
@@ -132,6 +133,8 @@ Recipes are checked when they are loaded, and every problem is reported at once.
 | `SL5129` | Unavailable | An HTTP destination did not take a page after three tries: a 5xx, a timeout or a network failure. When it kept asking to slow down (`429`, `502`, `503`, `504`), the job is postponed without using an attempt. | Nothing, unless it lasts: then check the receiver. The job runs again from the same page. |
 | `SL5130` | Validation | A single record is larger than an HTTP destination accepts: it answered `413` for that record alone, or the record is over `MaxBytes`. | Raise the receiver's limit or `MaxBytes`; then requeue. |
 | `SL5131` | Validation | A sink failed a scenario of `SinkConformance.CheckAsync`: a page written again, a page with changed records, duplicates in a page, an older copy after a newer one, or the same key under two owners left the wrong records stored. Reported by the check, never at run time. | Write by key (`RecordIdentity` helps), replace a record only with a version that is not lower, and keep owners apart. |
+| `SL5132` | Configuration | The recipe uses `{{owner.<value>}}` and the job's owner has no value of that name. Nothing was sent; the job is abandoned. The message names the value, never shows another. | Give the owner the value in `JobOwner.Values` from the owner source, then requeue the job. |
+| `SL5133` | Configuration | The host made from the owner's values is not in the recipe's `request.hosts`, or is not a host name at all, for example a value with a `/`, `@` or `:`. Nothing was sent; the job is abandoned. | Correct the owner's value. If the API really uses that host, add it to `request.hosts`. |
 
 ## Errors that are not on this page
 
@@ -157,6 +160,7 @@ Recipes are checked when they are loaded, and every problem is reported at once.
 | `SL6011` | Validation | The value of `--since` is neither a length of time nor a date. | Give a length such as `7d`, `12h` or `30m`, or a date such as `2026-10-01`. |
 | `SL6012` | Validation | A tool of `synclane mcp` was given a file outside the folder the server was started in. The tools read and write recipes only there, so an assistant cannot be talked into touching other files. Nothing was read or written. | Give a path inside that folder, or start `synclane mcp` in the folder that holds the recipes (most assistants start it in the open project). |
 | `SL6013` | Validation | The folder given to `synclane mcp --folder` does not exist. The server did not start. | Give the path of an existing folder, relative to where the assistant starts the server or absolute, or leave `--folder` out. |
+| `SL6014` | Validation | The recipe uses values of the owner (`{{owner.marketplaceId}}` and the like), and `synclane test` was not given them. Nothing was sent. | Pass each as `--value name=value`; the message lists the names. In `synclane mcp`, give them in the test tool's `values`. |
 
 ## The HTTP endpoints
 

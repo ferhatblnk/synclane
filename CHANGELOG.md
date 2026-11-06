@@ -29,6 +29,14 @@ All notable changes to this project are recorded here. The format follows [Keep 
   - It runs on the person's machine with their own assistant; SyncLane calls no AI service and opens no port.
   - New dependency of the tool: `ModelContextProtocol.Core` (Apache-2.0), and with it `Microsoft.Extensions.AI.Abstractions` (MIT). Both are listed in THIRD-PARTY-NOTICES with their licenses.
 - `llms.txt` at the root of the repository, and [docs/ai.md](docs/ai.md) on writing recipes with an assistant.
+- Values per owner: `JobOwner.Values`, given by the owner source or an enqueue, and `{{owner.<value>}}` in recipes, for what an API needs besides the key (a marketplace, a region, a store id).
+  - Kept with the owner like its name (migration 11, `owners.owner_values`) and returned with every job as `Job.OwnerValues`: no lookup per page. An owner given without values keeps its old ones.
+  - Not secrets: they may land in URLs and cursors. Never written to a log, a span or a metric.
+  - Codes: `SL3013` for a name or value that cannot be used, `SL5132` when a job's owner lacks a value its recipe uses. `synclane test --value name=value`, and `values` in the MCP test tool (`SL6014`).
+- A host per owner: `request.hosts` lists every host a URL like `https://{{owner.endpoint}}/v1/orders` may make, or `*.example.com` for one name under a domain. Every request's host is checked before it is sent (`SL5133`), and a next page must stay on the job's own host.
+- An OAuth 2.0 access token in a header of the recipe's choosing: `name` (and `prefix`) on `oauth2` auth, for APIs that do not take it in `Authorization: Bearer`. Renewal, retries on 401 and rotated refresh tokens work as before.
+- `{{request.id}}`: a new UUID for every request, for APIs that want a correlation id per call.
+- `ListenForChanges`: turn listening off where no connection can get around a pooler in transaction mode. No connection is opened and no probe is sent; workers poll every `PollInterval`.
 
 ### Changed
 

@@ -170,4 +170,10 @@ public static class HttpErrorCodes
 
     /// <summary>A sink failed a scenario of <see cref="SinkConformance"/>: a page delivered again changed what it stored.</summary>
     public const string SinkNotIdempotent = "SL5131";
+
+    /// <summary>A recipe uses a value of the owner that the job's owner does not have.</summary>
+    public const string OwnerValueMissing = "SL5132";
+
+    /// <summary>The host made from an owner's values is not one the recipe allows.</summary>
+    public const string HostNotAllowed = "SL5133";
 }

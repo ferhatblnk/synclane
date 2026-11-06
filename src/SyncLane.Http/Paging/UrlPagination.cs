@@ -46,7 +46,9 @@ internal sealed class UrlPagination(string recipe, Origin origin, RecordPath? fr
         if (!Uri.TryCreate(answer.RequestUri, text, out var next))
             return SyncResult<string?>.Failure(HttpErrors.CursorValueInvalid(recipe, Field, "a URL"));
 
-        if (!origin.Matches(next))
+        // On a host the recipe allows, and on the very host this job's request went to: one owner's pages never
+        // continue on another owner's host.
+        if (!origin.Matches(next) || !Origin.Of(answer.RequestUri).Matches(next))
             return SyncResult<string?>.Failure(HttpErrors.NextUrlForeignHost(recipe));
 
         var read = answer.RequestUri;

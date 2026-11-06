@@ -130,6 +130,11 @@ internal static class SyncLaneErrors
         $"Queue '{queue}' has never planned '{type}' jobs for owner '{owner}', so there is nothing to sync now. Check the " +
         "names against GetFreshnessAsync, or let the planner see the owner first (PlanAsync in the application that runs the queue).");
 
+    public static SyncError OwnerValueInvalid(string owner, string name, string rule) => new(
+        SyncErrorCodes.OwnerValueInvalid, SyncErrorKind.Validation,
+        $"Owner '{owner}' has a value '{name}' that cannot be used: {rule}. Fix it where the owner's values are made (the owner " +
+        "source or the NewJob).");
+
     public static SyncError BudgetLimitInvalid(string budget, string problem) => new(
         SyncErrorCodes.BudgetLimitInvalid, SyncErrorKind.Validation,
         $"The limit on budget '{budget}' was not set: {problem} Give at least 1 request per a positive period, and an end after now or none.");

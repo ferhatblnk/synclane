@@ -17,6 +17,7 @@ public class SettingsTests
         {
             ["SyncLane:ConnectionString"] = "Host=db;Database=other",
             ["SyncLane:ListenConnectionString"] = "Host=db-direct;Database=other",
+            ["SyncLane:ListenForChanges"] = "false",
             ["SyncLane:Schema"] = "jobs_test",
             ["SyncLane:CreateSchema"] = "false",
             ["SyncLane:RunPlanner"] = "false",
@@ -50,6 +51,7 @@ public class SettingsTests
         Assert.Equal(
             ("Host=db;Database=other", "Host=db-direct;Database=other", "jobs_test", false, false, false),
             (options.ConnectionString, options.ListenConnectionString, options.Schema, options.CreateSchema, options.RunPlanner, options.RunWorkers));
+        Assert.False(options.ListenForChanges);
         Assert.Equal(
             (TimeSpan.FromMinutes(2), TimeSpan.FromSeconds(10), TimeSpan.FromMinutes(1), "worker", (TimeSpan?)TimeSpan.FromDays(30)),
             (options.PlanInterval, options.PollInterval, options.MaxBudgetWait, options.Application, options.KeepCompletedJobs));

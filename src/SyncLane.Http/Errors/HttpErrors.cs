@@ -23,12 +23,23 @@ internal static class HttpErrors
     public static SyncError PlaceholderUnknown(string recipe, string placeholder, string location) => new(
         HttpErrorCodes.PlaceholderUnknown, SyncErrorKind.Validation,
         $"Recipe '{recipe}': {location} uses {{{{{placeholder}}}}}, which does not exist. " +
-        $"Available: {string.Join(", ", Placeholders.Known.Select(name => $"{{{{{name}}}}}"))}.");
+        $"Available: {Placeholders.Available}.");
 
     public static SyncError PlaceholderInHost(string recipe) => new(
         HttpErrorCodes.PlaceholderInHost, SyncErrorKind.Validation,
         $"Recipe '{recipe}': request.url has a placeholder before the path. The scheme, host and port must be written " +
-        "out, so a recipe can only ever call the host it names.");
+        "out, so a recipe can only ever call the hosts it names. For a host per owner, list the hosts it may be in " +
+        "request.hosts and make it from the owner's values, such as https://{{owner.endpoint}}/v1/orders.");
+
+    public static SyncError OwnerValueMissing(string recipe, string value) => new(
+        HttpErrorCodes.OwnerValueMissing, SyncErrorKind.Configuration,
+        $"Recipe '{recipe}' uses {{{{owner.{value}}}}}, and the job's owner has no value '{value}'. Nothing was sent. Give " +
+        "the owner that value in its JobOwner.Values, from the owner source, and requeue the job.");
+
+    public static SyncError HostNotAllowed(string recipe) => new(
+        HttpErrorCodes.HostNotAllowed, SyncErrorKind.Configuration,
+        $"Recipe '{recipe}': the host made from the owner's values is not in request.hosts, or is not a host name at " +
+        "all. Nothing was sent. Correct the owner's value, or add the host to request.hosts if it is one the API really uses.");
 
     public static SyncError RecordsPathInvalid(string recipe, string path) => new(
         HttpErrorCodes.RecordsPathInvalid, SyncErrorKind.Validation,

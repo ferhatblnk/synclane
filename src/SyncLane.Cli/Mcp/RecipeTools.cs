@@ -118,12 +118,14 @@ internal sealed partial class RecipeTools(CliHost host)
         string? owner = null,
         [Description("How far back the window reaches: a length such as 7d, 12h or 30m, or a date.")]
         string since = "7d",
+        [Description("The owner's values, for a recipe that uses {{owner.name}}, such as { \"region\": \"eu\" }. Not secrets.")]
+        Dictionary<string, string>? values = null,
         CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(file);
         return Outside(file) is { } outside
             ? Task.FromResult(Failed(outside))
-            : CaptureAsync(null, captured => TestCommand.RunAsync(file, owner, since, captured, cancellationToken));
+            : CaptureAsync(null, captured => TestCommand.RunAsync(file, owner, since, captured, cancellationToken, values));
     }
 
     public async Task<string> CheckAsync(

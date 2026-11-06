@@ -262,6 +262,54 @@ public class OAuthTests
         Assert.Equal(["Bearer token-1", "Bearer token-2", "Bearer token-3"], harness.ApiRequests.Select(Authorization));
     }
 
+    [Fact]
+    public async Task An_access_token_goes_in_the_header_the_recipe_names_and_is_renewed_there_on_a_401()
+    {
+        var revoked = false;
+        await using var harness = Harness(
+            RefreshToken.Replace("\"grant\"", "\"name\": \"X-Access-Token\", \"grant\"", StringComparison.Ordinal),
+            call => AuthHarness.Token(call.Form["refresh_token"] == "refresh-1" && !revoked ? "token-1" : "token-2", expiresIn: 3600),
+            api: request => revoked && Header(request, "X-Access-Token") == "token-1"
+                ? new HttpResponseMessage(HttpStatusCode.Unauthorized)
+                : AuthHarness.Ok());
+        harness.Vault.Add("shop-7", "example-shop", new Credential { ClientId = "id-1", RefreshToken = "refresh-1" });
+
+        await harness.RunAsync();
+        revoked = true;
+        await harness.RunAsync();
+
+        Assert.Equal(["token-1", "token-1", "token-2"], harness.ApiRequests.Select(request => Header(request, "X-Access-Token")));
+        Assert.All(harness.ApiRequests, request => Assert.Null(Authorization(request)));
+    }
+
+    [Fact]
+    public async Task A_prefix_goes_before_a_token_in_a_named_header()
+    {
+        await using var harness = Harness(RefreshToken.Replace("\"grant\"", "\"name\": \"X-Access-Token\", \"prefix\": \"Token \", \"grant\"", StringComparison.Ordinal));
+        harness.Vault.Add("shop-7", "example-shop", new Credential { ClientId = "id-1", RefreshToken = "refresh-1" });
+
+        await harness.RunAsync();
+
+        Assert.Equal("Token token-1", Header(Assert.Single(harness.ApiRequests), "X-Access-Token"));
+    }
+
+    [Theory]
+    [InlineData("\"prefix\": \"Token \"", "prefix")]
+    [InlineData("\"name\": \"Host\"", "name")]
+    [InlineData("\"name\": \"Content-Type\"", "name")]
+    [InlineData("\"name\": \"x y\"", "name")]
+    [InlineData("\"in\": \"header\"", "in")]
+    public void A_token_header_that_cannot_be_used_is_refused_with_the_field(string field, string named)
+    {
+        var parsed = HttpRecipe.Parse(AuthTests.Recipe(RefreshToken.Replace("\"grant\"", field + ", \"grant\"", StringComparison.Ordinal)));
+
+        var error = Assert.Single(parsed.Errors);
+        Assert.Contains($"auth.{named}", error.Message);
+    }
+
+    private static string? Header(HttpRequestMessage request, string name) =>
+        request.Headers.TryGetValues(name, out var values) ? values.Single() : null;
+
     private static Credential Client(string id, string secret) => new() { ClientId = id, ClientSecret = secret };
 
     private static AuthHarness Harness(
