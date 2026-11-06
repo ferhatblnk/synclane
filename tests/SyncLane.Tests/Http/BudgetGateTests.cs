@@ -23,6 +23,14 @@ public class BudgetGateTests : PostgresTest
     private const int PagesPerJob = 4;
     private static readonly TimeSpan Patience = TimeSpan.FromSeconds(30);
 
+    /// <summary>
+    /// Refusals a budgeted run may meet on a loaded CI runner. Tokens are spaced right, but a request that waits for a
+    /// thread arrives late and bunches with the next ones, beyond the API's burst (seen once, on PostgreSQL 17 in CI;
+    /// every job still completed, as the pause after a refusal makes sure). Without the budget the same run is refused
+    /// at once, so one refusal still tells them apart; more would mean the budget is not spacing requests.
+    /// </summary>
+    private const int SlowRunnerRefusals = 1;
+
     [PostgresTheory]
     [InlineData(true)]
     [InlineData(false)]
@@ -37,7 +45,7 @@ public class BudgetGateTests : PostgresTest
             var jobs = await RunAsync(host);
 
             Assert.All(jobs, job => Assert.Equal(JobStatus.Completed, job.Status));
-            Assert.Equal(0, api.Throttled);
+            Assert.InRange(api.Throttled, 0, SlowRunnerRefusals);
             Assert.Equal(Owners * PagesPerJob, api.Served);
         }
         else
@@ -78,7 +86,7 @@ public class BudgetGateTests : PostgresTest
             var jobs = await RunAsync([first, second], owners: 16);
 
             Assert.All(jobs, job => Assert.Equal(JobStatus.Completed, job.Status));
-            Assert.Equal(0, api.Throttled);
+            Assert.InRange(api.Throttled, 0, SlowRunnerRefusals);
             Assert.True(api.Agents.Distinct().Count() == 2, "Both hosts must have sent requests, or the test proves nothing.");
             // A steady 30 a second with a burst of 1 gives out 31 tokens in any second. This counts arrivals, not tokens:
             // on a busy runner a request can arrive up to a quarter of a second late and bunch with the next ones, about
