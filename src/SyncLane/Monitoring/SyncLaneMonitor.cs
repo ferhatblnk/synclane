@@ -14,12 +14,6 @@ internal sealed partial class SyncLaneMonitor(
     TimeProvider time,
     ILogger<SyncLaneMonitor> logger) : ISyncLaneMonitor
 {
-    /// <summary>
-    /// How far a prioritized owner's jobs move forward. Type priorities are declaration positions, so this puts the owner
-    /// ahead of every other owner and keeps its own order.
-    /// </summary>
-    internal const int PriorityBoost = 1_000_000;
-
     public async Task<SyncResult<IReadOnlyList<QueueOverview>>> GetOverviewAsync(CancellationToken cancellationToken = default) =>
         SyncResult<IReadOnlyList<QueueOverview>>.Success(await monitor.OverviewAsync(time.GetUtcNow(), InstanceRules.GoneAfter, cancellationToken));
 
@@ -133,9 +127,25 @@ internal sealed partial class SyncLaneMonitor(
         ArgumentException.ThrowIfNullOrWhiteSpace(queue);
         ArgumentNullException.ThrowIfNull(owner);
 
-        var moved = await monitor.PrioritizeOwnerAsync(queue, owner, PriorityBoost, Who(by), time.GetUtcNow(), cancellationToken);
+        var moved = await monitor.PrioritizeOwnerAsync(queue, owner, Who(by), time.GetUtcNow(), cancellationToken);
         LogPrioritized(moved, queue, owner);
         return SyncResult<int>.Success(moved);
+    }
+
+    public async Task<SyncResult<long>> SyncNowAsync(string queue, string owner, string type, string? by = null, CancellationToken cancellationToken = default)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(queue);
+        ArgumentNullException.ThrowIfNull(owner);
+        ArgumentException.ThrowIfNullOrWhiteSpace(type);
+
+        if (await monitor.SyncNowAsync(queue, owner, type, Planning.Priorities.Of(JobPriority.High, 0), Who(by), time.GetUtcNow(), cancellationToken)
+            is not { } found)
+            return SyncResult<long>.Failure(SyncLaneErrors.OwnerTypeNotPlanned(queue, owner, type));
+
+        var (id, joined) = found;
+
+        LogSyncNow(id, joined ? "stretched" : "created", queue, owner, type);
+        return SyncResult<long>.Success(id);
     }
 
     public async Task<SyncResult<int>> PauseAsync(
@@ -264,4 +274,7 @@ internal sealed partial class SyncLaneMonitor(
 
     [LoggerMessage(Level = LogLevel.Information, Message = "Moved {Count} jobs of owner {Owner} on queue {Queue} ahead of the others.")]
     private partial void LogPrioritized(int count, string queue, string owner);
+
+    [LoggerMessage(Level = LogLevel.Information, Message = "Sync-now job {Id} {How} for owner {Owner}, type {Type} on queue {Queue}.")]
+    private partial void LogSyncNow(long id, string how, string queue, string owner, string type);
 }

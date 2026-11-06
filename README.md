@@ -130,7 +130,7 @@ flowchart LR
 ```
 
 1. **Plan.** Once a minute the planner asks your `IOwnerSource` who is connected, reads in one query what already exists for them, and inserts what is missing. A snapshot type gets one initial job. A windowed type gets its history in slices back to the horizon, anchored to midnight UTC so that two calls on the same day produce the same slices. Each period adds one recurring job; for a windowed type its window starts where coverage ends.
-2. **Take.** A worker slot takes the next job that is due and whose lane has nothing running. Types run in the order you declared them; within a type the newest window runs first, so what is new is never stuck behind history. The row is marked `running` with the worker's name and a lease.
+2. **Take.** A worker slot takes the next job that is due and whose lane has nothing running. Urgent jobs run first, then owners moved forward, then high, normal and low; within a level, types run in the order you declared them, and within a type the newest window runs first, so what is new is never stuck behind history. The row is marked `running` with the worker's name and a lease.
 3. **Run.** The handler is called page by page. After every page the cursor and the record count are saved and the lease is renewed. A heartbeat renews the lease while a slow page is in flight.
 4. **Finish.** No next cursor means `completed`. An exception means `failed` and a delay that doubles with every attempt; a `JobThrottledException` means a longer delay. Attempts count since the last saved page, so a long job that fails now and then still finishes. When the regular attempts are used up the job is `deferred`: it steps aside, the rest of its lane runs, and it gets one more attempt once the lane is idle. If that fails too it is `abandoned` and waits for you.
 5. **Recover.** A worker that stops hands its job back with the cursor. A worker that dies stops renewing its lease, and another worker takes the job over; the dead worker's writes are refused from then on.
@@ -276,6 +276,22 @@ if (!result.Succeeded)
 return Results.Ok(result.Value);
 ```
 
+### Priority
+
+Jobs that are due run in this order: `Urgent` jobs, then the owners an operator moved forward with `PrioritizeOwnerAsync`, then `High`, `Normal` and `Low`. Within a level, types run in the order you declared them. A job takes its level from `NewJob.Priority`, or else from its owner:
+
+```csharp
+// A stock change that must reach the marketplace before anything else in line.
+await syncLane.EnqueueAsync(new NewJob { Queue = "shops", Owner = owner, Type = "inventory", Priority = JobPriority.Urgent });
+
+// A new customer whose history should load before the others: give it from your owner source.
+return accounts
+    .Select(account => new JobOwner(account.Id, Name: account.Name) { Priority = account.IsNew ? JobPriority.High : JobPriority.Normal })
+    .ToList();
+```
+
+An owner's priority applies to the jobs created after it changes; jobs already waiting keep theirs. Priority never cuts a running job: one account's jobs share a lane, so an urgent job of that account runs as soon as the job in its lane ends. `Job.PriorityLevel` and `Job.Prioritized` show where a job stands.
+
 A failed result always means the call was understood and the answer is no: an undeclared queue, a duplicate job, a page size out of range. It never hides an outage; a database that cannot be reached still throws. Every error has a stable code such as `SL3101`, listed with its cause and fix in [docs/errors.md](docs/errors.md). Call `ThrowIfFailed()` or `GetValueOrThrow()` when you would rather have an exception.
 
 Three exceptions let a handler say more than "it failed":
@@ -349,7 +365,7 @@ app.MapSyncLane("/synclane").RequireAuthorization("ops");
 
 See [the package's readme](src/SyncLane.AspNetCore/README.md) for the routes.
 
-It also has an emergency stop, `PauseAsync(queue, owner?, reason)`, which cuts what runs on every instance and takes nothing more until `ResumeAsync`, and the repairs the answers call for: `RequeueJobAsync(id)`, `RestartJobAsync(id)` to fetch a window again, `RequeueByCodeAsync(queue, code)` after fixing what a problem group shows, and `PrioritizeOwnerAsync(queue, owner)` for an account that should load first. `LimitBudgetAsync` lowers a rate budget for a while. Every action is logged with who did it and why (`GetActionsAsync`). See [docs/operations.md](docs/operations.md#changing).
+It also has an emergency stop, `PauseAsync(queue, owner?, reason)`, which cuts what runs on every instance and takes nothing more until `ResumeAsync`, and the repairs the answers call for: `RequeueJobAsync(id)`, `RestartJobAsync(id)` to fetch a window again, `RequeueByCodeAsync(queue, code)` after fixing what a problem group shows, `PrioritizeOwnerAsync(queue, owner)` for an account that should load first, and `SyncNowAsync(queue, owner, type)` when the other side announces a change, for example with a webhook: it fetches from where the owner's data reaches to now, at high priority, and a burst of calls is one fetch. `LimitBudgetAsync` lowers a rate budget for a while. Every action is logged with who did it and why (`GetActionsAsync`). See [docs/operations.md](docs/operations.md#changing).
 
 Each read is one round trip that reads small summary tables and the open jobs, never the history: on a table of a million jobs each one takes about a millisecond, and a year of daily volume about 45. Lists page with a cursor.
 
@@ -362,6 +378,19 @@ builder.Services.AddOpenTelemetry()
 ```
 
 Every run of a job is a `synclane.job` span and every page a `synclane.page` span inside it, so the HTTP calls your handler makes show up under the page that made them. The metrics count jobs taken and finished by outcome, pages, records, throttles and planner runs, and time how long jobs wait and run. Tags name the queue and the job type, never the owner or the lane. Without OpenTelemetry, `dotnet-counters monitor --counters SyncLane` shows them live. The full list is in [docs/operations.md](docs/operations.md#metrics-and-traces).
+
+### Health checks
+
+`AddSyncLane` provides `SyncLaneHealthCheck` for .NET's health checks, in a web app or a worker:
+
+```csharp
+builder.Services.AddHealthChecks().AddCheck<SyncLaneHealthCheck>("synclane");
+app.MapHealthChecks("/health");
+```
+
+- **Unhealthy** when the database cannot be reached, its schema lacks migrations this version needs, or this instance has not renewed its registration for two minutes, after which other instances count it as gone.
+- **Degraded** while it starts, when the latest planning round of a queue failed, or when it does not hear job changes (behind a pooler in transaction mode without `ListenConnectionString`, or while it reconnects). Workers still find jobs by polling then.
+- Each check is one small query. Descriptions say what is wrong and how to fix it; they never hold a connection string or an exception's message.
 
 ## Configuration
 

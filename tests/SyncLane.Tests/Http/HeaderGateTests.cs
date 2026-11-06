@@ -44,8 +44,12 @@ public class HeaderGateTests : PostgresTest
         {
             var jobs = await RunAsync(host);
 
+            // A reading comes with an answer, and four jobs have requests on the way when it lands. On a loaded runner
+            // an answer can be handled late enough that one request already sent meets the end of a window (seen once,
+            // on PostgreSQL 14 in CI); the budget then pauses, as it should. More than one would mean the readings are
+            // not being used.
             Assert.All(jobs, job => Assert.Equal(JobStatus.Completed, job.Status));
-            Assert.Equal(0, api.Spent);
+            Assert.InRange(api.Spent, 0, 1);
             Assert.Equal(Owners * PagesPerJob, api.Served);
         }
         else

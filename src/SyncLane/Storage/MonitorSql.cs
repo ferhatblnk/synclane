@@ -199,11 +199,60 @@ internal sealed class MonitorSql
                 SET priority = priority - @boost, updated_at = @now
                 WHERE queue = @queue AND owner = @owner
                   AND status <> 'completed' AND status IN ('pending', 'failed', 'deferred', 'abandoned')
-                  AND priority >= 0
+                  AND priority >= @movable
                 RETURNING 1
             ),
             {Logged("prioritize owner", "@queue", "@owner", "NULL", "(SELECT count(*) FROM changed)")}
             SELECT count(*)::int FROM changed
+            """;
+
+        // Two calls for one owner and type at once would both find nothing waiting; the lock, taken in the same
+        // transaction before the statement below reads, lets the second join what the first made.
+        SyncNowLock = "SELECT pg_advisory_xact_lock(hashtext('synclane.sync-now'), hashtext(@queue || chr(31) || @owner || chr(31) || @type))";
+
+        // A sync-now covers from where the owner's completed data reaches to now; a type without windows (no planned
+        // coverage) is fetched whole. One waits per owner and type: a later call stretches its window to now instead of
+        // adding another. A failed one is left to its back-off. The lane is the owner's, from its newest job.
+        SyncNow =
+            $"""
+            WITH known AS (
+                SELECT covered_to, completed_to FROM {coverage}
+                WHERE queue = @queue AND owner = @owner AND type = @type
+            ),
+            waiting AS (
+                SELECT id FROM {jobs}
+                WHERE queue = @queue AND owner = @owner AND type = @type
+                  AND status = 'pending' AND mode = 'manual' AND starts_with(dedup_key, @prefix)
+                ORDER BY id
+                LIMIT 1
+            ),
+            joined AS (
+                UPDATE {jobs} AS j
+                SET window_end = CASE WHEN j.window_end IS NULL THEN NULL ELSE GREATEST(j.window_end, @now) END,
+                    next_run_at = LEAST(j.next_run_at, @now),
+                    priority = LEAST(j.priority, @priority),
+                    updated_at = @now
+                FROM waiting AS w
+                WHERE j.id = w.id
+                RETURNING j.id
+            ),
+            added AS (
+                INSERT INTO {jobs}
+                    (queue, owner, lane, type, mode, status, priority, window_start, window_end, dedup_key, next_run_at, created_at, updated_at)
+                SELECT @queue, @owner,
+                       coalesce((SELECT lane FROM {jobs} WHERE queue = @queue AND owner = @owner ORDER BY id DESC LIMIT 1), @owner),
+                       @type, 'manual', 'pending', @priority,
+                       CASE WHEN k.covered_to IS NULL THEN NULL ELSE coalesce(k.completed_to, k.covered_to) END,
+                       CASE WHEN k.covered_to IS NULL THEN NULL ELSE @now END,
+                       @key, @now, @now, @now
+                FROM known AS k
+                WHERE NOT EXISTS (SELECT 1 FROM waiting)
+                RETURNING id
+            ),
+            {Logged("sync now", "@queue", "@owner", "@type", "((SELECT count(*) FROM joined) + (SELECT count(*) FROM added))")}
+            SELECT id, false FROM added
+            UNION ALL
+            SELECT id, true FROM joined
             """;
 
         // A pause is announced to every instance in the same statement, so running jobs are cut at once.
@@ -306,6 +355,10 @@ internal sealed class MonitorSql
     public string RequeueByCode { get; }
 
     public string PrioritizeOwner { get; }
+
+    public string SyncNowLock { get; }
+
+    public string SyncNow { get; }
 
     public string Overview { get; }
 

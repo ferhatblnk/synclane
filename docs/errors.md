@@ -57,6 +57,7 @@ The first digit is the area:
 | `SL3009` | Validation | `PauseAsync` was given an end (`until`) that is not after now. Nothing was paused. | Give a later end, or none to keep the pause until `ResumeAsync`. |
 | `SL3010` | Validation | `LimitBudgetAsync` was given a limit below 1, a period of zero or less, or an end (`until`) that is not after now. Nothing was changed. | Give at least 1 request per a positive period, and a later end or none. To lift a limit, use `ClearBudgetLimitAsync`. |
 | `SL3011` | Validation | `JobQuery.Search` or `FreshnessQuery.Search` is empty, only spaces, or longer than `JobQuery.MaxSearchLength` (100) characters. Nothing was read. | Search for part of an owner's key or name, or leave `Search` out to list every owner. |
+| `SL3012` | NotFound | `SyncNowAsync` was asked for an owner and job type that the queue has never planned, so there is no coverage to sync from. Nothing was created. | Check the queue, owner and type against `GetFreshnessAsync`. A new owner is planned by the application that runs the queue; call `PlanAsync` there, or wait for the next planning round. |
 | `SL3101` | Conflict | `EnqueueAsync` found a job with the same owner, type and dedup key. | Requeue the existing job, or use another key. |
 | `SL3102` | Conflict | The job's status does not allow the action: a requeue takes failed, deferred and abandoned jobs, a restart takes any job that is not running. Nothing was changed. | Wait for a running job to end, or use the action that fits its status. |
 

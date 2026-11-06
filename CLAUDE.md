@@ -31,7 +31,7 @@ Run the PostgreSQL tests before calling any change to storage, running or the pu
 | `src/SyncLane/Planning` | What jobs should exist. Pure functions plus one read and one insert. |
 | `src/SyncLane/Storage` | Every SQL statement (`JobSql`, `BudgetSql`, `InstanceSql`, `MonitorSql`), table access (`JobStore`, `BudgetStore`, `InstanceStore`, `MonitorStore`), migrations, clean-up. |
 | `src/SyncLane/Running` | Workers, the page loop, the failure policy. |
-| `src/SyncLane/Monitoring` | `ISyncLaneMonitor`, what it returns, and its implementation. Its SQL is in `Storage` (`MonitorSql`). |
+| `src/SyncLane/Monitoring` | `ISyncLaneMonitor`, what it returns, and its implementation; the change feed; `SyncLaneHealthCheck`. Its SQL is in `Storage` (`MonitorSql`). |
 | `src/SyncLane/Instances` | Registering this process, the heartbeat, and which applications may run which queues. |
 | `src/SyncLane/Telemetry` | Metrics instruments and outcome names. |
 | `src/SyncLane.Http` | The declarative HTTP source: recipes, request building, record paths, paging, authentication, its own codes (`HttpErrorCodes`) and catalog (`HttpErrors`). Uses only the engine's public API. |
@@ -47,7 +47,7 @@ Each rule has a reason. If a rule is in your way, change the rule here first, wi
 
 ### 1. Dependencies
 
-- The engine depends on the BCL, `Npgsql` and `Microsoft.Extensions.*.Abstractions`. Nothing else. `SyncLane.Http` adds `Microsoft.Extensions.Http` (decision D13). `SyncLane.AspNetCore` adds the ASP.NET Core shared framework and nothing else (D48).
+- The engine depends on the BCL, `Npgsql` and `Microsoft.Extensions.*.Abstractions` (health checks' included, D56). Nothing else. `SyncLane.Http` adds `Microsoft.Extensions.Http` (decision D13). `SyncLane.AspNetCore` adds the ASP.NET Core shared framework and nothing else (D48).
 - No platform is named in `src`: not in code, not in comments. Platform knowledge belongs in recipes. **(checked)**
 - **No in-house or company packages in this solution.** Nothing private, from any employer or client. SyncLane is public and must build for anyone. An adapter to such a package (for example mapping `SyncResult<T>` to `ApiResult<T>`) lives in a separate solution that references SyncLane, never the other way round.
 - `SyncLane.Http` uses only the engine's public API. If it needs something internal, make a small, read-only public API in the engine instead (as `SyncLaneOptions.Describe()`).

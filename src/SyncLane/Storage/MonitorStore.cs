@@ -167,15 +167,47 @@ internal sealed class MonitorStore(NpgsqlDataSource dataSource, MonitorSql sql)
         return await command.ExecuteScalarAsync(cancellationToken) is int changed ? changed : 0;
     }
 
-    public async Task<int> PrioritizeOwnerAsync(string queue, string owner, int boost, string by, DateTimeOffset now, CancellationToken cancellationToken)
+    public async Task<int> PrioritizeOwnerAsync(string queue, string owner, string by, DateTimeOffset now, CancellationToken cancellationToken)
     {
         await using var command = dataSource.CreateCommand(sql.PrioritizeOwner);
         command.Parameters.AddWithValue("queue", queue);
         command.Parameters.AddWithValue("owner", owner);
-        command.Parameters.AddWithValue("boost", boost);
+        command.Parameters.AddWithValue("boost", Planning.Priorities.Boost);
+        command.Parameters.AddWithValue("movable", Planning.Priorities.Movable);
         command.Parameters.AddWithValue("now", now.ToUniversalTime());
         AddWho(command.Parameters, by, null);
         return await command.ExecuteScalarAsync(cancellationToken) is int changed ? changed : 0;
+    }
+
+    /// <summary>
+    /// The waiting sync-now of an owner and type, made or stretched to now, and whether it already waited; <c>null</c>
+    /// when the queue never planned that owner and type. Lock and statement go in one round trip and one transaction.
+    /// </summary>
+    public async Task<(long Id, bool Joined)?> SyncNowAsync(
+        string queue, string owner, string type, int priority, string by, DateTimeOffset now, CancellationToken cancellationToken)
+    {
+        await using var batch = dataSource.CreateBatch();
+
+        var lockCommand = new NpgsqlBatchCommand(sql.SyncNowLock);
+        lockCommand.Parameters.AddWithValue("queue", queue);
+        lockCommand.Parameters.AddWithValue("owner", owner);
+        lockCommand.Parameters.AddWithValue("type", type);
+        batch.BatchCommands.Add(lockCommand);
+
+        var sync = new NpgsqlBatchCommand(sql.SyncNow);
+        sync.Parameters.AddWithValue("queue", queue);
+        sync.Parameters.AddWithValue("owner", owner);
+        sync.Parameters.AddWithValue("type", type);
+        sync.Parameters.AddWithValue("priority", priority);
+        sync.Parameters.AddWithValue("prefix", Planning.DedupKeys.SyncNowPrefix);
+        sync.Parameters.AddWithValue("key", Planning.DedupKeys.SyncNow(Guid.NewGuid()));
+        sync.Parameters.AddWithValue("now", now.ToUniversalTime());
+        AddWho(sync.Parameters, by, null);
+        batch.BatchCommands.Add(sync);
+
+        await using var reader = await batch.ExecuteReaderAsync(cancellationToken);
+        await reader.NextResultAsync(cancellationToken);
+        return await reader.ReadAsync(cancellationToken) ? (reader.GetInt64(0), reader.GetBoolean(1)) : null;
     }
 
     /// <summary>Sets or replaces the pause of a queue (owner empty) or an owner, logs it and announces it. Returns 1.</summary>

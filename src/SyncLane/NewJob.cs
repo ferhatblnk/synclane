@@ -19,6 +19,12 @@ public sealed record NewJob
     public DateTimeOffset? WindowEnd { get; init; }
 
     /// <summary>
+    /// How soon this job runs compared with the other due jobs of its queue. Leave it <c>null</c> to use the owner's
+    /// <see cref="JobOwner.Priority"/>.
+    /// </summary>
+    public JobPriority? Priority { get; init; }
+
+    /// <summary>
     /// Enqueueing the same key twice for the same owner and type creates one job.
     /// Leave it <c>null</c> to always create a new one.
     /// </summary>

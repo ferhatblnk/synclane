@@ -28,6 +28,7 @@ app.MapSyncLane("/synclane").RequireAuthorization("ops");
 | POST | `/jobs/{id}/requeue`, `/jobs/{id}/restart` | Repair one job |
 | POST | `/requeue-by-code?queue=&code=` | Requeue every failing job with one error code |
 | POST | `/prioritize?queue=&owner=` | Move an owner's waiting jobs ahead of the others |
+| POST | `/sync-now?queue=&owner=&type=` | Fetch an owner's new data now, for example on a webhook; a burst of calls is one fetch |
 
 Safe by default:
 - Until the group requires authorization, the endpoints answer only requests from the same machine. A request that came through a proxy (`X-Forwarded-For` and the like) does not count as local.

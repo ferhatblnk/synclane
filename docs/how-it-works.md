@@ -14,7 +14,7 @@ Jobs are in `synclane.jobs`. The full definition is in [schema.sql](schema.sql).
 | `type` | The job type, which selects the handler. |
 | `mode` | `initial` (first load), `recurring` (periodic refresh) or `manual` (enqueued by hand). |
 | `status` | `pending`, `running`, `completed`, `failed`, `deferred` or `abandoned`. |
-| `priority` | Lower runs first. It is the position of the type's declaration. |
+| `priority` | Lower runs first: the band of the job's level (urgent, high, normal 0, low) plus the position of the type's declaration, less 1,000,000 when an operator moved the owner forward. |
 | `window_start`, `window_end` | The range the job covers, if it has one. |
 | `dedup_key` | What makes the job unique for its owner and type. |
 | `cursor` | Where the next page starts. |

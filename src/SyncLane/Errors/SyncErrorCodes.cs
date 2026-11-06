@@ -91,6 +91,9 @@ public static class SyncErrorCodes
     /// <summary>The search text of a query is empty or too long.</summary>
     public const string SearchInvalid = "SL3011";
 
+    /// <summary>A sync was asked for an owner and type the queue has never planned.</summary>
+    public const string OwnerTypeNotPlanned = "SL3012";
+
     /// <summary>A job with the same owner, type and dedup key already exists.</summary>
     public const string JobAlreadyExists = "SL3101";
 

@@ -225,7 +225,9 @@ internal sealed class JobSql
             """;
 
         // Finishing a job also records how far its owner's data now reaches and counts it in its hour, in the same
-        // statement: the monitor reads both without scanning jobs, and the counts outlive the rows clean-up deletes.
+        // statement: the monitor reads both without scanning jobs, and the counts outlive the rows clean-up deletes. A
+        // manual job counts only when its window starts within what is complete, so it never hides a gap, and never past
+        // now.
         Complete =
             $"""
             WITH done AS (
@@ -238,14 +240,15 @@ internal sealed class JobSql
                     lease_expires_at = NULL,
                     updated_at = @now
                 WHERE {held}
-                RETURNING queue, owner, type, mode, window_end, processed_count
+                RETURNING queue, owner, type, mode, window_start, window_end, processed_count
             ),
             noted AS (
                 UPDATE {coverage} AS c
-                SET completed_to = GREATEST(c.completed_to, d.window_end),
+                SET completed_to = GREATEST(c.completed_to, CASE WHEN d.mode = 'manual' THEN LEAST(d.window_end, @now) ELSE d.window_end END),
                     completed_at = @now
                 FROM done AS d
-                WHERE d.mode IN ('initial', 'recurring') AND c.queue = d.queue AND c.owner = d.owner AND c.type = d.type
+                WHERE c.queue = d.queue AND c.owner = d.owner AND c.type = d.type
+                  AND (d.mode IN ('initial', 'recurring') OR (d.mode = 'manual' AND d.window_start <= c.completed_to))
             ),
             counted AS (
                 INSERT INTO {stats} AS s (queue, type, hour, completed, records, failures, abandoned)

@@ -1,3 +1,4 @@
+using System.Globalization;
 using System.Net;
 using System.Security.Claims;
 using System.Text.Encodings.Web;
@@ -130,6 +131,24 @@ public class EndpointTests : PostgresTest
     }
 
     [PostgresFact]
+    public async Task A_sync_now_over_http_needs_the_action_header_and_answers_the_job_id_or_a_404()
+    {
+        await using var app = await StartAsync();
+        await ExecuteAsync(
+            $"INSERT INTO {Schema}.coverage (queue, owner, type, has_initial) VALUES ('{Queue}', 'a', 'orders', true)");
+        (string, string) action = (SyncLaneEndpointOptions.ActionHeader, "1");
+
+        var withoutHeader = await SendAsync(app, "POST", $"/synclane/sync-now?queue={Queue}&owner=a&type=orders", IPAddress.Loopback);
+        var synced = await SendAsync(app, "POST", $"/synclane/sync-now?queue={Queue}&owner=a&type=orders", IPAddress.Loopback, action);
+        var unknown = await SendAsync(app, "POST", $"/synclane/sync-now?queue={Queue}&owner=b&type=orders", IPAddress.Loopback, action);
+
+        Assert.Equal(400, withoutHeader.Status);
+        Assert.Equal((200, (await JobsAsync()).Single().Id.ToString(CultureInfo.InvariantCulture)), (synced.Status, synced.Body));
+        Assert.Equal(404, unknown.Status);
+        Assert.Contains("\"code\":\"SL3012\"", unknown.Body);
+    }
+
+    [PostgresFact]
     public async Task A_refusal_comes_back_as_problem_details_with_its_code_and_status()
     {
         await using var app = await StartAsync();
@@ -153,7 +172,7 @@ public class EndpointTests : PostgresTest
             .Where(description => description.RelativePath!.StartsWith("synclane/", StringComparison.Ordinal))
             .ToList();
 
-        Assert.Equal(19, descriptions.Count);
+        Assert.Equal(20, descriptions.Count);
         Assert.All(descriptions, description => Assert.Contains(
             description.ActionDescriptor.EndpointMetadata.OfType<ITagsMetadata>(), tags => tags.Tags.Contains("SyncLane")));
         var overview = Assert.Single(descriptions, description => description.RelativePath == "synclane/overview");

@@ -125,6 +125,11 @@ internal static class SyncLaneErrors
         SyncErrorCodes.SearchInvalid, SyncErrorKind.Validation,
         $"A search of {length} characters cannot be used. Search for 1 to {JobQuery.MaxSearchLength} characters of an owner's key or name, or leave Search out.");
 
+    public static SyncError OwnerTypeNotPlanned(string queue, string owner, string type) => new(
+        SyncErrorCodes.OwnerTypeNotPlanned, SyncErrorKind.NotFound,
+        $"Queue '{queue}' has never planned '{type}' jobs for owner '{owner}', so there is nothing to sync now. Check the " +
+        "names against GetFreshnessAsync, or let the planner see the owner first (PlanAsync in the application that runs the queue).");
+
     public static SyncError BudgetLimitInvalid(string budget, string problem) => new(
         SyncErrorCodes.BudgetLimitInvalid, SyncErrorKind.Validation,
         $"The limit on budget '{budget}' was not set: {problem} Give at least 1 request per a positive period, and an end after now or none.");

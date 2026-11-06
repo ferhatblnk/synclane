@@ -29,8 +29,14 @@ public sealed record JobView
     /// <summary>Its status.</summary>
     public required JobStatus Status { get; init; }
 
-    /// <summary>Lower runs first.</summary>
+    /// <summary>The stored order, lower first.</summary>
     public int Priority { get; init; }
+
+    /// <summary>The level it was created with.</summary>
+    public required JobPriority PriorityLevel { get; init; }
+
+    /// <summary>Whether an operator moved its owner forward.</summary>
+    public bool Prioritized { get; init; }
 
     /// <summary>What makes it unique for its owner and type.</summary>
     public string? DedupKey { get; init; }
@@ -79,6 +85,8 @@ public sealed record JobView
         Mode = job.Mode,
         Status = job.Status,
         Priority = job.Priority,
+        PriorityLevel = job.PriorityLevel,
+        Prioritized = job.Prioritized,
         DedupKey = job.DedupKey,
         WindowStart = job.WindowStart,
         WindowEnd = job.WindowEnd,

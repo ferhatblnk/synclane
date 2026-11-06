@@ -73,5 +73,5 @@ internal static class JobPlanner
         last is null || last < period;
 
     private static PlannedJob Planned(JobOwner owner, JobType type, JobMode mode, JobWindow? window, string key) =>
-        new(owner.Key, owner.LaneOrKey, type.Name, mode, type.Priority, window?.Start, window?.End, key);
+        new(owner.Key, owner.LaneOrKey, type.Name, mode, Priorities.Of(owner.Priority, type.Priority), window?.Start, window?.End, key);
 }
