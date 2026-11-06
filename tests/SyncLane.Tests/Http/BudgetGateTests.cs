@@ -79,9 +79,11 @@ public class BudgetGateTests : PostgresTest
             Assert.All(jobs, job => Assert.Equal(JobStatus.Completed, job.Status));
             Assert.Equal(0, api.Throttled);
             Assert.True(api.Agents.Distinct().Count() == 2, "Both hosts must have sent requests, or the test proves nothing.");
-            // A steady 30 a second with a burst of 1 allows 31 in any second; one more for the jitter between a token
-            // and the request's arrival.
-            Assert.InRange(api.MostInOneSecond, 1, 32);
+            // A steady 30 a second with a burst of 1 gives out 31 tokens in any second. This counts arrivals, not tokens:
+            // on a busy runner a request can arrive up to a quarter of a second late and bunch with the next ones, about
+            // 8 more. 32 failed on CI once with 33 while nothing was throttled. Two hosts that do not share the budget
+            // send about 60 a second, so the bound still tells them apart; the API's own limit is checked above.
+            Assert.InRange(api.MostInOneSecond, 1, 39);
         }
         else
         {
