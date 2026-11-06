@@ -4,6 +4,10 @@ All notable changes to this project are recorded here. The format follows [Keep 
 
 ## [Unreleased]
 
+## [0.6.0] - 2026-11-06
+
+Deliveries in order: ordered queues hold a lane behind a job that failed until it is fixed or skipped, and a job can say who asked for it. The README is now a way in, with the reference in `docs/`. Migration 12 adds one column and one index; apply it before or with the upgrade.
+
 ### Added
 
 - Ordered queues: `queue.Ordered` (also from configuration) takes each lane's jobs strictly in the order they were created. A job that failed or was abandoned holds the jobs behind it in its lane until it completes or is skipped; other lanes and other queues go on. The lease finds the head of each lane through a new index (migration 12): about 6 ms on 100,000 waiting jobs in 1,000 lanes.
