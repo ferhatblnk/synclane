@@ -28,6 +28,19 @@ internal sealed class CliHost
 
     public TimeProvider Time { get; init; } = TimeProvider.System;
 
+    /// <summary>The same host, working in another folder.</summary>
+    public CliHost In(string directory) => new()
+    {
+        Out = Out,
+        Error = Error,
+        Directory = directory,
+        Piped = Piped,
+        AskSecret = AskSecret,
+        Environment = Environment,
+        Network = Network,
+        Time = Time
+    };
+
     public static CliHost FromConsole() => new()
     {
         Out = Console.Out,

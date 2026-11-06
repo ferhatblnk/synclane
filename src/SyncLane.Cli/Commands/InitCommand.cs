@@ -32,24 +32,32 @@ internal static class InitCommand
         return command;
     }
 
-    internal static async Task<int> RunAsync(IReadOnlyList<string> words, string? output, bool force, CliHost host, CancellationToken cancellationToken)
+    internal static async Task<int> RunAsync(IReadOnlyList<string> words, string? output, bool force, CliHost host, CancellationToken cancellationToken) =>
+        (await WriteAsync(words, output, force, host, cancellationToken)).Code;
+
+    /// <summary>What <see cref="RunAsync"/> does, with the path of the file it wrote, or <c>null</c> when it wrote none.</summary>
+    internal static async Task<(int Code, string? Path)> WriteAsync(
+        IReadOnlyList<string> words, string? output, bool force, CliHost host, CancellationToken cancellationToken, Func<string, SyncError?>? allowed = null)
     {
         var curl = words.Count > 0 ? CurlCommand.Parse(words)
             : host.Piped is { } piped ? CurlCommand.Parse(await piped.ReadToEndAsync(cancellationToken))
             : SyncResult<CurlCommand>.Failure(CliErrors.CurlWithoutUrl());
         if (!curl.Succeeded)
-            return host.Fail(curl.Errors);
+            return (host.Fail(curl.Errors), null);
 
         var draft = RecipeDraft.From(curl.Value!);
         var file = output ?? FileName(draft.Recipe.Name);
+        if (allowed?.Invoke(file) is { } outside)
+            return (host.Fail(outside), null);
+
         var path = Path.GetFullPath(file, host.Directory);
         if (File.Exists(path) && !force)
-            return host.Fail(CliErrors.OutputExists(file));
+            return (host.Fail(CliErrors.OutputExists(file)), null);
 
         using var client = host.ProbeClient();
         var probed = await Prober.ProbeAsync(draft, client, cancellationToken);
         if (!probed.Succeeded)
-            return host.Fail(probed.Errors);
+            return (host.Fail(probed.Errors), null);
 
         var recipe = probed.Value!;
         await File.WriteAllTextAsync(path, RecipeText.Write(recipe.Recipe, recipe.Comments, recipe.Notes), cancellationToken);
@@ -69,7 +77,7 @@ internal static class InitCommand
 
         console.WriteLine();
         console.WriteLine($"Next: synclane test {(file.Contains(' ', StringComparison.Ordinal) ? $"\"{file}\"" : file)}");
-        return 0;
+        return (0, path);
     }
 
     /// <summary>The recipe's resource, such as <c>orders.jsonc</c> for <c>example-shop/orders</c>, safe as a file name.</summary>

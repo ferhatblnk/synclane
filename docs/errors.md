@@ -155,6 +155,8 @@ Recipes are checked when they are loaded, and every problem is reported at once.
 | `SL6009` | Validation | The recipe uses the owner's values (`{{owner.key}}`), and no owner was given. | Pass `--owner` with the key of an owner to test with. |
 | `SL6010` | Validation | Page 2 brought the same records as page 1: the API did not read the paging parameter the recipe sends. The test fails. | Check the parameter's name in the API's documentation, correct the recipe's `pagination`, and test again. |
 | `SL6011` | Validation | The value of `--since` is neither a length of time nor a date. | Give a length such as `7d`, `12h` or `30m`, or a date such as `2026-10-01`. |
+| `SL6012` | Validation | A tool of `synclane mcp` was given a file outside the folder the server was started in. The tools read and write recipes only there, so an assistant cannot be talked into touching other files. Nothing was read or written. | Give a path inside that folder, or start `synclane mcp` in the folder that holds the recipes (most assistants start it in the open project). |
+| `SL6013` | Validation | The folder given to `synclane mcp --folder` does not exist. The server did not start. | Give the path of an existing folder, relative to where the assistant starts the server or absolute, or leave `--folder` out. |
 
 ## The HTTP endpoints
 

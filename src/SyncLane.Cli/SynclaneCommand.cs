@@ -1,10 +1,11 @@
 using System.CommandLine;
 using System.CommandLine.Help;
 using SyncLane.Cli.Commands;
+using SyncLane.Cli.Mcp;
 
 namespace SyncLane.Cli;
 
-/// <summary>The <c>synclane</c> command: <c>init</c> and <c>test</c>, with help and the version from the parser.</summary>
+/// <summary>The <c>synclane</c> command: <c>init</c>, <c>test</c> and <c>mcp</c>, with help and the version from the parser.</summary>
 internal static class SynclaneCommand
 {
     public static Task<int> RunAsync(string[] args, CliHost host, CancellationToken cancellationToken)
@@ -18,7 +19,8 @@ internal static class SynclaneCommand
             new HelpOption(),
             new VersionOption(),
             InitCommand.Create(host),
-            TestCommand.Create(host)
+            TestCommand.Create(host),
+            McpCommand.Create(host)
         };
 
         // Response files are off: in a curl, a word that starts with @ is curl's own (-d @body.json), not ours.

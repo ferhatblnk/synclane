@@ -38,8 +38,19 @@ It never prints record values, cursors or credentials. It exits with 1 when the 
 
 Credentials come from environment variables such as `SYNCLANE_EXAMPLE_SHOP_TOKEN`, or from a prompt that does not echo.
 
+## With an AI assistant
+
+`synclane mcp` serves `init`, `test` and a recipe check to an AI assistant over the Model Context Protocol, with the recipe guide, the JSON Schema and the error catalog. Add it to the assistant's MCP settings:
+
+```json
+{ "mcpServers": { "synclane": { "command": "synclane", "args": ["mcp"] } } }
+```
+
+It runs on your machine with your own assistant: no AI service is called and no port is opened. The tools work only in the folder the server starts in (or `--folder`), and return what the commands print: structure, never data or credentials. Write a token as `$NAME` in the curl and set the variable in the server's environment, so it never enters the conversation. Setup for several assistants: [docs/ai.md](https://github.com/ferhatblnk/synclane/blob/main/docs/ai.md).
+
 ## More
 
 - Recipes, credentials and every option: [docs/recipes.md](https://github.com/ferhatblnk/synclane/blob/main/docs/recipes.md)
+- For AI assistants: [llms.txt](https://github.com/ferhatblnk/synclane/blob/main/llms.txt)
 - Error codes `SL6xxx`: [docs/errors.md](https://github.com/ferhatblnk/synclane/blob/main/docs/errors.md#the-synclane-command)
 - The library the recipes run in: [SyncLane](https://www.nuget.org/packages/SyncLane)

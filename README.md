@@ -248,6 +248,8 @@ builder.Services.AddSyncLaneHttp(http =>
 
 You do not have to write the first recipe yourself. Put `synclane init` in front of a curl that works, and it sends the request once and writes the recipe from what the answer shows, with a comment above every field it inferred. `synclane test orders.jsonc` then runs the recipe for two pages without a database, and says whether the records, the key and the paging work ([Starting from a curl](docs/recipes.md#starting-from-a-curl)).
 
+Or let an AI assistant write it. `synclane mcp` gives your assistant those commands as tools over the Model Context Protocol: it drafts the recipe from your curl, checks it, runs it for two pages and fixes what the results say. It runs on your machine with your own assistant; SyncLane calls no AI service, and a token you write as `$NAME` in the curl is read from the environment, so it never enters the conversation. Any assistant can also start from [llms.txt](llms.txt). See [docs/ai.md](docs/ai.md).
+
 The whole format: [docs/recipes.md](docs/recipes.md). Add `"$schema"` to a recipe and your editor completes, explains and checks every field as you type ([schemas/recipe.schema.json](schemas/recipe.schema.json)).
 
 ## Working with jobs from your code

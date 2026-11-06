@@ -38,4 +38,10 @@ public static class CliErrorCodes
 
     /// <summary>The value of <c>--since</c> is neither a length of time nor a date.</summary>
     public const string SinceInvalid = "SL6011";
+
+    /// <summary>An MCP tool was given a file outside the folder the tools work in.</summary>
+    public const string PathOutsideFolder = "SL6012";
+
+    /// <summary>The folder given to <c>synclane mcp --folder</c> does not exist.</summary>
+    public const string FolderMissing = "SL6013";
 }

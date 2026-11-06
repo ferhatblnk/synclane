@@ -22,6 +22,14 @@ All notable changes to this project are recorded here. The format follows [Keep 
   - While it waits, another call stretches its window to now instead of adding a job, so a burst of webhooks is one fetch; calls at the same moment make one job too.
   - Like the other repairs it needs no queue declared, and it is written to the actions log with who asked. Code `SL3012` when the queue never planned that owner and type.
 
+- `synclane mcp`: the recipe tools for an AI assistant, over the Model Context Protocol (stdio).
+  - Tools: `synclane_init`, `synclane_test`, `synclane_check`, `synclane_recipe_guide`, `synclane_recipe_schema`, `synclane_explain_error`. They run the same code as the commands and return what the commands print: structure, never records, cursors or credentials.
+  - `$NAME` in a curl given to `synclane_init` is read from the server's environment, so a token never has to enter the conversation.
+  - The tools read and write only inside the folder the server starts in, or `--folder` (`SL6012`, `SL6013`).
+  - It runs on the person's machine with their own assistant; SyncLane calls no AI service and opens no port.
+  - New dependency of the tool: `ModelContextProtocol.Core` (Apache-2.0), and with it `Microsoft.Extensions.AI.Abstractions` (MIT). Both are listed in THIRD-PARTY-NOTICES with their licenses.
+- `llms.txt` at the root of the repository, and [docs/ai.md](docs/ai.md) on writing recipes with an assistant.
+
 ### Changed
 
 - A completed manual job whose window starts within an owner's completed data extends it, never past now. One past a gap does not, so a gap is never hidden.
