@@ -5,7 +5,7 @@
 [![CI](https://github.com/ferhatblnk/synclane/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/ferhatblnk/synclane/actions/workflows/ci.yml)
 [![License: Apache 2.0](https://img.shields.io/badge/license-Apache%202.0-blue.svg)](LICENSE)
 [![.NET 10](https://img.shields.io/badge/.NET-10-512BD4.svg)](https://dotnet.microsoft.com/)
-[![Tested on PostgreSQL 17](https://img.shields.io/badge/tested%20on-PostgreSQL%2017-336791.svg)](.github/workflows/ci.yml)
+[![Tested on PostgreSQL 14 to 18](https://img.shields.io/badge/tested%20on-PostgreSQL%2014%E2%80%9318-336791.svg)](.github/workflows/ci.yml)
 
 **A small job scheduler for syncing data from other people's APIs. Every job is one row in a PostgreSQL table you own: its window, its cursor, its attempts, its error.**
 

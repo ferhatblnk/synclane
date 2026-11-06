@@ -8,13 +8,25 @@ on:
 permissions:
   contents: read
 
+# A newer push to the same pull request or branch makes the run before it pointless.
+concurrency:
+  group: ci-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
 jobs:
-  build:
+  postgres:
+    name: PostgreSQL ${{ matrix.postgres }}
     runs-on: ubuntu-latest
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        # The oldest supported release and every newer one.
+        postgres: ["14", "15", "16", "17", "18"]
 
     services:
       postgres:
-        image: postgres:17
+        image: postgres:${{ matrix.postgres }}
         env:
           POSTGRES_DB: synclane_test
           POSTGRES_HOST_AUTH_METHOD: trust
@@ -42,8 +54,98 @@ jobs:
       - name: Test
         run: dotnet test --configuration Release --no-build
 
+  platforms:
+    name: Unit tests on ${{ matrix.os }}
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        # The CLI is a tool people run on their own machines. Without SYNCLANE_TEST_DB the PostgreSQL tests are skipped.
+        os: [windows-latest, macos-latest]
+
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-dotnet@v6
+        with:
+          global-json-file: global.json
+
+      - name: Build
+        run: dotnet build --configuration Release
+
+      - name: Test
+        run: dotnet test --configuration Release --no-build
+
+  packages:
+    name: Packages
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-dotnet@v6
+        with:
+          global-json-file: global.json
+
+      - name: Build
+        run: dotnet build --configuration Release
+
+      - name: No known vulnerable dependency
+        run: |
+          dotnet list package --vulnerable --include-transitive | tee vulnerable.txt
+          if grep -q "has the following vulnerable packages" vulnerable.txt; then
+            echo "::error::A dependency has a known vulnerability. Update it, or explain in the pull request why it cannot be."
+            exit 1
+          fi
+
       - name: Pack
         run: |
           for project in src/SyncLane src/SyncLane.Http src/SyncLane.Cli src/SyncLane.AspNetCore; do
             dotnet pack "$project" --configuration Release --no-build --output artifacts
           done
+
+      # The tool carries its dependencies, so their licenses travel with it. A library added to it without its notice
+      # fails here.
+      - name: Every library the tool carries has its notice
+        run: |
+          bundled=$(unzip -Z1 artifacts/SyncLane.Cli.*.nupkg | grep -E '\.dll$' | xargs -n1 basename \
+            | sed -E 's/(\.resources)?\.dll$//' | grep -v '^SyncLane' | sort -u)
+          listed=$(awk '/^- /{ print $2 }' THIRD-PARTY-NOTICES.txt | sort -u)
+          missing=$(comm -23 <(echo "$bundled") <(echo "$listed"))
+          stale=$(comm -13 <(echo "$bundled") <(echo "$listed"))
+          for name in $stale; do echo "::warning::THIRD-PARTY-NOTICES.txt lists $name, which the tool no longer carries."; done
+          if [ -n "$missing" ]; then
+            for name in $missing; do echo "::error::SyncLane.Cli carries $name, which THIRD-PARTY-NOTICES.txt does not list."; done
+            exit 1
+          fi
+
+  sign-off:
+    name: Signed off (DCO)
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+
+      # Every commit carries a "Signed-off-by:" line with its author's email: the author certifies the Developer
+      # Certificate of Origin in DCO. Commits of bots, such as Dependabot's, are not people and are skipped.
+      - name: Every commit is signed off
+        env:
+          BASE: ${{ github.event.pull_request.base.sha }}
+          HEAD: ${{ github.event.pull_request.head.sha }}
+        run: |
+          missing=0
+          for sha in $(git rev-list --no-merges "$BASE..$HEAD"); do
+            email=$(git log -1 --format=%ae "$sha")
+            case "$email" in *"[bot]@users.noreply.github.com") continue ;; esac
+            if ! git log -1 --format=%B "$sha" | grep -i '^Signed-off-by: ' | grep -qiF "<$email>"; then
+              echo "::error::Commit $sha has no 'Signed-off-by:' line with its author's email ($email). Sign off with 'git commit -s'; for commits already made, 'git rebase --signoff origin/main' and push again. See CONTRIBUTING.md."
+              missing=1
+            fi
+          done
+          exit $missing

@@ -1,0 +1,24 @@
+name: Dependency review
+
+on:
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  review:
+    name: Dependency review
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - uses: actions/checkout@v7
+
+      # A pull request that adds a dependency with a known vulnerability, or under a license that does not let an
+      # Apache-2.0 project be used freely by anyone, fails here. A license that cannot be detected is reported, not
+      # failed; read it before merging.
+      - uses: actions/dependency-review-action@v5
+        with:
+          fail-on-severity: moderate
+          allow-licenses: Apache-2.0, MIT, BSD-2-Clause, BSD-3-Clause, ISC, 0BSD, PostgreSQL, Unlicense, CC0-1.0, Zlib, MS-PL

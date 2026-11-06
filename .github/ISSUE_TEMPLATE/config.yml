@@ -1,0 +1,5 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Report a security problem
+    url: https://github.com/ferhatblnk/synclane/security/advisories/new
+    about: Privately, through GitHub's vulnerability reporting. Please do not open a public issue for it.
