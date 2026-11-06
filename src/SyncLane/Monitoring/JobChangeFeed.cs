@@ -13,9 +13,28 @@ namespace SyncLane.Monitoring;
 /// whoever reads: live views and idle worker slots. The connection is opened on the first reader and kept, and opened
 /// again with a growing pause when it breaks. Changes announced while it was broken are not replayed.
 /// </summary>
-internal sealed partial class JobChangeFeed(NpgsqlDataSource dataSource, string schema, TimeProvider time, ILogger<JobChangeFeed> logger)
+/// <remarks>
+/// A pooler in transaction mode accepts <c>LISTEN</c> and never delivers what it hears, without an error, and the server
+/// connection it lent keeps the registration: every change sent there afterwards reaches whichever client the pooler
+/// lends it to next, which then times out now and again. So each new connection first listens on a channel of its own,
+/// which nothing else ever notifies, and waits to hear a probe sent there through <paramref name="sending"/>, the
+/// connection everything else writes on. Only a connection that hears it listens on the schema's channel. One that does
+/// not stops listening for good, and workers poll.
+/// </remarks>
+internal sealed partial class JobChangeFeed(
+    string listenConnectionString, NpgsqlDataSource sending, string schema, TimeProvider time, ILogger<JobChangeFeed> logger)
     : IAsyncDisposable
 {
+    /// <summary>How long a new connection waits to hear its probe before it gives up listening.</summary>
+    internal TimeSpan ProbePatience { get; init; } = TimeSpan.FromSeconds(5);
+
+    // Unpooled, so a connection that stops listening is closed instead of going back to a pool still registered as a
+    // listener, where the server would keep sending to a socket nobody reads.
+    private readonly NpgsqlDataSource _listenSource =
+        NpgsqlDataSource.Create(new NpgsqlConnectionStringBuilder(listenConnectionString) { Pooling = false }.ConnectionString);
+
+    private Probe? _probe;
+
     /// <summary>Changes a reader may fall behind by before the oldest are dropped, so a slow reader never holds up the rest.</summary>
     internal const int ReaderCapacity = 1000;
 
@@ -92,6 +111,7 @@ internal sealed partial class JobChangeFeed(NpgsqlDataSource dataSource, string 
         foreach (var reader in _pauseReaders.Keys)
             reader.Writer.TryComplete();
 
+        await _listenSource.DisposeAsync();
         _stopping.Dispose();
     }
 
@@ -110,8 +130,21 @@ internal sealed partial class JobChangeFeed(NpgsqlDataSource dataSource, string 
         {
             try
             {
-                await using var connection = await dataSource.OpenConnectionAsync(stopping);
+                await using var connection = await _listenSource.OpenConnectionAsync(stopping);
                 connection.Notification += OnNotification;
+
+                var heard = await HearsProbeAsync(connection, stopping);
+
+                // Drops the probe's channel. Behind a pooler it reaches whichever server connection the pooler lends,
+                // and clears what an older version may have left listening there.
+                await using (var unlisten = new NpgsqlCommand("UNLISTEN *", connection))
+                    await unlisten.ExecuteNonQueryAsync(stopping);
+
+                if (!heard)
+                {
+                    LogDeaf(_channel, ProbePatience);
+                    return;
+                }
 
                 await using (var listen = new NpgsqlCommand($"LISTEN {_channel}", connection))
                     await listen.ExecuteNonQueryAsync(stopping);
@@ -155,8 +188,55 @@ internal sealed partial class JobChangeFeed(NpgsqlDataSource dataSource, string 
         }
     }
 
+    /// <summary>
+    /// Listens on a channel of the probe's own, sends to it on another connection and waits for
+    /// <paramref name="connection"/> to hear it. Another connection, because a session hears its own notifications even
+    /// behind a pooler, which would hide the problem.
+    /// </summary>
+    private async Task<bool> HearsProbeAsync(NpgsqlConnection connection, CancellationToken stopping)
+    {
+        var probe = new Probe(ChangeChannel.ForProbe(Guid.NewGuid()));
+        _probe = probe;
+        try
+        {
+            await using (var listen = new NpgsqlCommand($"LISTEN {probe.Channel}", connection))
+                await listen.ExecuteNonQueryAsync(stopping);
+
+            await using (var send = sending.CreateCommand(ChangeChannel.Probe))
+            {
+                send.Parameters.AddWithValue("channel", probe.Channel);
+                await send.ExecuteNonQueryAsync(stopping);
+            }
+
+            var started = time.GetTimestamp();
+
+            // Sequential: waiting for notifications on one connection.
+            while (!probe.Heard.Task.IsCompleted)
+            {
+                // Whole milliseconds: Npgsql cuts a timeout to them, and a cut to 0 waits forever.
+                var left = Math.Ceiling((ProbePatience - time.GetElapsedTime(started)).TotalMilliseconds);
+                if (left < 1)
+                    break;
+
+                await connection.WaitAsync(TimeSpan.FromMilliseconds(left), stopping);
+            }
+
+            return probe.Heard.Task.IsCompleted;
+        }
+        finally
+        {
+            _probe = null;
+        }
+    }
+
     private void OnNotification(object sender, NpgsqlNotificationEventArgs notification)
     {
+        if (_probe is { } probe && notification.Channel == probe.Channel)
+        {
+            probe.Heard.TrySetResult();
+            return;
+        }
+
         if (ReadPause(notification.Payload) is { } pause)
         {
             foreach (var reader in _pauseReaders.Keys)
@@ -226,11 +306,23 @@ internal sealed partial class JobChangeFeed(NpgsqlDataSource dataSource, string 
 
     private static TaskCompletionSource NewSignal() => new(TaskCreationOptions.RunContinuationsAsynchronously);
 
+    private sealed record Probe(string Channel)
+    {
+        public TaskCompletionSource Heard { get; } = NewSignal();
+    }
+
     [LoggerMessage(Level = LogLevel.Debug, Message = "Listening for job changes on channel {Channel}.")]
     private partial void LogListening(string channel);
 
     [LoggerMessage(Level = LogLevel.Warning, Message =
         "Listening for job changes on channel {Channel} stopped and starts again in {Pause}. Workers poll meanwhile, and live " +
-        "views miss what changes until then. A pooler in transaction mode cannot listen: connect directly.")]
+        "views miss what changes until then.")]
     private partial void LogBroken(Exception exception, string channel, TimeSpan pause);
+
+    [LoggerMessage(Level = LogLevel.Warning, Message =
+        "Listening for job changes on channel {Channel} has stopped until the next start: a change sent through ConnectionString " +
+        "was not heard within {Patience}. A pooler in transaction mode accepts LISTEN but never delivers what it hears. Set " +
+        "ListenConnectionString to a connection straight to the server, or through a pooler in session mode. Until then " +
+        "workers look for jobs every PollInterval and live views stay quiet.")]
+    private partial void LogDeaf(string channel, TimeSpan patience);
 }

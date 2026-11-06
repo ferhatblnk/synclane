@@ -31,6 +31,25 @@ public class OptionsTests
     }
 
     [Theory]
+    [InlineData(null)]
+    [InlineData("")]
+    [InlineData("  ")]
+    public void Without_a_listen_connection_string_changes_are_heard_on_the_connection_string(string? listen)
+    {
+        var options = new SyncLaneOptions { ConnectionString = AnyConnection, ListenConnectionString = listen };
+
+        Assert.Equal(AnyConnection, options.ListenConnection);
+    }
+
+    [Fact]
+    public void A_listen_connection_string_is_used_only_for_listening()
+    {
+        var options = new SyncLaneOptions { ConnectionString = AnyConnection, ListenConnectionString = "Host=db-direct;Database=app" };
+
+        Assert.Equal(("Host=db-direct;Database=app", AnyConnection), (options.ListenConnection, options.ConnectionString));
+    }
+
+    [Theory]
     [InlineData("Jobs")]
     [InlineData("my-schema")]
     [InlineData("9lives")]

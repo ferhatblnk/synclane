@@ -11,6 +11,20 @@ public sealed partial class SyncLaneOptions
     /// <summary>The PostgreSQL database that holds the jobs table.</summary>
     public string ConnectionString { get; set; } = "";
 
+    /// <summary>
+    /// The same database, for the one connection each process keeps open to hear job changes: they wake idle workers at
+    /// once and feed <see cref="ISyncLaneMonitor.WatchAsync"/>. Leave it out to listen on <see cref="ConnectionString"/>.
+    /// Set it when <see cref="ConnectionString"/> goes through a pooler in transaction mode, which accepts <c>LISTEN</c>
+    /// but never delivers what it hears: point it at the server itself, or at a pooler in session mode. Whichever is
+    /// used, the connection first checks, on a channel of its own, that it hears a probe sent through
+    /// <see cref="ConnectionString"/>. If it does not, it logs a warning and stops listening, and workers look for jobs
+    /// every <see cref="PollInterval"/>.
+    /// </summary>
+    public string? ListenConnectionString { get; set; }
+
+    /// <summary>The connection string the change feed listens on.</summary>
+    internal string ListenConnection => string.IsNullOrWhiteSpace(ListenConnectionString) ? ConnectionString : ListenConnectionString;
+
     /// <summary>The schema the jobs table lives in. Lower-case letters, digits and underscores.</summary>
     public string Schema { get; set; } = "synclane";
 

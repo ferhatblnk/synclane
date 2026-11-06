@@ -79,6 +79,7 @@ public static class ServiceCollectionExtensions
         services.AddSingleton(static provider => new MonitorStore(
             provider.GetRequiredService<JobStore>().DataSource, provider.GetRequiredService<MonitorSql>()));
         services.AddSingleton(static provider => new JobChangeFeed(
+            provider.GetRequiredService<SyncLaneOptions>().ListenConnection,
             provider.GetRequiredService<JobStore>().DataSource,
             provider.GetRequiredService<SyncLaneOptions>().Schema,
             provider.GetRequiredService<TimeProvider>(),

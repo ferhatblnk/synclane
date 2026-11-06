@@ -4,10 +4,28 @@ All notable changes to this project are recorded here. The format follows [Keep 
 
 ## [Unreleased]
 
+## [0.4.1] - 2026-11-06
+
+Live changes behind a connection pooler.
+
+### Added
+
+- `ListenConnectionString`: the connection the change feed listens on, when `ConnectionString` goes through a pooler in transaction mode. Settable from configuration as `SyncLane:ListenConnectionString`. Left out, the feed listens on `ConnectionString` as before.
+
+### Fixed
+
+- Behind a pooler in transaction mode, listening failed without a word, and harmed the pooler's other clients.
+  - Workers polled and live views stayed quiet, and nothing said why.
+  - The pooler kept the `LISTEN` on a server connection, and every job change then reached whichever client it lent that connection to next. Measured through PgBouncer 1.26 with one such connection and one change a second, other clients timed out a few times a minute; at ten changes a second, several times more.
+  - Now each new listening connection first listens on a channel of its own, sends a probe there through `ConnectionString` and waits five seconds to hear it. Only then does it listen on the schema's channel. If it hears nothing, it logs a warning that names `ListenConnectionString`, closes and stops listening until the next start, and workers poll every `PollInterval`.
+  - Upgrading from an earlier version behind PgBouncer: run `RECONNECT` on its admin console, or restart it, to close the server connections that still listen. See [docs/operations.md](docs/operations.md#behind-a-connection-pooler).
+- The README said transaction mode is PgBouncer's default. It is session mode.
+
 ### Changed
 
 - Dependencies: `Npgsql` 10.0.3 and `Microsoft.Extensions.*` 10.0.14. An application that uses SyncLane needs at least these versions.
 - `THIRD-PARTY-NOTICES.txt` names the libraries the tool carries without their versions, so an update cannot leave it stale.
+- CI also runs the whole test suite through PgBouncer in transaction mode. `SYNCLANE_TEST_LISTEN_DB` gives the tests that listen a connection around the pooler.
 
 ## [0.4.0] - 2026-11-05
 

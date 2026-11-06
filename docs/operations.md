@@ -251,6 +251,29 @@ Rate budgets are shared through `rate_buckets`: every instance takes its tokens 
 
 Keep the clocks of your instances in sync. Leases, due times and token refills are computed with the clock of the instance that asks. For leases a skew of seconds does not matter; for a budget, an instance whose clock runs one second ahead can let one second's worth of extra tokens through.
 
+## Behind a connection pooler
+
+Everything SyncLane writes and reads works through a pooler in transaction mode, such as PgBouncer with `pool_mode = transaction`: every statement stands alone or runs in its own transaction, nothing is kept in the session, and its one advisory lock ends with its transaction. CI runs the whole test suite through PgBouncer in that mode.
+
+The exception is the one connection each process keeps open to hear job changes, which wake idle workers at once and feed `WatchAsync` and the `/stream` endpoint. It uses `LISTEN`, and a pooler in transaction mode accepts `LISTEN` without an error and never delivers what it hears, because the server connection that listened goes back to the pool. Worse, that server connection stays registered: every change sent to the channel afterwards reaches whichever client the pooler lends it to next, and those clients, any application's, time out now and again.
+
+So SyncLane checks before it listens. Each time that connection opens, it listens on a channel of its own that nothing else uses, sends a probe there through `ConnectionString`, and waits five seconds to hear it. Only then does it listen on the schema's channel. If it hears nothing, it logs a warning that names `ListenConnectionString`, closes the connection and does not listen again until the next start. Workers then look for jobs every `PollInterval`, and live views stay quiet. At most the probe's own channel stays registered behind the pooler, and nothing ever sends to it.
+
+To keep live changes, give the listening connection a way around the pooler:
+
+```json
+{
+  "SyncLane": {
+    "ConnectionString": "Host=pgbouncer;Port=6432;Database=app;Username=app",
+    "ListenConnectionString": "Host=db;Port=5432;Database=app;Username=app"
+  }
+}
+```
+
+It costs one server connection per process. A pooler in session mode works too, and so does a proxy that pins a session to one server connection when it sees `LISTEN`. Without a pooler, leave `ListenConnectionString` out.
+
+Versions before 0.4.1 listened on the schema's channel through the pooler. PgBouncer then logs `got packet 'A' from server when not linked` for each change, and its other clients can see read timeouts. After upgrading, run `RECONNECT` on PgBouncer's admin console, or restart it, so the server connections that still hold that `LISTEN` are closed; otherwise they close at the latest after `server_lifetime` (an hour by default).
+
 ## Several applications on one schema
 
 Applications can share one database and one SyncLane schema. Each declares its own queues, so jobs, planning and clean-up stay separate, and a budget declared by several applications is shared by all of them. One table then shows every sync of every application.

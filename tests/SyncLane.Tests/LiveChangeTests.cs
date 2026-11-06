@@ -18,7 +18,7 @@ public class LiveChangeTests : PostgresTest
     [PostgresFact]
     public async Task A_job_is_announced_when_it_is_created_and_when_its_status_changes_but_not_for_a_page_or_a_heartbeat()
     {
-        await using var feed = Feed(Store.DataSource);
+        await using var feed = Feed();
         await feed.ListeningAsync(CancellationToken.None);
         var seen = CollectAsync(feed.ReadAllAsync(null, null, CancellationToken.None), 3);
 
@@ -36,8 +36,7 @@ public class LiveChangeTests : PostgresTest
     [PostgresFact]
     public async Task Another_instance_sees_the_changes_in_order_and_only_those_it_asked_for()
     {
-        await using var otherInstance = NpgsqlDataSource.Create(ConnectionString!);
-        await using var feed = Feed(otherInstance);
+        await using var feed = Feed();
         await feed.ListeningAsync(CancellationToken.None);
         var seen = CollectAsync(feed.ReadAllAsync(Queue, "a", CancellationToken.None), 2);
 
@@ -54,7 +53,7 @@ public class LiveChangeTests : PostgresTest
     [PostgresFact]
     public async Task A_long_owner_key_never_stops_a_write_and_is_announced_cut_short()
     {
-        await using var feed = Feed(Store.DataSource);
+        await using var feed = Feed();
         await feed.ListeningAsync(CancellationToken.None);
         var seen = CollectAsync(feed.ReadAllAsync(null, null, CancellationToken.None), 1);
         var owner = new string('x', 10_000);
@@ -68,7 +67,7 @@ public class LiveChangeTests : PostgresTest
     [PostgresFact]
     public async Task Listening_starts_again_after_the_connection_breaks()
     {
-        await using var feed = Feed(Store.DataSource);
+        await using var feed = Feed();
         await feed.ListeningAsync(CancellationToken.None);
         using var reading = new CancellationTokenSource(Patience);
         var changes = feed.ReadAllAsync(null, null, reading.Token).GetAsyncEnumerator(reading.Token);
@@ -98,6 +97,7 @@ public class LiveChangeTests : PostgresTest
         builder.Services.AddSyncLane(options =>
         {
             options.ConnectionString = ConnectionString!;
+            options.ListenConnectionString = ListenConnectionString;
             options.Schema = Schema;
             options.RunPlanner = false;
             options.PollInterval = TimeSpan.FromHours(1);
@@ -120,7 +120,166 @@ public class LiveChangeTests : PostgresTest
         Assert.True(DateTime.UtcNow - started < TimeSpan.FromSeconds(5));
     }
 
-    private JobChangeFeed Feed(NpgsqlDataSource dataSource) => new(dataSource, Schema, _clock, NullLogger<JobChangeFeed>.Instance);
+    [PostgresFact]
+    public async Task A_connection_that_cannot_hear_what_is_written_stops_listening_for_good_and_names_the_setting_that_fixes_it()
+    {
+        // Another database hears nothing written to this one: the same silence a pooler in transaction mode gives.
+        var log = new LogLines();
+        await using var feed = new JobChangeFeed(AnotherDatabase(), Store.DataSource, Schema, _clock, log.For<JobChangeFeed>())
+        {
+            ProbePatience = TimeSpan.FromSeconds(1)
+        };
+        var listening = feed.ListeningAsync(CancellationToken.None);
+
+        var warning = await log.WaitForAsync(LogLevel.Warning, "ListenConnectionString", Patience);
+        await Task.Delay(TimeSpan.FromSeconds(1.5));
+
+        Assert.Contains("transaction mode", warning);
+        Assert.False(listening.IsCompleted);
+        Assert.Single(log.Lines, line => line.Level == LogLevel.Warning);
+        Assert.Equal(0L, await ScalarAsync<long>(
+            $"SELECT count(*) FROM pg_stat_activity WHERE query = 'LISTEN {Storage.ChangeChannel.For(Schema)}'"));
+    }
+
+    [PostgresFact]
+    public async Task A_connection_listens_on_the_schemas_channel_only_once_it_has_heard_its_probe()
+    {
+        // Behind a pooler a LISTEN stays on a server connection, and every change sent there reaches whichever client
+        // the pooler lends it to next. So before the probe is heard, nothing sent to the schema's channel may arrive.
+        var other = AnotherDatabase();
+        var log = new LogLines();
+        await using var feed = new JobChangeFeed(other, Store.DataSource, Schema, _clock, log.For<JobChangeFeed>())
+        {
+            ProbePatience = TimeSpan.FromSeconds(2)
+        };
+        using var reading = new CancellationTokenSource(Patience);
+        var changes = feed.ReadAllAsync(null, null, reading.Token).GetAsyncEnumerator(reading.Token);
+        var next = changes.MoveNextAsync().AsTask();
+
+        await using var otherDatabase = NpgsqlDataSource.Create(other);
+        // Sequential: polling until the probe listens.
+        while (await Scalar<long>(otherDatabase, "SELECT count(*) FROM pg_stat_activity WHERE query LIKE 'LISTEN synclane_probe_%'") == 0)
+            await Task.Delay(20, reading.Token);
+        await Scalar<object>(otherDatabase,
+            $"SELECT pg_notify('{Storage.ChangeChannel.For(Schema)}', json_build_object('id', 1, 'queue', '{Queue}', 'owner', 'a', " +
+            "'type', 'orders', 'status', 'pending', 'at', now())::text)");
+
+        await log.WaitForAsync(LogLevel.Warning, "ListenConnectionString", Patience);
+        Assert.False(next.IsCompleted);
+        await reading.CancelAsync();
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(() => next);
+    }
+
+    private static async Task<T?> Scalar<T>(NpgsqlDataSource source, string statement)
+    {
+        await using var command = source.CreateCommand(statement);
+        return await command.ExecuteScalarAsync() is T value ? value : default;
+    }
+
+    [PostgresFact]
+    public async Task Waiting_for_the_probe_ends_even_when_less_than_a_millisecond_is_left()
+    {
+        // Npgsql cuts a wait to whole milliseconds and waits forever on 0; a patience under one millisecond is all remainder.
+        var log = new LogLines();
+        await using var feed = new JobChangeFeed(AnotherDatabase(), Store.DataSource, Schema, _clock, log.For<JobChangeFeed>())
+        {
+            ProbePatience = TimeSpan.FromTicks(5_000)
+        };
+        _ = feed.ListeningAsync(CancellationToken.None);
+
+        await log.WaitForAsync(LogLevel.Warning, "ListenConnectionString", Patience);
+    }
+
+    [PoolerFact]
+    public async Task Behind_a_pooler_in_transaction_mode_listening_stops_with_a_warning_instead_of_hearing_nothing()
+    {
+        var log = new LogLines();
+        await using var feed = new JobChangeFeed(ConnectionString!, Store.DataSource, Schema, _clock, log.For<JobChangeFeed>())
+        {
+            ProbePatience = TimeSpan.FromSeconds(1)
+        };
+        var listening = feed.ListeningAsync(CancellationToken.None);
+
+        await log.WaitForAsync(LogLevel.Warning, "ListenConnectionString", Patience);
+
+        Assert.False(listening.IsCompleted);
+    }
+
+    [PostgresFact]
+    public async Task Workers_that_cannot_listen_still_take_jobs_every_poll_interval()
+    {
+        var log = new LogLines();
+        using var host = await StartAsync(log, options =>
+        {
+            options.ListenConnectionString = AnotherDatabase();
+            options.PollInterval = TimeSpan.FromMilliseconds(200);
+        });
+
+        await host.Services.GetRequiredService<ISyncLane>()
+            .EnqueueAsync(new NewJob { Queue = Queue, Owner = new JobOwner("a"), Type = "orders" });
+        await log.WaitForAsync(LogLevel.Warning, "ListenConnectionString", Patience);
+        await CompletedAsync();
+
+        await host.StopAsync();
+    }
+
+    [PostgresFact]
+    public async Task A_listen_connection_string_of_its_own_carries_the_changes_that_wake_an_idle_worker()
+    {
+        var name = $"listen-{Schema}"[..30];
+        using var host = await StartAsync(new LogLines(), options =>
+        {
+            options.ListenConnectionString = new NpgsqlConnectionStringBuilder(ListenConnectionString!) { ApplicationName = name }.ConnectionString;
+            options.PollInterval = TimeSpan.FromHours(1);
+        });
+        await host.Services.GetRequiredService<JobChangeFeed>().ListeningAsync(CancellationToken.None);
+
+        var started = DateTime.UtcNow;
+        await host.Services.GetRequiredService<ISyncLane>()
+            .EnqueueAsync(new NewJob { Queue = Queue, Owner = new JobOwner("a"), Type = "orders" });
+        await CompletedAsync();
+
+        Assert.True(DateTime.UtcNow - started < TimeSpan.FromSeconds(5));
+        Assert.Equal(1L, await ScalarAsync<long>(
+            $"SELECT count(*) FROM pg_stat_activity WHERE application_name = '{name}' AND query = 'LISTEN {Storage.ChangeChannel.For(Schema)}'"));
+        await host.StopAsync();
+    }
+
+    private async Task<IHost> StartAsync(LogLines log, Action<SyncLaneOptions> configure)
+    {
+        var builder = Host.CreateApplicationBuilder();
+        builder.Logging.ClearProviders();
+        builder.Logging.AddProvider(log);
+        builder.Services.AddSyncLane(options =>
+        {
+            options.ConnectionString = ConnectionString!;
+            options.Schema = Schema;
+            options.RunPlanner = false;
+            options.AddQueue(Queue, queue => queue.Handle<ProductHandler>("orders"));
+            configure(options);
+        });
+        var host = builder.Build();
+        await host.StartAsync();
+        return host;
+    }
+
+    private async Task CompletedAsync()
+    {
+        using var timeout = new CancellationTokenSource(Patience);
+        // Sequential: polling the table until the job is done.
+        while ((await JobsAsync(JobStatus.Completed)).Count == 0)
+            await Task.Delay(50, timeout.Token);
+    }
+
+    /// <summary>The listening server's other database, which hears nothing written to the test database.</summary>
+    private static string AnotherDatabase()
+    {
+        var builder = new NpgsqlConnectionStringBuilder(ListenConnectionString!);
+        builder.Database = builder.Database == "postgres" ? "template1" : "postgres";
+        return builder.ConnectionString;
+    }
+
+    private JobChangeFeed Feed() => new(ListenConnectionString!, Store.DataSource, Schema, _clock, NullLogger<JobChangeFeed>.Instance);
 
     private static async Task<List<JobChange>> CollectAsync(IAsyncEnumerable<JobChange> changes, int count)
     {

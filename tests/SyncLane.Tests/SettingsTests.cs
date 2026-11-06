@@ -16,6 +16,7 @@ public class SettingsTests
         var options = Configure(new()
         {
             ["SyncLane:ConnectionString"] = "Host=db;Database=other",
+            ["SyncLane:ListenConnectionString"] = "Host=db-direct;Database=other",
             ["SyncLane:Schema"] = "jobs_test",
             ["SyncLane:CreateSchema"] = "false",
             ["SyncLane:RunPlanner"] = "false",
@@ -47,8 +48,8 @@ public class SettingsTests
 
         var queue = options.Queue("orders");
         Assert.Equal(
-            ("Host=db;Database=other", "jobs_test", false, false, false),
-            (options.ConnectionString, options.Schema, options.CreateSchema, options.RunPlanner, options.RunWorkers));
+            ("Host=db;Database=other", "Host=db-direct;Database=other", "jobs_test", false, false, false),
+            (options.ConnectionString, options.ListenConnectionString, options.Schema, options.CreateSchema, options.RunPlanner, options.RunWorkers));
         Assert.Equal(
             (TimeSpan.FromMinutes(2), TimeSpan.FromSeconds(10), TimeSpan.FromMinutes(1), "worker", (TimeSpan?)TimeSpan.FromDays(30)),
             (options.PlanInterval, options.PollInterval, options.MaxBudgetWait, options.Application, options.KeepCompletedJobs));
