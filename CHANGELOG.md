@@ -4,6 +4,10 @@ All notable changes to this project are recorded here. The format follows [Keep 
 
 ## [Unreleased]
 
+## [0.5.0] - 2026-11-06
+
+Priorities, a health check and sync-now for operators; recipes for APIs that need values and hosts per account; and recipes written with an AI assistant. Migration 11 adds one column; apply it before or with the upgrade.
+
 ### Added
 
 - Priority levels: `JobPriority` (`Urgent`, `High`, `Normal`, `Low`).
