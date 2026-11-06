@@ -16,6 +16,7 @@ namespace SyncLane.Tests.Http;
 /// an API with a limit of its own. With a budget inside that limit nothing is throttled, however many hosts share it;
 /// after a <c>429</c> nobody on the account, on any host, sends until the pause ends.
 /// </summary>
+[Collection(WallClockCollection.Name)]
 public class BudgetGateTests : PostgresTest
 {
     private const int Owners = 8;
