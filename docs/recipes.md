@@ -475,7 +475,7 @@ lane.AddBudget("example-shop", limit: 2, per: TimeSpan.FromSeconds(1), burst: 40
 | Field | Required | What it is |
 | --- | --- | --- |
 | `budget` | yes | The budget's name, as declared with `AddBudget`. A recipe naming an undeclared budget stops the application at start-up (`SL5023`). |
-| `key` | no | Whose bucket. Default `{{owner.key}}`: one bucket per owner. Write a fixed text, such as `"shared-account"`, for owners that share one set of credentials and so one limit. `{{owner.key}}` is the only placeholder allowed. |
+| `key` | no | Whose bucket. Default `{{owner.key}}`: one bucket per owner. Write a fixed text, such as `"shared-account"`, for owners that share one set of credentials and so one limit, or one of the owner's values, such as `{{owner.seller}}`, for owners that share an account's limit: several stores of one seller account. Only the owner's key and values are allowed; a job whose owner lacks the value sends nothing (`SL5132`). |
 | `headers` | no | Where the API's answers say how many requests are left. See [Reading what the API says](#reading-what-the-api-says). |
 
 - Every request to the API waits for a token: the first request of a page, and the one sent again after an OAuth 2.0 token is renewed. Requests to a token endpoint do not draw from the budget.

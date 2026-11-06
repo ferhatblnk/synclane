@@ -140,6 +140,39 @@ public class OwnerValueTests
         Assert.Equal(HttpErrorCodes.NextUrlForeignHost, Assert.Single(other.Errors).Code);
     }
 
+    [Fact]
+    public void A_rate_key_made_from_an_owner_s_value_puts_owners_of_one_account_in_one_bucket()
+    {
+        var recipe = CompiledRecipe.Compile(new HttpRecipe
+        {
+            Name = "test",
+            Request = new HttpRecipeRequest { Url = "https://api.example.com/v1/orders" },
+            Rate = new HttpRecipeRate { Budget = "shop", Key = "seller:{{owner.seller}}" }
+        }).GetValueOrThrow();
+
+        var first = recipe.Rate!.KeyOf(Job(new() { ["seller"] = "s-1" }) with { Owner = "company-1:market-a" }, "test");
+        var second = recipe.Rate.KeyOf(Job(new() { ["seller"] = "s-1" }) with { Owner = "company-1:market-b" }, "test");
+        var missing = recipe.Rate.KeyOf(Job(null), "test");
+
+        Assert.Equal(("seller:s-1", "seller:s-1"), (first.GetValueOrThrow(), second.GetValueOrThrow()));
+        Assert.Equal(HttpErrorCodes.OwnerValueMissing, Assert.Single(missing.Errors).Code);
+    }
+
+    [Theory]
+    [InlineData("{{window.start}}")]
+    [InlineData("{{request.id}}")]
+    public void A_rate_key_from_anything_but_the_owner_is_refused(string key)
+    {
+        var compiled = CompiledRecipe.Compile(new HttpRecipe
+        {
+            Name = "test",
+            Request = new HttpRecipeRequest { Url = "https://api.example.com/v1/orders" },
+            Rate = new HttpRecipeRate { Budget = "shop", Key = key }
+        });
+
+        Assert.Contains(compiled.Errors, error => error.Code == HttpErrorCodes.RateInvalid && error.Message.Contains("rate.key", StringComparison.Ordinal));
+    }
+
     private static SyncResult<string?> Next(CompiledRecipe recipe, string next)
     {
         using var document = JsonDocument.Parse($$"""{ "items": [], "next": "{{next}}" }""");

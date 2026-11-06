@@ -37,6 +37,7 @@ Priorities, a health check and sync-now for operators; recipes for APIs that nee
   - Kept with the owner like its name (migration 11, `owners.owner_values`) and returned with every job as `Job.OwnerValues`: no lookup per page. An owner given without values keeps its old ones.
   - Not secrets: they may land in URLs and cursors. Never written to a log, a span or a metric.
   - Codes: `SL3013` for a name or value that cannot be used, `SL5132` when a job's owner lacks a value its recipe uses. `synclane test --value name=value`, and `values` in the MCP test tool (`SL6014`).
+- A recipe's `rate.key` can use the owner's values, such as `{{owner.seller}}`, so owners that share an account's limit (several stores of one seller) share its bucket.
 - A host per owner: `request.hosts` lists every host a URL like `https://{{owner.endpoint}}/v1/orders` may make, or `*.example.com` for one name under a domain. Every request's host is checked before it is sent (`SL5133`), and a next page must stay on the job's own host.
 - An OAuth 2.0 access token in a header of the recipe's choosing: `name` (and `prefix`) on `oauth2` auth, for APIs that do not take it in `Authorization: Bearer`. Renewal, retries on 401 and rotated refresh tokens work as before.
 - `{{request.id}}`: a new UUID for every request, for APIs that want a correlation id per call.

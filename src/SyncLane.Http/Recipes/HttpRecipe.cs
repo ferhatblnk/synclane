@@ -232,7 +232,8 @@ public sealed record HttpRecipeRate
 
     /// <summary>
     /// Whose bucket. Defaults to <c>{{owner.key}}</c>, one bucket per owner. Write a fixed text, such as
-    /// <c>shared-account</c>, for owners that share one set of credentials and so one limit.
+    /// <c>shared-account</c>, for owners that share one set of credentials and so one limit, or one of the owner's values,
+    /// such as <c>{{owner.seller}}</c>, for owners that share an account's limit.
     /// </summary>
     public string? Key { get; init; }
 
