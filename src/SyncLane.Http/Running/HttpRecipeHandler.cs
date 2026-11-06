@@ -53,7 +53,15 @@ public sealed class HttpRecipeHandler : IJobHandler
             throw new JobAbandonedException(string.Join("; ", pageRequest.Errors));
 
         var auth = recipe.Auth is { } scheme ? await AuthenticateAsync(recipe, scheme, job, cancellationToken) : null;
-        var budget = recipe.Rate is { } rate ? new Budget(_services.GetRequiredService<RateBudgets>(), rate.Budget, rate.KeyOf(job), rate.Headers) : null;
+        Budget? budget = null;
+        if (recipe.Rate is { } rate)
+        {
+            var key = rate.KeyOf(job, recipe.Name);
+            if (!key.Succeeded)
+                throw new JobAbandonedException(string.Join("; ", key.Errors));
+
+            budget = new Budget(_services.GetRequiredService<RateBudgets>(), rate.Budget, key.Value!, rate.Headers);
+        }
         using var answer = await FetchAsync(recipe, job, pageRequest.Value, auth, budget, cancellationToken);
 
         var records = recipe.Records.Find(answer.Document.RootElement, recipe.Name);

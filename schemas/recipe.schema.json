@@ -234,7 +234,7 @@
           "type": "string"
         },
         "key": {
-          "description": "Whose bucket. Defaults to \u0060{{owner.key}}\u0060, one bucket per owner. Write a fixed text, such as \u0060shared-account\u0060, for owners that share one set of credentials and so one limit.",
+          "description": "Whose bucket. Defaults to \u0060{{owner.key}}\u0060, one bucket per owner. Write a fixed text, such as \u0060shared-account\u0060, for owners that share one set of credentials and so one limit, or one of the owner\u0027s values, such as \u0060{{owner.seller}}\u0060, for owners that share an account\u0027s limit.",
           "type": "string"
         },
         "headers": {
