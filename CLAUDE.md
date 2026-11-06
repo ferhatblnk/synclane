@@ -10,6 +10,7 @@ SyncLane is a .NET library that runs sync jobs against other people's APIs from 
 dotnet build                      # warnings are errors, missing XML docs on public API included
 dotnet test                       # PostgreSQL tests are skipped without SYNCLANE_TEST_DB
 SYNCLANE_TEST_DB="Host=localhost;Username=postgres;Database=synclane_test" dotnet test
+SYNCLANE_TEST_DB="...pooler in transaction mode..." SYNCLANE_TEST_LISTEN_DB="...the server..." dotnet test   # as CI's PgBouncer job
 dotnet test --filter "FullyQualifiedName~ConventionTests"   # the rules below that a machine checks
 ```
 

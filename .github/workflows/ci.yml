@@ -54,6 +54,77 @@ jobs:
       - name: Test
         run: dotnet test --configuration Release --no-build
 
+  # Many installations reach PostgreSQL through PgBouncer in transaction mode. Every test runs through it here, except the
+  # ones that listen for changes, which a pooler in that mode cannot carry: they go straight to the server, as
+  # ListenConnectionString does in production.
+  pooler:
+    name: Through PgBouncer
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    services:
+      postgres:
+        image: postgres:18
+        env:
+          POSTGRES_DB: synclane_test
+          POSTGRES_HOST_AUTH_METHOD: trust
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 2s
+          --health-timeout 2s
+          --health-retries 30
+
+    env:
+      SYNCLANE_TEST_DB: Host=127.0.0.1;Port=6433;Username=postgres;Database=synclane_test
+      SYNCLANE_TEST_LISTEN_DB: Host=127.0.0.1;Port=5432;Username=postgres;Database=synclane_test
+
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-dotnet@v6
+        with:
+          global-json-file: global.json
+
+      - name: Start PgBouncer in transaction mode
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq pgbouncer
+          cat > "$RUNNER_TEMP/pgbouncer.ini" <<EOF
+          [databases]
+          * = host=127.0.0.1 port=5432
+          [pgbouncer]
+          listen_addr = 127.0.0.1
+          listen_port = 6433
+          auth_type = trust
+          auth_file = $RUNNER_TEMP/users.txt
+          pool_mode = transaction
+          default_pool_size = 40
+          max_client_conn = 1000
+          logfile = $RUNNER_TEMP/pgbouncer.log
+          pidfile = $RUNNER_TEMP/pgbouncer.pid
+          EOF
+          echo '"postgres" ""' > "$RUNNER_TEMP/users.txt"
+          /usr/sbin/pgbouncer -d "$RUNNER_TEMP/pgbouncer.ini"
+          for attempt in $(seq 1 30); do
+            pg_isready -h 127.0.0.1 -p 6433 -U postgres && exit 0
+            sleep 1
+          done
+          echo "::error::PgBouncer did not start."
+          cat "$RUNNER_TEMP/pgbouncer.log"
+          exit 1
+
+      - name: Build
+        run: dotnet build --configuration Release
+
+      - name: Test
+        run: dotnet test --configuration Release --no-build
+
+      - name: PgBouncer's log
+        if: failure()
+        run: cat "$RUNNER_TEMP/pgbouncer.log"
+
   platforms:
     name: Unit tests on ${{ matrix.os }}
     runs-on: ${{ matrix.os }}

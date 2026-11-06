@@ -29,6 +29,7 @@ internal static class SettingsFromConfiguration
         Walk(configuration, errors, new(StringComparer.OrdinalIgnoreCase)
         {
             [nameof(SyncLaneOptions.ConnectionString)] = section => Read<string>(section, Text, Words, value => options.ConnectionString = value, errors),
+            [nameof(SyncLaneOptions.ListenConnectionString)] = section => Read<string>(section, Text, Words, value => options.ListenConnectionString = value, errors),
             [nameof(SyncLaneOptions.Schema)] = section => Read<string>(section, Text, Words, value => options.Schema = value, errors),
             [nameof(SyncLaneOptions.CreateSchema)] = section => Read<bool>(section, Flag, bool.TryParse, value => options.CreateSchema = value, errors),
             [nameof(SyncLaneOptions.RunPlanner)] = section => Read<bool>(section, Flag, bool.TryParse, value => options.RunPlanner = value, errors),

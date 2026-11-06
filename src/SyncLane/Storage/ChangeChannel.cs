@@ -14,6 +14,15 @@ internal static class ChangeChannel
 
     private const int MaxLength = 63;
 
+    /// <summary>Sends a probe to the channel a new listening connection listens on first.</summary>
+    public const string Probe = "SELECT pg_notify(@channel, '')";
+
+    /// <summary>
+    /// A channel of one probe's own. Nothing else ever sends to it, so a registration a pooler keeps on a server
+    /// connection after the probe is never heard from again.
+    /// </summary>
+    public static string ForProbe(Guid probe) => $"{Prefix}probe_{probe:N}";
+
     public static string For(string schema)
     {
         var name = Prefix + schema;

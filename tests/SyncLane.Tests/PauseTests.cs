@@ -188,6 +188,7 @@ public class PauseTests : PostgresTest
         builder.Services.AddSyncLane(options =>
         {
             options.ConnectionString = ConnectionString!;
+            options.ListenConnectionString = ListenConnectionString;
             options.Schema = Schema;
             options.RunPlanner = false;
             options.PollInterval = pollInterval ?? TimeSpan.FromMilliseconds(100);

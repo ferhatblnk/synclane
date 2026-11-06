@@ -35,6 +35,6 @@ Safe by default:
 - Answers are never cached and never hold a job's cursor, which can contain the other side's token.
 - Each pause, budget limit and repair is written to the actions log with the signed-in user who asked for it.
 
-The stream needs `LISTEN`, which a pooler in transaction mode cannot carry: point SyncLane's connection string at the server.
+The stream needs `LISTEN`, which a pooler in transaction mode cannot carry: set `ListenConnectionString` to the server itself.
 
 More: [the monitor](https://github.com/ferhatblnk/synclane#watching-it-run), [error codes](https://github.com/ferhatblnk/synclane/blob/main/docs/errors.md).

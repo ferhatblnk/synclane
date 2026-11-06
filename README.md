@@ -368,6 +368,7 @@ Every run of a job is a `synclane.job` span and every page a `synclane.page` spa
 | Setting | Default | What it does |
 | --- | --- | --- |
 | `ConnectionString` | required | The database that holds the table. |
+| `ListenConnectionString` | `ConnectionString` | The same database, for the one connection per process that hears job changes. Set it when `ConnectionString` goes through a pooler in transaction mode. See [Behind a connection pooler](docs/operations.md#behind-a-connection-pooler). |
 | `Schema` | `synclane` | The schema of the `jobs` table. |
 | `CreateSchema` | `true` | Create the schema and apply missing migrations at start-up. Turn it off if you manage migrations: put `SyncLaneSchema.Script()` into one of yours, and SyncLane only checks at start-up that it has been applied. See [docs/operations.md](docs/operations.md#running-the-schema-yourself). |
 | `RunPlanner`, `RunWorkers` | `true` | Turn them off in instances that should only enqueue and read. |
@@ -427,7 +428,7 @@ builder.Services.AddSyncLane(builder.Configuration.GetSection("SyncLane"), lane 
 ## Limitations
 
 - **PostgreSQL only.** The lease is a single statement that relies on `FOR UPDATE SKIP LOCKED` and partial unique indexes.
-- **Live changes need a direct connection.** Workers wake and `WatchAsync` streams through PostgreSQL's `LISTEN`, which a pooler in transaction mode (PgBouncer's default) cannot carry. Behind one, workers fall back to polling every `PollInterval` and the stream stays quiet; point SyncLane's connection string at the server, or at a pooler in session mode.
+- **Live changes need a connection that can listen.** Workers wake and `WatchAsync` streams through PostgreSQL's `LISTEN`, which a pooler in transaction mode accepts and never delivers. SyncLane notices at start-up, logs a warning and polls every `PollInterval`. Set `ListenConnectionString` to the server itself, or to a pooler in session mode, and everything else can stay behind the pooler. See [docs/operations.md](docs/operations.md#behind-a-connection-pooler).
 - **No job arguments.** A job knows its owner, type and window. Anything else the handler needs it looks up from the owner.
 - **Periods are aligned to the clock.** "Every day" means once per UTC day, so the first refresh after a first load can come sooner than a full period.
 - **Clocks.** Leases and rate budgets use the clock of the instance. Keep your instances on NTP; a lease of minutes is not sensitive to a skew of seconds, but a budget is: an instance whose clock runs a second ahead can let one second's worth of extra tokens through.

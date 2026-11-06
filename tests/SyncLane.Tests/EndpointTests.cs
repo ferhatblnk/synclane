@@ -206,6 +206,7 @@ public class EndpointTests : PostgresTest
         builder.Services.AddSyncLane(options =>
         {
             options.ConnectionString = ConnectionString!;
+            options.ListenConnectionString = ListenConnectionString;
             options.Schema = Schema;
             options.Application = "endpoint-tests";
             options.RunPlanner = false;

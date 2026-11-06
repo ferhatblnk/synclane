@@ -28,6 +28,13 @@ docker run -d --name synclane-test -e POSTGRES_HOST_AUTH_METHOD=trust -p 5432:54
 SYNCLANE_TEST_DB="Host=localhost;Username=postgres;Database=postgres" dotnet test
 ```
 
+CI also runs every test through PgBouncer in transaction mode, which many installations put in front of PostgreSQL. To do the same, point `SYNCLANE_TEST_DB` at the pooler and `SYNCLANE_TEST_LISTEN_DB` at the server itself: the tests that listen for job changes need a connection that can listen, as `ListenConnectionString` gives one in production.
+
+```bash
+SYNCLANE_TEST_DB="Host=localhost;Port=6432;Username=postgres;Database=postgres" \
+SYNCLANE_TEST_LISTEN_DB="Host=localhost;Port=5432;Username=postgres;Database=postgres" dotnet test
+```
+
 To watch the whole thing work, run the demo described in the [README](README.md#try-the-demo).
 
 ## Pull requests

@@ -27,6 +27,15 @@ public abstract class PostgresTest : IAsyncLifetime
 
     private const int MaxPoolSize = 4;
 
+    public const string ListenVariable = "SYNCLANE_TEST_LISTEN_DB";
+
+    /// <summary>
+    /// Where tests that need live changes listen: <see cref="ListenVariable"/> when the test database is reached through
+    /// a pooler in transaction mode, which cannot carry LISTEN, so the rest of the suite can run through the pooler.
+    /// </summary>
+    public static string? ListenConnectionString { get; } =
+        Environment.GetEnvironmentVariable(ListenVariable) is { Length: > 0 } listen ? listen : ConnectionString;
+
     protected string Schema { get; } = $"t_{Guid.NewGuid():N}";
 
     internal JobStore Store { get; private set; } = null!;
