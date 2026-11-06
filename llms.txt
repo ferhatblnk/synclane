@@ -17,7 +17,9 @@ Notes for writing recipes:
 - [Writing recipes with an AI assistant](https://raw.githubusercontent.com/ferhatblnk/synclane/main/docs/ai.md): `synclane mcp`, its tools, and how credentials stay out of the conversation
 - [Error codes](https://raw.githubusercontent.com/ferhatblnk/synclane/main/docs/errors.md): every code with its cause and fix
 - [The command](https://raw.githubusercontent.com/ferhatblnk/synclane/main/src/SyncLane.Cli/README.md): `synclane init`, `synclane test` and `synclane mcp`
-- [README](https://raw.githubusercontent.com/ferhatblnk/synclane/main/README.md): what SyncLane is, quick start, handlers, priorities, rate budgets, the monitor, configuration
+- [README](https://raw.githubusercontent.com/ferhatblnk/synclane/main/README.md): what SyncLane is, the quick start, and which call to use for what
+- [Working with jobs](https://raw.githubusercontent.com/ferhatblnk/synclane/main/docs/jobs.md): every call of ISyncLane, results and errors, priorities, who asked, rate budgets in a handler
+- [Configuration](https://raw.githubusercontent.com/ferhatblnk/synclane/main/docs/configuration.md): every setting and its default, and settings per environment
 
 ## Running it
 
@@ -25,7 +27,9 @@ Notes for writing recipes:
 - [Planning](https://raw.githubusercontent.com/ferhatblnk/synclane/main/docs/planning.md): history, slices, periods, overlap, and why
 - [Operations](https://raw.githubusercontent.com/ferhatblnk/synclane/main/docs/operations.md): looking, repairing, keeping the table small, health checks, poolers, several applications
 - [Production trial](https://raw.githubusercontent.com/ferhatblnk/synclane/main/docs/production-trial.md): the checklist for a first run on something allowed to fail
+- [Watching it run](https://raw.githubusercontent.com/ferhatblnk/synclane/main/docs/monitoring.md): the monitor, live changes, metrics and traces, health checks
 - [The HTTP monitor](https://raw.githubusercontent.com/ferhatblnk/synclane/main/src/SyncLane.AspNetCore/README.md): `MapSyncLane` and its endpoints
+- [The demo](https://raw.githubusercontent.com/ferhatblnk/synclane/main/docs/demo.md): four pretend shop accounts, with retries and a broken page
 
 ## Optional
 

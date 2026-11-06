@@ -39,4 +39,4 @@ Safe by default:
 
 The stream needs `LISTEN`, which a pooler in transaction mode cannot carry: set `ListenConnectionString` to the server itself.
 
-More: [the monitor](https://github.com/ferhatblnk/synclane#watching-it-run), [error codes](https://github.com/ferhatblnk/synclane/blob/main/docs/errors.md).
+More: [the monitor](https://github.com/ferhatblnk/synclane/blob/main/docs/monitoring.md), [error codes](https://github.com/ferhatblnk/synclane/blob/main/docs/errors.md).

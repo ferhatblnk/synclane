@@ -35,7 +35,7 @@ SYNCLANE_TEST_DB="Host=localhost;Port=6432;Username=postgres;Database=postgres" 
 SYNCLANE_TEST_LISTEN_DB="Host=localhost;Port=5432;Username=postgres;Database=postgres" dotnet test
 ```
 
-To watch the whole thing work, run the demo described in the [README](README.md#try-the-demo).
+To watch the whole thing work, run [the demo](docs/demo.md).
 
 ## Pull requests
 

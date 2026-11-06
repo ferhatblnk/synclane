@@ -6,7 +6,7 @@ All examples use the default schema, `synclane`.
 
 ## Looking
 
-`ISyncLaneMonitor` answers the usual questions without SQL: the state of each queue, whose data is old and why, failures grouped by error code, rate budgets, instances, and volume per hour or day. See [Watching it run](../README.md#watching-it-run). The queries below are for everything else.
+`ISyncLaneMonitor` answers the usual questions without SQL: the state of each queue, whose data is old and why, failures grouped by error code, rate budgets, instances, and volume per hour or day. See [Watching it run](monitoring.md). The queries below are for everything else.
 
 **Finding an owner by name.** Give `JobOwner` a name in your owner source, for example the customer and its store, and `GetJobsAsync` and `GetFreshnessAsync` find owners by any part of it with `Search`, ignoring case. The key and the name live in `synclane.owners`, one row per queue and owner; a search reads that small table and never the jobs:
 
@@ -206,7 +206,7 @@ The system this design comes from once tripled its slice from 30 to 90 days to "
 
 More instances or more slots make more accounts load side by side. They do not make one account load faster: its jobs share a lane, and its requests share the API's limit for that account. A new account's history is loaded newest slice first, so its recent data arrives first; `PrioritizeOwnerAsync` moves it ahead of the others in line.
 
-**Per environment.** Every number here can come from configuration instead of code, with `AddSyncLane(configuration, ...)`: see [Settings from configuration](../README.md#settings-from-configuration). Raise `Concurrency` or widen `every` in one environment without a deploy.
+**Per environment.** Every number here can come from configuration instead of code, with `AddSyncLane(configuration, ...)`: see [Settings from configuration](configuration.md#settings-from-configuration). Raise `Concurrency` or widen `every` in one environment without a deploy.
 
 **`MaxAttempts`** counts pick-ups since the job last saved a page, so it limits failures in a row, not over a job's life. A throttle counts only when the recipe or handler has no rate budget; with one, the budget's pause is what protects the API, and the job is postponed instead. With the defaults a job that keeps failing on one page is deferred after about fifteen minutes of ordinary failures, or more than an hour of unbudgeted throttling.
 
