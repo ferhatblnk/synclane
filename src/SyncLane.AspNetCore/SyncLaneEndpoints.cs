@@ -20,7 +20,8 @@ public static partial class SyncLaneEndpoints
     private static readonly string[] ForwardingHeaders = ["X-Forwarded-For", "X-Forwarded-Host", "X-Real-IP", "Forwarded"];
 
     // Fixed here rather than taken from the host: the same JSON whatever the host's settings, statuses as words.
-    private static readonly JsonSerializerOptions Json = new(JsonSerializerDefaults.Web)
+    // An enum in the query string is read with these same options (QueryEnum), so a word is spelled one way in and out.
+    internal static readonly JsonSerializerOptions Json = new(JsonSerializerDefaults.Web)
     {
         Converters = { new JsonStringEnumConverter(JsonNamingPolicy.CamelCase) }
     };
