@@ -4,9 +4,13 @@ All notable changes to this project are recorded here. The format follows [Keep 
 
 ## [Unreleased]
 
+## [0.6.2] - 2026-11-17
+
+The monitor's HTTP endpoints take a status or a unit in the query string the way they write it. No migration.
+
 ### Fixed
 
-- `GET /jobs?status=` and `GET /volume?unit=` refused `pending`, the very word the endpoints answer with, and answered only `Pending`: the framework binds an enum from the query string case-sensitively. Both now take the name in any case.
+- `GET /jobs?status=` and `GET /volume?unit=` refused `pending`, the very word the endpoints answer with, and answered only `Pending`: the framework binds an enum from the query string case-sensitively. Both now take the name in any case (#49).
 
 ## [0.6.1] - 2026-11-17
 
