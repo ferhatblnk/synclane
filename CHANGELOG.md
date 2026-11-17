@@ -4,6 +4,10 @@ All notable changes to this project are recorded here. The format follows [Keep 
 
 ## [Unreleased]
 
+### Fixed
+
+- `GET /jobs?status=` and `GET /volume?unit=` refused `pending`, the very word the endpoints answer with, and answered only `Pending`: the framework binds an enum from the query string case-sensitively. Both now take the name in any case.
+
 ## [0.6.1] - 2026-11-17
 
 A worker whose lease was taken over can no longer write to the job, even when the worker that took it over has the same name. Migration 13 adds one column; apply it before or with the upgrade.

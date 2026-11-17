@@ -92,6 +92,24 @@ public class EndpointTests : PostgresTest
     }
 
     [PostgresFact]
+    public async Task Jobs_are_filtered_by_status_in_any_case_and_an_unknown_status_is_refused()
+    {
+        await InsertRowAsync("c-1:us", JobMode.Recurring, JobStatus.Pending, Noon, key: "1");
+        await InsertRowAsync("c-2:us", JobMode.Recurring, JobStatus.Failed, Noon, key: "2");
+        await using var app = await StartAsync();
+
+        var lower = await SendAsync(app, "GET", "/synclane/jobs?status=pending", IPAddress.Loopback);
+        var pascal = await SendAsync(app, "GET", "/synclane/jobs?status=Pending", IPAddress.Loopback);
+        var unknown = await SendAsync(app, "GET", "/synclane/jobs?status=sleeping", IPAddress.Loopback);
+
+        Assert.Equal(200, lower.Status);
+        Assert.Equal(lower.Body, pascal.Body);
+        Assert.Contains("\"status\":\"pending\"", lower.Body);
+        Assert.DoesNotContain("\"status\":\"failed\"", lower.Body);
+        Assert.Equal(400, unknown.Status);
+    }
+
+    [PostgresFact]
     public async Task A_repair_needs_the_action_header_and_read_only_maps_none()
     {
         var id = await InsertRowAsync("a", JobMode.Recurring, JobStatus.Abandoned, Noon, key: "1", completedAt: Noon);

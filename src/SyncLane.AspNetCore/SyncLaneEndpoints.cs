@@ -20,7 +20,8 @@ public static partial class SyncLaneEndpoints
     private static readonly string[] ForwardingHeaders = ["X-Forwarded-For", "X-Forwarded-Host", "X-Real-IP", "Forwarded"];
 
     // Fixed here rather than taken from the host: the same JSON whatever the host's settings, statuses as words.
-    private static readonly JsonSerializerOptions Json = new(JsonSerializerDefaults.Web)
+    // An enum in the query string is read with these same options (QueryEnum), so a word is spelled one way in and out.
+    internal static readonly JsonSerializerOptions Json = new(JsonSerializerDefaults.Web)
     {
         Converters = { new JsonStringEnumConverter(JsonNamingPolicy.CamelCase) }
     };
@@ -120,17 +121,17 @@ public static partial class SyncLaneEndpoints
         Answer(await monitor.GetInstancesAsync(cancellationToken));
 
     private static async Task<IResult> GetVolumeAsync(
-        ISyncLaneMonitor monitor, DateTimeOffset from, DateTimeOffset? to, string? queue, string? type, VolumeUnit? unit,
+        ISyncLaneMonitor monitor, DateTimeOffset from, DateTimeOffset? to, string? queue, string? type, QueryEnum<VolumeUnit>? unit,
         CancellationToken cancellationToken) =>
         Answer(await monitor.GetVolumeAsync(
-            new VolumeQuery { From = from, To = to, Queue = queue, Type = type, Unit = unit ?? VolumeUnit.Hour }, cancellationToken));
+            new VolumeQuery { From = from, To = to, Queue = queue, Type = type, Unit = unit?.Value ?? VolumeUnit.Hour }, cancellationToken));
 
     private static async Task<IResult> GetJobsAsync(
-        ISyncLane syncLane, string? queue, string? owner, JobStatus? status, string? type, string? search, int? limit, string? cursor,
+        ISyncLane syncLane, string? queue, string? owner, QueryEnum<JobStatus>? status, string? type, string? search, int? limit, string? cursor,
         CancellationToken cancellationToken)
     {
         var jobs = await syncLane.GetJobsAsync(
-            new JobQuery { Queue = queue, Owner = owner, Status = status, Type = type, Search = search, Limit = limit ?? 50, Cursor = cursor },
+            new JobQuery { Queue = queue, Owner = owner, Status = status?.Value, Type = type, Search = search, Limit = limit ?? 50, Cursor = cursor },
             cancellationToken);
         return jobs.Succeeded
             ? TypedResults.Json(new PageOf<JobView>(jobs.Items.Select(JobView.Of).ToList(), jobs.NextCursor), Json)
