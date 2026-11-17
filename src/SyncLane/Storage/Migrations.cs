@@ -19,6 +19,7 @@ internal static class Migrations
         new(10, "owners", Owners),
         new(11, "owner values", OwnerValues),
         new(12, "ordered lanes", OrderedLanes),
+        new(13, "lease generation", LeaseGeneration),
     ];
 
     public static int Latest => All[^1].Version;
@@ -372,6 +373,17 @@ internal static class Migrations
 
         CREATE INDEX IF NOT EXISTS jobs_lane_order
             ON {schema}.{JobSql.TableName} (queue, lane, id) WHERE status <> 'completed';
+        """;
+
+    /// <summary>
+    /// Which lease of a job a worker holds, so that every write of a running job is fenced by the lease itself and not
+    /// only by the worker's name. A constant default adds the column without rewriting the table. Older instances do not
+    /// raise it; their writes are still fenced by the name, and a takeover by a newer instance raises it.
+    /// </summary>
+    private static string LeaseGeneration(string schema) =>
+        $"""
+        ALTER TABLE {schema}.{JobSql.TableName}
+            ADD COLUMN IF NOT EXISTS lease_generation bigint NOT NULL DEFAULT 0;
         """;
 
     /// <summary>Values per owner that recipes put into requests, such as a marketplace or a region, kept with its name.</summary>

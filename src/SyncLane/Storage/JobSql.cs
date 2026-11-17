@@ -32,7 +32,7 @@ internal sealed class JobSql
     [
         "id", "queue", "owner", "lane", "type", "mode", "status", "priority", "window_start", "window_end", "dedup_key",
         "cursor", "processed_count", "attempt_count", "error", "next_run_at", "leased_by", "lease_expires_at",
-        "created_at", "started_at", "heartbeat_at", "completed_at", "requested_by"
+        "created_at", "started_at", "heartbeat_at", "completed_at", "requested_by", "lease_generation"
     ];
 
     public JobSql(string schema)
@@ -40,7 +40,9 @@ internal sealed class JobSql
         Schema = schema;
         var table = $"{schema}.{TableName}";
         var leasedColumns = string.Join(", ", ColumnNames.Select(column => $"j.{column}"));
-        const string held = "id = @id AND status = 'running' AND leased_by = @worker";
+        // A write of a running job names the lease it holds, not only the worker: two workers can share a name (two
+        // containers with one hostname and process id 1), and a worker that paused past its lease must lose it either way.
+        const string held = "id = @id AND status = 'running' AND leased_by = @worker AND lease_generation = @generation";
 
         var coverage = $"{schema}.{CoverageTableName}";
         var stats = $"{schema}.{StatsTableName}";
@@ -203,6 +205,7 @@ internal sealed class JobSql
                 UPDATE {table} AS j
                 SET status = 'running',
                     leased_by = @worker,
+                    lease_generation = j.lease_generation + 1,
                     lease_expires_at = @lease_expires_at,
                     attempt_count = j.attempt_count + 1,
                     started_at = COALESCE(j.started_at, @now),

@@ -76,6 +76,12 @@ public sealed record Job
     /// <summary>When the lease runs out. A running job past this moment may be taken over by another worker.</summary>
     public DateTimeOffset? LeaseExpiresAt { get; init; }
 
+    /// <summary>
+    /// Which lease of the job this is: one more every time a worker takes it. Every write of a running job names it, so a
+    /// worker whose lease was taken over can never write again, even when the worker that took it over has the same name.
+    /// </summary>
+    internal long LeaseGeneration { get; init; }
+
     /// <summary>When the row was created.</summary>
     public DateTimeOffset CreatedAt { get; init; }
 

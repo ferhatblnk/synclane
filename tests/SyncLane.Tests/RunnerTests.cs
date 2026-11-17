@@ -230,6 +230,32 @@ public class RunnerTests : PostgresTest
     }
 
     [PostgresFact]
+    public async Task A_handler_that_wakes_after_its_job_was_taken_over_and_moved_on_changes_nothing()
+    {
+        var awake = new TaskCompletionSource();
+        var handler = new ScriptedHandler(async (_, _) =>
+        {
+            await awake.Task;
+            return new JobPage(null, 40);
+        });
+        await EnqueueAsync(Noon, Planned("a", key: "1"));
+        var leased = (await LeaseAsync(Worker, Noon))!;
+
+        // The clock stands still, so the paused worker renews nothing; the job is taken over by a worker of the same
+        // name, as a second container with the same hostname would, and moved on before the first one wakes.
+        var running = Runner(handler).RunAsync(Options<ScriptedHandler>(), leased, Worker, CancellationToken.None);
+        var later = Noon.AddMinutes(6);
+        var takenOver = (await LeaseAsync(Worker, later))!;
+        await Store.CheckpointAsync(takenOver, "page-3", 80, later, later.AddMinutes(5), CancellationToken.None);
+        awake.SetResult();
+        await running;
+
+        var job = await JobAsync(leased.Id);
+        Assert.Single(handler.Cursors);
+        Assert.Equal(("page-3", 80L, JobStatus.Running), (job.Cursor, job.ProcessedCount, job.Status));
+    }
+
+    [PostgresFact]
     public async Task Every_page_gets_a_handler_from_a_scope_of_its_own()
     {
         var log = new ScopeLog();

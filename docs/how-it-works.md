@@ -94,6 +94,7 @@ Jobs are in `synclane.jobs`. The full definition is in [schema.sql](schema.sql).
 | `error` | The last failure. |
 | `next_run_at` | The job is not picked up before this moment. |
 | `leased_by`, `lease_expires_at` | Who holds the job and until when. |
+| `lease_generation` | Which lease of the job this is: one more each time a worker takes it. Every write of a running job is made only while it still matches. |
 | `created_at`, `started_at`, `heartbeat_at`, `completed_at`, `updated_at` | The life of the row. |
 
 Status and mode are stored as text, so the table reads without a legend.
@@ -110,6 +111,7 @@ A worker slot takes its next job with one statement:
 UPDATE synclane.jobs AS j
 SET status = 'running',
     leased_by = @worker,
+    lease_generation = j.lease_generation + 1,
     lease_expires_at = @lease_expires_at,
     attempt_count = j.attempt_count + 1,
     started_at = COALESCE(j.started_at, @now),
@@ -178,7 +180,9 @@ Three things happen around that loop.
 
 **A heartbeat.** While the handler is inside a page, a timer renews the lease every third of `LeaseDuration`. The lease therefore only has to be long enough to notice a dead process. It does not have to be longer than your slowest page.
 
-**Fencing.** Every write the runner makes to a job ends with `WHERE id = @id AND status = 'running' AND leased_by = @worker`. If the lease ran out and another worker took the job, those writes change nothing, the old worker notices and stops. It cannot overwrite the new holder's cursor.
+**Fencing.** Every write the runner makes to a job (a page saved, a heartbeat, the job completed, failed, postponed or handed back) ends with `WHERE id = @id AND status = 'running' AND leased_by = @worker AND lease_generation = @generation`. If the lease ran out and another worker took the job, those writes change nothing; the old worker notices and stops. It cannot overwrite the new holder's cursor or status, however long it was paused, and the takeover never waits for a heartbeat. The generation is what makes this hold when the two workers have the same name, as two containers that share a hostname and both run as process 1 do.
+
+Fencing covers what SyncLane writes. What the handler wrote to your own tables before its next save was refused stays written: a worker that wakes after its job was taken over may finish the page it was in. That is why a page is handled at least once and writes should be upserts; [`WriteToPostgres`](recipes.md) keeps the newer version of a record when it is told which field holds the version.
 
 **A new scope per page.** The handler is resolved from a fresh dependency-injection scope for each page, so a `DbContext` or anything else scoped does not accumulate state over a job with hundreds of pages.
 

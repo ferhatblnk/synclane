@@ -93,7 +93,7 @@ public class OwnerHistoryTests : PostgresTest
         var running = await LeaseAsync("w", _clock.GetUtcNow()) ?? throw new InvalidOperationException("No job is due.");
 
         await client.ForgetOwnerAsync(Queue, Owner.Key);
-        var saved = await Store.CheckpointAsync(running.Id, "w", "page-2", 10, _clock.GetUtcNow(), _clock.GetUtcNow().AddMinutes(5), CancellationToken.None);
+        var saved = await Store.CheckpointAsync(running, "page-2", 10, _clock.GetUtcNow(), _clock.GetUtcNow().AddMinutes(5), CancellationToken.None);
 
         Assert.Equal(Storage.Hold.Lost, saved);
     }

@@ -55,13 +55,13 @@ public class PlanningTests : PostgresTest
 
         var onConnect = await PlanAsync(queue);
         var first = await TakeNewestAsync();
-        await Store.CompleteAsync(first.Id, "w", _clock.GetUtcNow(), CancellationToken.None);
+        await Store.CompleteAsync(first, _clock.GetUtcNow(), CancellationToken.None);
 
         var samePeriod = await PlanAtAsync(queue, 9, 10);
         var nextPeriod = await PlanAtAsync(queue, 9, 20);
         var second = await TakeNewestAsync();
         var whileOutstanding = await PlanAtAsync(queue, 11, 0);
-        await Store.CompleteAsync(second.Id, "w", _clock.GetUtcNow(), CancellationToken.None);
+        await Store.CompleteAsync(second, _clock.GetUtcNow(), CancellationToken.None);
 
         var afterThePause = await PlanAtAsync(queue, 12, 0);
         var third = await TakeNewestAsync();
@@ -80,10 +80,10 @@ public class PlanningTests : PostgresTest
 
         var onConnect = await PlanAsync(queue);
         var whileLoading = await PlanAtAsync(queue, 10, 30);
-        await Store.CompleteAsync((await TakeNewestAsync()).Id, "w", _clock.GetUtcNow(), CancellationToken.None);
+        await Store.CompleteAsync((await TakeNewestAsync()), _clock.GetUtcNow(), CancellationToken.None);
         var nextHour = await PlanAtAsync(queue, 11, 0);
         var sameHour = await PlanAtAsync(queue, 11, 30);
-        await Store.CompleteAsync((await TakeNewestAsync()).Id, "w", _clock.GetUtcNow(), CancellationToken.None);
+        await Store.CompleteAsync((await TakeNewestAsync()), _clock.GetUtcNow(), CancellationToken.None);
         var sameHourAfterItRan = await PlanAtAsync(queue, 11, 45);
         var hourAfter = await PlanAtAsync(queue, 12, 0);
 

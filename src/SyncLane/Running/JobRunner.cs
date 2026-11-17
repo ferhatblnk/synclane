@@ -52,7 +52,7 @@ internal sealed partial class JobRunner(
         }
         catch (OperationCanceledException) when (stopping.IsCancellationRequested)
         {
-            await store.ReleaseAsync(job.Id, worker, time.GetUtcNow(), CancellationToken.None);
+            await store.ReleaseAsync(job, time.GetUtcNow(), CancellationToken.None);
             LogReleased(job.Id, job.Type);
             return JobOutcome.Released;
         }
@@ -94,7 +94,7 @@ internal sealed partial class JobRunner(
             var cursor = string.IsNullOrEmpty(page.NextCursor) ? null : page.NextCursor;
             var now = time.GetUtcNow();
 
-            var hold = await store.CheckpointAsync(current.Id, worker, cursor, page.Processed, now, now + queue.LeaseDuration, cancellationToken);
+            var hold = await store.CheckpointAsync(current, cursor, page.Processed, now, now + queue.LeaseDuration, cancellationToken);
             if (hold == Hold.Lost)
             {
                 LogLeaseLost(current.Id, current.Type, worker);
@@ -110,7 +110,7 @@ internal sealed partial class JobRunner(
         }
         while (current.Cursor is not null);
 
-        if (!await store.CompleteAsync(current.Id, worker, time.GetUtcNow(), cancellationToken))
+        if (!await store.CompleteAsync(current, time.GetUtcNow(), cancellationToken))
             return JobOutcome.LeaseLost;
 
         LogCompleted(current.Id, current.Type, current.ProcessedCount);
@@ -145,7 +145,7 @@ internal sealed partial class JobRunner(
                 await Task.Delay(interval, time, held.Token);
 
                 var now = time.GetUtcNow();
-                var hold = await store.HeartbeatAsync(job.Id, worker, now, now + queue.LeaseDuration, held.Token);
+                var hold = await store.HeartbeatAsync(job, now, now + queue.LeaseDuration, held.Token);
                 if (hold == Hold.Held)
                     continue;
 
@@ -180,7 +180,7 @@ internal sealed partial class JobRunner(
         if (FailurePolicy.IsThrottle(exception))
             metrics.Throttled(queue.Name, job.Type);
 
-        if (!await store.SettleAsync(job.Id, worker, outcome.Status, error, outcome.NextRunAt, now, CancellationToken.None))
+        if (!await store.SettleAsync(job, outcome.Status, error, outcome.NextRunAt, now, CancellationToken.None))
         {
             LogLeaseLost(job.Id, job.Type, worker);
             return JobOutcome.LeaseLost;
@@ -205,7 +205,7 @@ internal sealed partial class JobRunner(
     /// <summary>Hands a job back because a pause covers it: pending again, the attempt not counted, the cursor kept.</summary>
     private async Task<string> HandBackPausedAsync(Job job, string worker)
     {
-        if (!await store.ReleaseAsync(job.Id, worker, time.GetUtcNow(), CancellationToken.None))
+        if (!await store.ReleaseAsync(job, time.GetUtcNow(), CancellationToken.None))
         {
             LogLeaseLost(job.Id, job.Type, worker);
             return JobOutcome.LeaseLost;
@@ -217,7 +217,7 @@ internal sealed partial class JobRunner(
 
     private async Task<string> PostponeAsync(Job job, string worker, string reason, DateTimeOffset nextRunAt, DateTimeOffset now)
     {
-        if (!await store.PostponeAsync(job.Id, worker, reason, nextRunAt, now, CancellationToken.None))
+        if (!await store.PostponeAsync(job, reason, nextRunAt, now, CancellationToken.None))
         {
             LogLeaseLost(job.Id, job.Type, worker);
             return JobOutcome.LeaseLost;
@@ -233,7 +233,7 @@ internal sealed partial class JobRunner(
         activity?.SetStatus(ActivityStatusCode.Error, reason);
 
         var now = time.GetUtcNow();
-        if (!await store.SettleAsync(job.Id, worker, JobStatus.Abandoned, reason, now, now, CancellationToken.None))
+        if (!await store.SettleAsync(job, JobStatus.Abandoned, reason, now, now, CancellationToken.None))
             return JobOutcome.LeaseLost;
 
         LogAbandoned(job.Id, job.Type, job.AttemptCount, reason);

@@ -17,7 +17,7 @@ public class OrderedQueueTests : PostgresTest
     {
         await EnqueueAsync(Noon, Planned("a", key: "movement-1"), Planned("a", key: "movement-2"), Planned("b", key: "movement-3"));
         var first = (await LeaseOrderedAsync("w1"))!;
-        await Store.SettleAsync(first.Id, "w1", JobStatus.Failed, "inventory service down", Noon.AddHours(1), Noon, CancellationToken.None);
+        await Store.SettleAsync(first, JobStatus.Failed, "inventory service down", Noon.AddHours(1), Noon, CancellationToken.None);
 
         var otherLane = await LeaseOrderedAsync("w2");
         var nothing = await LeaseOrderedAsync("w3");
@@ -32,12 +32,12 @@ public class OrderedQueueTests : PostgresTest
     {
         await EnqueueAsync(Noon, Planned("a", key: "movement-1"), Planned("a", key: "movement-2"));
         var first = (await LeaseOrderedAsync("w"))!;
-        await Store.SettleAsync(first.Id, "w", JobStatus.Abandoned, "no matching product", Noon, Noon, CancellationToken.None);
+        await Store.SettleAsync(first, JobStatus.Abandoned, "no matching product", Noon, Noon, CancellationToken.None);
 
         var held = await LeaseOrderedAsync("w");
         (await Monitor().RequeueJobAsync(first.Id, by: "ops")).ThrowIfFailed();
         var again = (await LeaseOrderedAsync("w"))!;
-        await Store.CompleteAsync(again.Id, "w", Noon, CancellationToken.None);
+        await Store.CompleteAsync(again, Noon, CancellationToken.None);
         var second = await LeaseOrderedAsync("w");
 
         Assert.Null(held);
@@ -50,7 +50,7 @@ public class OrderedQueueTests : PostgresTest
     {
         await EnqueueAsync(Noon, Planned("a", key: "movement-1"), Planned("a", key: "movement-2"));
         var first = (await LeaseOrderedAsync("w"))!;
-        await Store.SettleAsync(first.Id, "w", JobStatus.Abandoned, "plan cancelled", Noon, Noon, CancellationToken.None);
+        await Store.SettleAsync(first, JobStatus.Abandoned, "plan cancelled", Noon, Noon, CancellationToken.None);
         var monitor = Monitor();
 
         var skipped = await monitor.SkipJobAsync(first.Id, "plan was cancelled", by: "ops-1");
@@ -83,7 +83,7 @@ public class OrderedQueueTests : PostgresTest
     {
         await EnqueueAsync(Noon, Planned("a", key: "movement-1"), Planned("a", key: "movement-2"));
         var first = (await LeaseOrderedAsync("w"))!;
-        await Store.SettleAsync(first.Id, "w", JobStatus.Deferred, "slow", Noon, Noon, CancellationToken.None);
+        await Store.SettleAsync(first, JobStatus.Deferred, "slow", Noon, Noon, CancellationToken.None);
 
         var ordered = await LeaseOrderedAsync("w");
 
@@ -95,7 +95,7 @@ public class OrderedQueueTests : PostgresTest
     {
         await EnqueueAsync(Noon, Planned("a", key: "movement-1"), Planned("a", key: "movement-2"));
         var first = (await LeaseAsync("w", Noon))!;
-        await Store.SettleAsync(first.Id, "w", JobStatus.Failed, "down", Noon.AddHours(1), Noon, CancellationToken.None);
+        await Store.SettleAsync(first, JobStatus.Failed, "down", Noon.AddHours(1), Noon, CancellationToken.None);
 
         var next = await LeaseAsync("w", Noon);
 

@@ -4,6 +4,12 @@ All notable changes to this project are recorded here. The format follows [Keep 
 
 ## [Unreleased]
 
+Migration 13 adds one column; apply it before or with the upgrade.
+
+### Fixed
+
+- A worker whose job was taken over could still write to it when the worker that took it over had the same name, as two containers that share a hostname and both run as process 1 do. Every job now counts its leases (`lease_generation`, migration 13), and a page saved, a heartbeat, a completion, a failure, a postponement or a hand-back is written only while the worker still holds that very lease. A worker that pauses past its lease writes nothing after the takeover, whatever it is called.
+
 ## [0.6.0] - 2026-11-06
 
 Deliveries in order: ordered queues hold a lane behind a job that failed until it is fixed or skipped, and a job can say who asked for it. The README is now a way in, with the reference in `docs/`. Migration 12 adds one column and one index; apply it before or with the upgrade.

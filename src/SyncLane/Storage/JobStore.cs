@@ -175,19 +175,20 @@ internal sealed class JobStore(NpgsqlDataSource dataSource, JobSql sql) : IAsync
         return null;
     }
 
+    /// <summary>Saves a page of the job <paramref name="lease"/> holds, the job as its lease returned it.</summary>
     public async Task<Hold> CheckpointAsync(
-        long id, string worker, string? cursor, int processed, DateTimeOffset now, DateTimeOffset leaseExpiresAt, CancellationToken cancellationToken)
+        Job lease, string? cursor, int processed, DateTimeOffset now, DateTimeOffset leaseExpiresAt, CancellationToken cancellationToken)
     {
-        await using var command = Held(sql.Checkpoint, id, worker, now);
+        await using var command = Held(sql.Checkpoint, lease, now);
         command.Parameters.Add(Text("cursor", cursor));
         command.Parameters.AddWithValue("processed", processed);
         command.Parameters.AddWithValue("lease_expires_at", leaseExpiresAt.ToUniversalTime());
         return HoldOf(await command.ExecuteScalarAsync(cancellationToken));
     }
 
-    public async Task<Hold> HeartbeatAsync(long id, string worker, DateTimeOffset now, DateTimeOffset leaseExpiresAt, CancellationToken cancellationToken)
+    public async Task<Hold> HeartbeatAsync(Job lease, DateTimeOffset now, DateTimeOffset leaseExpiresAt, CancellationToken cancellationToken)
     {
-        await using var command = Held(sql.Heartbeat, id, worker, now);
+        await using var command = Held(sql.Heartbeat, lease, now);
         command.Parameters.AddWithValue("lease_expires_at", leaseExpiresAt.ToUniversalTime());
         return HoldOf(await command.ExecuteScalarAsync(cancellationToken));
     }
@@ -200,17 +201,17 @@ internal sealed class JobStore(NpgsqlDataSource dataSource, JobSql sql) : IAsync
         _ => Hold.Lost
     };
 
-    public async Task<bool> CompleteAsync(long id, string worker, DateTimeOffset now, CancellationToken cancellationToken)
+    public async Task<bool> CompleteAsync(Job lease, DateTimeOffset now, CancellationToken cancellationToken)
     {
-        await using var command = Held(sql.Complete, id, worker, now);
+        await using var command = Held(sql.Complete, lease, now);
         return await command.ExecuteScalarAsync(cancellationToken) is 1;
     }
 
     /// <summary>Ends an attempt that did not complete: failed, deferred or abandoned.</summary>
     public async Task<bool> SettleAsync(
-        long id, string worker, JobStatus status, string error, DateTimeOffset nextRunAt, DateTimeOffset now, CancellationToken cancellationToken)
+        Job lease, JobStatus status, string error, DateTimeOffset nextRunAt, DateTimeOffset now, CancellationToken cancellationToken)
     {
-        await using var command = Held(sql.Settle, id, worker, now);
+        await using var command = Held(sql.Settle, lease, now);
         command.Parameters.AddWithValue("status", JobText.Of(status));
         command.Parameters.AddWithValue("error", error);
         command.Parameters.AddWithValue("next_run_at", nextRunAt.ToUniversalTime());
@@ -218,17 +219,17 @@ internal sealed class JobStore(NpgsqlDataSource dataSource, JobSql sql) : IAsync
     }
 
     /// <summary>Hands a job back untouched, because the worker is stopping. The attempt is not counted.</summary>
-    public async Task<bool> ReleaseAsync(long id, string worker, DateTimeOffset now, CancellationToken cancellationToken)
+    public async Task<bool> ReleaseAsync(Job lease, DateTimeOffset now, CancellationToken cancellationToken)
     {
-        await using var command = Held(sql.Release, id, worker, now);
+        await using var command = Held(sql.Release, lease, now);
         return await command.ExecuteNonQueryAsync(cancellationToken) == 1;
     }
 
     /// <summary>Hands a job back to run at <paramref name="nextRunAt"/>, because it has to wait. The attempt is not counted.</summary>
     public async Task<bool> PostponeAsync(
-        long id, string worker, string reason, DateTimeOffset nextRunAt, DateTimeOffset now, CancellationToken cancellationToken)
+        Job lease, string reason, DateTimeOffset nextRunAt, DateTimeOffset now, CancellationToken cancellationToken)
     {
-        await using var command = Held(sql.Postpone, id, worker, now);
+        await using var command = Held(sql.Postpone, lease, now);
         command.Parameters.AddWithValue("error", reason);
         command.Parameters.AddWithValue("next_run_at", nextRunAt.ToUniversalTime());
         return await command.ExecuteNonQueryAsync(cancellationToken) == 1;
@@ -372,11 +373,16 @@ internal sealed class JobStore(NpgsqlDataSource dataSource, JobSql sql) : IAsync
         return await reader.ReadAsync(cancellationToken) ? Read(reader) : null;
     }
 
-    private NpgsqlCommand Held(string statement, long id, string worker, DateTimeOffset now)
+    /// <summary>
+    /// A statement that changes a running job only while <paramref name="lease"/> still holds it: the same worker and the
+    /// same lease, so a worker that lost its lease writes nothing, whatever it is called.
+    /// </summary>
+    private NpgsqlCommand Held(string statement, Job lease, DateTimeOffset now)
     {
         var command = dataSource.CreateCommand(statement);
-        command.Parameters.AddWithValue("id", id);
-        command.Parameters.AddWithValue("worker", worker);
+        command.Parameters.AddWithValue("id", lease.Id);
+        command.Parameters.Add(Text("worker", lease.LeasedBy));
+        command.Parameters.AddWithValue("generation", lease.LeaseGeneration);
         command.Parameters.AddWithValue("now", now.ToUniversalTime());
         return command;
     }
@@ -449,7 +455,8 @@ internal sealed class JobStore(NpgsqlDataSource dataSource, JobSql sql) : IAsync
         HeartbeatAt = Moment(reader, 20),
         CompletedAt = Moment(reader, 21),
         RequestedBy = Text(reader, 22),
-        OwnerName = Text(reader, 23),
-        OwnerValues = OwnerValues.FromJson(Text(reader, 24))
+        LeaseGeneration = reader.GetInt64(23),
+        OwnerName = Text(reader, 24),
+        OwnerValues = OwnerValues.FromJson(Text(reader, 25))
     };
 }
