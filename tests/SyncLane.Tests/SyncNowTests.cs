@@ -133,7 +133,7 @@ public class SyncNowTests : PostgresTest
 
         // Sequential: each job of the lane is taken and completed in turn.
         while (await LeaseAsync("loader", Noon) is { } job)
-            await Store.CompleteAsync(job.Id, "loader", Noon, CancellationToken.None);
+            await Store.CompleteAsync(job, Noon, CancellationToken.None);
 
         return (await CompletedToAsync(owner.Key))!.Value;
     }
@@ -142,7 +142,7 @@ public class SyncNowTests : PostgresTest
     {
         var job = await LeaseAsync("runner", at);
         Assert.Equal(id, job!.Id);
-        await Store.CompleteAsync(id, "runner", at, CancellationToken.None);
+        await Store.CompleteAsync(job, at, CancellationToken.None);
     }
 
     private async Task<DateTimeOffset?> CompletedToAsync(string owner) =>

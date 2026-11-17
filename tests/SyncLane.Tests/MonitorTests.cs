@@ -14,10 +14,10 @@ public class MonitorTests : PostgresTest
     {
         await EnqueueAsync(Noon.AddHours(-2), Planned("a", key: "1"), Planned("b", key: "2"));
         var done = (await LeaseAsync("w", Noon.AddHours(-1)))!;
-        await Store.CheckpointAsync(done.Id, "w", "page-2", 7, Noon.AddHours(-1), Noon, CancellationToken.None);
-        await Store.CompleteAsync(done.Id, "w", Noon.AddHours(-1), CancellationToken.None);
+        await Store.CheckpointAsync(done, "page-2", 7, Noon.AddHours(-1), Noon, CancellationToken.None);
+        await Store.CompleteAsync(done, Noon.AddHours(-1), CancellationToken.None);
         var failing = (await LeaseAsync("w", Noon.AddHours(-1)))!;
-        await Store.SettleAsync(failing.Id, "w", JobStatus.Failed, "TimeoutException: slow", Noon.AddHours(1), Noon.AddHours(-1), CancellationToken.None);
+        await Store.SettleAsync(failing, JobStatus.Failed, "TimeoutException: slow", Noon.AddHours(1), Noon.AddHours(-1), CancellationToken.None);
 
         await InsertRowAsync("c", JobMode.Recurring, JobStatus.Pending, Noon.AddMinutes(-1), key: "due");
         await InsertRowAsync("c", JobMode.Recurring, JobStatus.Pending, Noon.AddMinutes(10), key: "postponed");
@@ -163,7 +163,7 @@ public class MonitorTests : PostgresTest
     {
         await EnqueueAsync(Noon, Planned("a", windowStart: Noon.AddDays(-30), windowEnd: Noon.AddDays(-1), key: "w"));
         var job = (await LeaseAsync("w", Noon))!;
-        await Store.CompleteAsync(job.Id, "w", Noon, CancellationToken.None);
+        await Store.CompleteAsync(job, Noon, CancellationToken.None);
         await Store.MarkLoadedAsync(Queue, [Planned("b", windowStart: Noon.AddDays(-60), windowEnd: Noon.AddHours(-1), key: "loaded")], Noon, CancellationToken.None);
 
         var rows = (await Monitor().GetFreshnessAsync(new FreshnessQuery { Queue = Queue })).Items;
@@ -210,12 +210,12 @@ public class MonitorTests : PostgresTest
         await EnqueueAsync(at, Planned(owner, key: owner));
         var job = (await LeaseAsync("w", at))!;
         if (records > 0)
-            await Store.CheckpointAsync(job.Id, "w", "next", records, at, at.AddMinutes(5), CancellationToken.None);
+            await Store.CheckpointAsync(job, "next", records, at, at.AddMinutes(5), CancellationToken.None);
 
         if (outcome == JobStatus.Completed)
-            await Store.CompleteAsync(job.Id, "w", at, CancellationToken.None);
+            await Store.CompleteAsync(job, at, CancellationToken.None);
         else
-            await Store.SettleAsync(job.Id, "w", outcome, "JobAbandonedException: SL5106: refused", at, at, CancellationToken.None);
+            await Store.SettleAsync(job, outcome, "JobAbandonedException: SL5106: refused", at, at, CancellationToken.None);
     }
 
     private Task<int> InsertCoverageAsync(string owner, string type, DateTimeOffset? completedTo, DateTimeOffset? completedAt) => ExecuteAsync(

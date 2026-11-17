@@ -8,6 +8,17 @@ public class LeaseTests : PostgresTest
 {
     private static readonly TimeSpan FiveMinutes = TimeSpan.FromMinutes(5);
 
+    /// <summary>Every write a worker can make to a running job, each refused because <paramref name="lease"/> is no longer held.</summary>
+    private async Task AssertWritesNothingAsync(Job lease, DateTimeOffset at)
+    {
+        Assert.Equal(Hold.Lost, await Store.CheckpointAsync(lease, "stale", 40, at, at + FiveMinutes, CancellationToken.None));
+        Assert.Equal(Hold.Lost, await Store.HeartbeatAsync(lease, at, at + FiveMinutes, CancellationToken.None));
+        Assert.False(await Store.CompleteAsync(lease, at, CancellationToken.None));
+        Assert.False(await Store.SettleAsync(lease, JobStatus.Failed, "late", at, at, CancellationToken.None));
+        Assert.False(await Store.PostponeAsync(lease, "late", at, at, CancellationToken.None));
+        Assert.False(await Store.ReleaseAsync(lease, at, CancellationToken.None));
+    }
+
     [PostgresFact]
     public async Task Types_run_in_their_declared_order_and_the_newest_window_first()
     {
@@ -21,7 +32,7 @@ public class LeaseTests : PostgresTest
         while (await LeaseAsync("w", Noon) is { } job)
         {
             order.Add($"{job.Type}:{job.DedupKey}");
-            await Store.CompleteAsync(job.Id, "w", Noon, CancellationToken.None);
+            await Store.CompleteAsync(job, Noon, CancellationToken.None);
         }
 
         Assert.Equal(["products:initial", "orders:newer", "orders:older"], order);
@@ -37,7 +48,7 @@ public class LeaseTests : PostgresTest
             Noon.AddHours(2),
             Planned("a", key: "fresh", mode: JobMode.Recurring, windowStart: Noon.AddDays(-1), windowEnd: Noon.AddHours(2)));
 
-        var first = await LeaseAsync("w", Noon.AddHours(2));
+        var first = (await LeaseAsync("w", Noon.AddHours(2)))!;
 
         Assert.Equal("fresh", first!.DedupKey);
     }
@@ -47,7 +58,7 @@ public class LeaseTests : PostgresTest
     {
         await EnqueueAsync(Noon, Planned("a", key: "1"));
 
-        var job = await LeaseAsync("host:1/stores#1", Noon.AddSeconds(3), FiveMinutes);
+        var job = (await LeaseAsync("host:1/stores#1", Noon.AddSeconds(3), FiveMinutes))!;
 
         Assert.NotNull(job);
         Assert.Equal((JobStatus.Running, 1, "host:1/stores#1"), (job.Status, job.AttemptCount, job.LeasedBy));
@@ -59,14 +70,14 @@ public class LeaseTests : PostgresTest
     {
         await EnqueueAsync(Noon, Planned("a", key: "1"), Planned("a", key: "2"), Planned("b", key: "1"));
 
-        var first = await LeaseAsync("w1", Noon);
-        var second = await LeaseAsync("w2", Noon);
+        var first = (await LeaseAsync("w1", Noon))!;
+        var second = (await LeaseAsync("w2", Noon))!;
         var third = await LeaseAsync("w3", Noon);
-        await Store.CompleteAsync(first!.Id, "w1", Noon, CancellationToken.None);
+        await Store.CompleteAsync(first, Noon, CancellationToken.None);
         var afterwards = await LeaseAsync("w3", Noon);
 
         Assert.Equal(("a", "1"), (first.Owner, first.DedupKey));
-        Assert.Equal("b", second!.Owner);
+        Assert.Equal("b", second.Owner);
         Assert.Null(third);
         Assert.Equal(("a", "2"), (afterwards!.Owner, afterwards.DedupKey));
     }
@@ -109,9 +120,9 @@ public class LeaseTests : PostgresTest
     public async Task A_failed_job_waits_for_its_delay_and_then_continues_from_its_cursor()
     {
         await EnqueueAsync(Noon, Planned("a", key: "1"));
-        var job = await LeaseAsync("w", Noon);
-        await Store.CheckpointAsync(job!.Id, "w", "page-2", 100, Noon, Noon + FiveMinutes, CancellationToken.None);
-        await Store.SettleAsync(job.Id, "w", JobStatus.Failed, "TimeoutException: slow", Noon.AddMinutes(1), Noon, CancellationToken.None);
+        var job = (await LeaseAsync("w", Noon))!;
+        await Store.CheckpointAsync(job, "page-2", 100, Noon, Noon + FiveMinutes, CancellationToken.None);
+        await Store.SettleAsync(job, JobStatus.Failed, "TimeoutException: slow", Noon.AddMinutes(1), Noon, CancellationToken.None);
 
         var tooEarly = await LeaseAsync("w", Noon.AddSeconds(59));
         var retried = await LeaseAsync("w", Noon.AddMinutes(1));
@@ -134,15 +145,49 @@ public class LeaseTests : PostgresTest
         Assert.Equal(Noon, takenOver.StartedAt);
 
         var later = Noon.AddMinutes(7);
-        Assert.Equal(Hold.Lost, await Store.CheckpointAsync(original.Id, "w1", "stale", 50, later, later + FiveMinutes, CancellationToken.None));
-        Assert.Equal(Hold.Lost, await Store.HeartbeatAsync(original.Id, "w1", later, later + FiveMinutes, CancellationToken.None));
-        Assert.False(await Store.CompleteAsync(original.Id, "w1", later, CancellationToken.None));
-        Assert.False(await Store.SettleAsync(original.Id, "w1", JobStatus.Failed, "late", later, later, CancellationToken.None));
-        Assert.False(await Store.ReleaseAsync(original.Id, "w1", later, CancellationToken.None));
+        Assert.Equal(Hold.Lost, await Store.CheckpointAsync(original, "stale", 50, later, later + FiveMinutes, CancellationToken.None));
+        Assert.Equal(Hold.Lost, await Store.HeartbeatAsync(original, later, later + FiveMinutes, CancellationToken.None));
+        Assert.False(await Store.CompleteAsync(original, later, CancellationToken.None));
+        Assert.False(await Store.SettleAsync(original, JobStatus.Failed, "late", later, later, CancellationToken.None));
+        Assert.False(await Store.ReleaseAsync(original, later, CancellationToken.None));
 
-        Assert.Equal(Hold.Held, await Store.CheckpointAsync(original.Id, "w2", "page-2", 50, later, later + FiveMinutes, CancellationToken.None));
+        Assert.Equal(Hold.Held, await Store.CheckpointAsync(takenOver, "page-2", 50, later, later + FiveMinutes, CancellationToken.None));
         var current = await JobAsync(original.Id);
         Assert.Equal(("page-2", 50L, JobStatus.Running), (current.Cursor, current.ProcessedCount, current.Status));
+    }
+
+    [PostgresFact]
+    public async Task A_worker_that_wakes_after_its_job_was_taken_over_and_moved_on_writes_nothing()
+    {
+        await EnqueueAsync(Noon, Planned("a", key: "1"));
+        var paused = (await LeaseAsync("w1", Noon, FiveMinutes))!;
+        var takenOver = (await LeaseAsync("w2", Noon.AddMinutes(6), FiveMinutes))!;
+        var later = Noon.AddMinutes(7);
+        await Store.CheckpointAsync(takenOver, "page-3", 80, later, later + FiveMinutes, CancellationToken.None);
+
+        await AssertWritesNothingAsync(paused, later);
+
+        var current = await JobAsync(paused.Id);
+        Assert.Equal(("page-3", 80L, JobStatus.Running, "w2"), (current.Cursor, current.ProcessedCount, current.Status, current.LeasedBy));
+    }
+
+    [PostgresFact]
+    public async Task A_worker_whose_job_was_taken_over_by_a_worker_of_the_same_name_writes_nothing()
+    {
+        // Two containers that share a hostname both run as process 1, so their slots have the same names.
+        const string sameName = "host:1/stores#1";
+        await EnqueueAsync(Noon, Planned("a", key: "1"));
+        var paused = (await LeaseAsync(sameName, Noon, FiveMinutes))!;
+        var takenOver = (await LeaseAsync(sameName, Noon.AddMinutes(6), FiveMinutes))!;
+        var later = Noon.AddMinutes(7);
+        var moved = await Store.CheckpointAsync(takenOver, "page-3", 80, later, later + FiveMinutes, CancellationToken.None);
+
+        await AssertWritesNothingAsync(paused, later);
+
+        var current = await JobAsync(paused.Id);
+        Assert.Equal(Hold.Held, moved);
+        Assert.Equal(paused.LeaseGeneration + 1, takenOver.LeaseGeneration);
+        Assert.Equal(("page-3", 80L, JobStatus.Running), (current.Cursor, current.ProcessedCount, current.Status));
     }
 
     [PostgresFact]
@@ -160,9 +205,9 @@ public class LeaseTests : PostgresTest
     public async Task A_heartbeat_keeps_the_job_with_its_worker()
     {
         await EnqueueAsync(Noon, Planned("a", key: "1"));
-        var job = await LeaseAsync("w1", Noon, FiveMinutes);
+        var job = (await LeaseAsync("w1", Noon, FiveMinutes))!;
 
-        var renewed = await Store.HeartbeatAsync(job!.Id, "w1", Noon.AddMinutes(4), Noon.AddMinutes(9), CancellationToken.None);
+        var renewed = await Store.HeartbeatAsync(job, Noon.AddMinutes(4), Noon.AddMinutes(9), CancellationToken.None);
 
         Assert.Equal(Hold.Held, renewed);
         Assert.Null(await LeaseAsync("w2", Noon.AddMinutes(6), FiveMinutes));
@@ -173,14 +218,14 @@ public class LeaseTests : PostgresTest
     public async Task A_deferred_job_runs_last_and_only_once_its_lane_is_idle()
     {
         await EnqueueAsync(Noon, Planned("a", key: "1"), Planned("a", key: "2"), Planned("b", key: "1"));
-        var troubled = await LeaseAsync("w", Noon);
-        await Store.SettleAsync(troubled!.Id, "w", JobStatus.Deferred, "boom", Noon, Noon, CancellationToken.None);
+        var troubled = (await LeaseAsync("w", Noon))!;
+        await Store.SettleAsync(troubled, JobStatus.Deferred, "boom", Noon, Noon, CancellationToken.None);
 
         var order = new List<string>();
         while (await LeaseAsync("w", Noon) is { } job)
         {
             order.Add($"{job.Owner}:{job.DedupKey}");
-            await Store.CompleteAsync(job.Id, "w", Noon, CancellationToken.None);
+            await Store.CompleteAsync(job, Noon, CancellationToken.None);
         }
 
         Assert.Equal(["a:2", "b:1", "a:1"], order);
@@ -190,10 +235,10 @@ public class LeaseTests : PostgresTest
     public async Task A_deferred_job_keeps_waiting_while_another_job_of_its_lane_waits_for_a_retry()
     {
         await EnqueueAsync(Noon, Planned("a", key: "1"), Planned("a", key: "2"));
-        var first = await LeaseAsync("w", Noon);
-        await Store.SettleAsync(first!.Id, "w", JobStatus.Deferred, "boom", Noon, Noon, CancellationToken.None);
-        var second = await LeaseAsync("w", Noon);
-        await Store.SettleAsync(second!.Id, "w", JobStatus.Failed, "boom", Noon.AddMinutes(10), Noon, CancellationToken.None);
+        var first = (await LeaseAsync("w", Noon))!;
+        await Store.SettleAsync(first, JobStatus.Deferred, "boom", Noon, Noon, CancellationToken.None);
+        var second = (await LeaseAsync("w", Noon))!;
+        await Store.SettleAsync(second, JobStatus.Failed, "boom", Noon.AddMinutes(10), Noon, CancellationToken.None);
 
         var meanwhile = await LeaseAsync("w", Noon.AddMinutes(5));
         var whenDue = await LeaseAsync("w", Noon.AddMinutes(10));
@@ -206,10 +251,10 @@ public class LeaseTests : PostgresTest
     public async Task A_job_handed_back_keeps_its_cursor_and_does_not_lose_an_attempt()
     {
         await EnqueueAsync(Noon, Planned("a", key: "1"));
-        var job = await LeaseAsync("w1", Noon);
-        await Store.CheckpointAsync(job!.Id, "w1", "page-4", 300, Noon, Noon + FiveMinutes, CancellationToken.None);
+        var job = (await LeaseAsync("w1", Noon))!;
+        await Store.CheckpointAsync(job, "page-4", 300, Noon, Noon + FiveMinutes, CancellationToken.None);
 
-        var released = await Store.ReleaseAsync(job.Id, "w1", Noon.AddMinutes(1), CancellationToken.None);
+        var released = await Store.ReleaseAsync(job, Noon.AddMinutes(1), CancellationToken.None);
         var waiting = await JobAsync(job.Id);
         var resumed = await LeaseAsync("w2", Noon.AddMinutes(1));
 
@@ -223,10 +268,10 @@ public class LeaseTests : PostgresTest
     public async Task Completing_a_job_clears_what_only_mattered_while_it_ran()
     {
         await EnqueueAsync(Noon, Planned("a", key: "1"));
-        var job = await LeaseAsync("w", Noon);
-        await Store.CheckpointAsync(job!.Id, "w", "page-2", 10, Noon, Noon + FiveMinutes, CancellationToken.None);
+        var job = (await LeaseAsync("w", Noon))!;
+        await Store.CheckpointAsync(job, "page-2", 10, Noon, Noon + FiveMinutes, CancellationToken.None);
 
-        await Store.CompleteAsync(job.Id, "w", Noon.AddMinutes(2), CancellationToken.None);
+        await Store.CompleteAsync(job, Noon.AddMinutes(2), CancellationToken.None);
 
         var done = await JobAsync(job.Id);
         Assert.Equal((JobStatus.Completed, 10L, Noon.AddMinutes(2)), (done.Status, done.ProcessedCount, done.CompletedAt));
@@ -270,7 +315,7 @@ public class LeaseTests : PostgresTest
                 await Task.Delay(Random.Shared.Next(1, 4), timeout.Token);
                 atWork.AddOrUpdate(job.Lane, 0, (_, count) => count - 1);
 
-                Assert.True(await Store.CompleteAsync(job.Id, worker, DateTimeOffset.UtcNow, CancellationToken.None));
+                Assert.True(await Store.CompleteAsync(job, DateTimeOffset.UtcNow, CancellationToken.None));
                 Interlocked.Increment(ref completed);
             }
         }

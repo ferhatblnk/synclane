@@ -24,9 +24,9 @@ public class LiveChangeTests : PostgresTest
 
         await EnqueueAsync(Noon, Planned("a", key: "1"));
         var job = (await LeaseAsync("w", Noon))!;
-        await Store.CheckpointAsync(job.Id, "w", "page-2", 10, Noon, Noon.AddMinutes(5), CancellationToken.None);
-        await Store.HeartbeatAsync(job.Id, "w", Noon, Noon.AddMinutes(5), CancellationToken.None);
-        await Store.CompleteAsync(job.Id, "w", Noon, CancellationToken.None);
+        await Store.CheckpointAsync(job, "page-2", 10, Noon, Noon.AddMinutes(5), CancellationToken.None);
+        await Store.HeartbeatAsync(job, Noon, Noon.AddMinutes(5), CancellationToken.None);
+        await Store.CompleteAsync(job, Noon, CancellationToken.None);
 
         var changes = await seen;
         Assert.Equal([JobStatus.Pending, JobStatus.Running, JobStatus.Completed], changes.Select(change => change.Status));

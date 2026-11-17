@@ -23,8 +23,8 @@ public class PauseTests : PostgresTest
         var whilePaused = await LeaseAsync("w", Noon);
         await monitor.ResumeAsync(Queue, by: "ops");
         await monitor.PauseAsync(Queue, "a", "owner a is moving", by: "ops", until: Noon.AddMinutes(30));
-        var ownerPaused = await LeaseAsync("w", Noon);
-        await Store.CompleteAsync(ownerPaused!.Id, "w", Noon, CancellationToken.None);
+        var ownerPaused = (await LeaseAsync("w", Noon))!;
+        await Store.CompleteAsync(ownerPaused, Noon, CancellationToken.None);
         var stillPaused = await LeaseAsync("w2", Noon.AddMinutes(10));
         var afterTheEnd = await LeaseAsync("w3", Noon.AddMinutes(31));
 
@@ -64,8 +64,8 @@ public class PauseTests : PostgresTest
         var job = (await LeaseAsync("w", Noon))!;
         await ExecuteAsync($"INSERT INTO {Schema}.pauses (queue, owner, paused_by, reason, paused_at) VALUES ('{Queue}', '', 'ops', 'quiet', now())");
 
-        var hold = await Store.CheckpointAsync(job.Id, "w", "page-2", 10, Noon, Noon.AddMinutes(5), CancellationToken.None);
-        var beat = await Store.HeartbeatAsync(job.Id, "w", Noon, Noon.AddMinutes(5), CancellationToken.None);
+        var hold = await Store.CheckpointAsync(job, "page-2", 10, Noon, Noon.AddMinutes(5), CancellationToken.None);
+        var beat = await Store.HeartbeatAsync(job, Noon, Noon.AddMinutes(5), CancellationToken.None);
 
         Assert.Equal((Storage.Hold.Paused, Storage.Hold.Paused), (hold, beat));
     }
