@@ -63,6 +63,7 @@ How the rows translate:
 | Q14 | Does another system already sync this data? | Its history is marked loaded instead of fetched again ([step 11](#step-11-move-from-an-existing-sync)). | No. |
 | Q15 | Should users trigger a refresh (a button, a webhook)? | `SyncNowAsync` ([step 9](#step-9-refresh-on-demand-and-new-accounts)). | No. |
 | Q16 | Who may see and repair jobs, and through what? | The monitor over HTTP, behind an authorization policy ([step 8](#step-8-the-monitor-over-http)). | Nobody yet; add it before production. |
+| Q17 | What do the other applications on the same schema call themselves, and their queues? | The application's name and queue names must be its own ([D2](#d2-which-process-does-what)); `GetInstancesAsync` lists those already registered. | A short lower-case name of the project, such as `shop`, and queues starting with it. |
 
 ## 3. Decisions
 
@@ -78,13 +79,23 @@ Decide per row of [the inventory](#1-what-the-project-does-today) and write the 
 
 ### D2. Which process does what
 
+**What a process is comes from its settings; whether it works comes from the database.** The settings name the process: its application (`SyncLane:Application` in `appsettings.json`, committed) and, when one build runs as web and worker, its role (`SyncLane__Role` in the worker's environment). They never say whether it runs workers or the planner: leave `RunWorkers` and `RunPlanner` out, at their default `true`, and decide from the monitor with a switch per application and role, kept in the database ([Switching an application on and off](operations.md#switching-an-application-on-and-off)). A switch survives restarts, deploys and new replicas, because each instance reads it when it starts, before it takes a job; it changes without a deploy, and every change is logged with who and why.
+
+| What | Where | Example |
+| --- | --- | --- |
+| The application's name, its own on the schema | `appsettings.json`, committed | `"SyncLane": { "Application": "shop" }` |
+| The role, only when one build runs as web and worker | the worker's environment | `SyncLane__Role: "worker"` |
+| Queue names, starting with the application's name | code ([step 5](#step-5-declare-the-queue)) | `shop.stores` |
+| Whether it runs workers and the planner | a switch in the database, set from the monitor | `POST /synclane/switch?application=shop&workers=false&reason=…` |
+
 | Layout | When | Settings |
 | --- | --- | --- |
 | **One process** | Small and medium loads; the default. | Nothing to set. |
-| **Web and worker, one image** | Syncing must not take CPU or memory from user requests. | The same build runs as two containers; the worker's environment gives it a role, `SyncLane__Role=worker`. `RunWorkers` and `RunPlanner` are `false` in `appsettings.json`, and the worker role is switched on from the monitor ([step 6](#step-6-split-the-roles-if-you-chose-to)). |
+| **Web and worker, one image** | Syncing must not take CPU or memory from user requests. | The same build runs as two containers; the worker's environment gives it a role, `SyncLane__Role=worker`. Before the first deploy, the web instances (no role) are switched off and the worker role on, from the monitor ([step 6](#step-6-split-the-roles-if-you-chose-to)). Nothing in `appsettings.json` turns anything off. |
 | **Several workers** | More owners loading side by side. | Run more copies of the worker. Jobs, planning and budgets are shared through the table; nothing else to configure. |
 
-- Keep one application per queue. Copies of one application share their queues; a second application that runs the same queue is refused at start-up (`SL1011`). An instance with both `RunWorkers` and `RunPlanner` off claims no queue and may call `ISyncLane` and the monitor freely.
+- Give the application a name of its own. The default is the entry assembly's name, and projects built from one template often share it (`Api`, `WebApi`): two applications under one name are one to SyncLane, so one switch stops both and the monitor shows them as one. SyncLane warns when it sees it (`InstanceInfo.SharesNameWith`, a Degraded health check), but only a name of its own prevents it.
+- Keep one application per queue, and start every queue name with the application's name. Copies of one application share their queues; a second application that runs the same queue is refused at start-up (`SL1011`). An instance switched off, workers and planner, claims no queue and may call `ISyncLane` and the monitor freely.
 - Run one process per container. If a worker and a web host share a container and one of them dies, the orchestrator does not restart it.
 - The worker needs no open port. Its state is in the database: the monitor reads it from any instance.
 - Work the user waits for (an answer on screen) stays in the web process. Work nobody waits for (fetching, reports, sending data out) becomes a job, and a "refresh" button enqueues it and returns at once.
@@ -139,14 +150,15 @@ dotnet add package SyncLane.AspNetCore
 
 ### Step 2. Connection and configuration
 
-Add a connection string, and a `SyncLane` section for the numbers that change per environment:
+Add a connection string, and a `SyncLane` section with the application's name and the numbers that change per environment:
 
 ```json
 {
   "ConnectionStrings": { "Postgres": "Host=db;Database=app;Username=app" },
   "SyncLane": {
+    "Application": "shop",
     "Queues": {
-      "shops": {
+      "shop.stores": {
         "Concurrency": 2,
         "Types": { "orders": { "Every": "00:15:00" } }
       }
@@ -155,7 +167,7 @@ Add a connection string, and a `SyncLane` section for the numbers that change pe
 }
 ```
 
-The password comes from where the project keeps secrets, never from a committed file. Behind PgBouncer in transaction mode, also set `SyncLane:ListenConnectionString` to a connection that goes around the pooler, or set `SyncLane:ListenForChanges` to `false` ([Behind a connection pooler](operations.md#behind-a-connection-pooler)).
+`Application` is the name the monitor, the switches and the other applications on the schema know this one by: lower case, short, its own, and the same in every environment. Do not add `RunWorkers` or `RunPlanner`; whether the application works is a switch ([D2](#d2-which-process-does-what)). The password comes from where the project keeps secrets, never from a committed file. Behind PgBouncer in transaction mode, also set `SyncLane:ListenConnectionString` to a connection that goes around the pooler, or set `SyncLane:ListenForChanges` to `false` ([Behind a connection pooler](operations.md#behind-a-connection-pooler)).
 
 **The schema needs no work by hand.** With the defaults, the first start creates the schema `synclane` in the database of `ConnectionString`, with every table and index, behind a lock so instances that start together do not collide; each later SyncLane version adds its migrations the same way. SyncLane never touches the project's own tables. Several applications can share one database and one schema: each declares its own queues, and the monitor of any of them shows every application's jobs ([Several applications on one schema](operations.md#several-applications-on-one-schema)). Keep the default name unless the project's database rules say otherwise (`SyncLane:Schema`, lower case). If the application's database user may not create a schema, run the script from the project's migrations instead ([step 12](#step-12-deploy)).
 
@@ -270,7 +282,7 @@ builder.Services.AddSyncLane(builder.Configuration.GetSection("SyncLane"), lane 
     lane.ConnectionString = builder.Configuration.GetConnectionString("Postgres")!;
     lane.AddBudget("shop-api", limit: 2, per: TimeSpan.FromSeconds(1), burst: 10);
 
-    lane.AddQueue("shops", queue => queue
+    lane.AddQueue("shop.stores", queue => queue
         .Owners<ConnectedShops>()
         .Windowed<OrderHandler>("orders", horizon: TimeSpan.FromDays(30), slice: TimeSpan.FromDays(7),
             every: TimeSpan.FromMinutes(15), overlap: TimeSpan.FromMinutes(10))
@@ -279,6 +291,7 @@ builder.Services.AddSyncLane(builder.Configuration.GetSection("SyncLane"), lane 
 });
 ```
 
+- The queue's name starts with the application's name, so it cannot meet another application's on the schema.
 - `Windowed`: history in slices back to `horizon`, newest first, then one job per `every` from where the data ends.
 - `Snapshot`: one job that reads everything, then one per `every`.
 - `Handle`: never planned; runs only when enqueued.
@@ -301,19 +314,16 @@ worker:
     SyncLane__Role: "worker"
 ```
 
-Both start idle, because the settings say so:
-
-```json
-"SyncLane": { "RunWorkers": false, "RunPlanner": false }
-```
-
-Then the worker role is switched on from the monitor, once, without a deploy:
+Before the first deploy with the split, set the two switches from the monitor. A switch can be set for an application and role that has not started yet, so neither container works where it should not, even for a moment:
 
 ```csharp
-await monitor.SetSwitchAsync("app", role: "worker", runWorkers: true, runPlanner: true, reason: "first start", by: user);
+await monitor.SetSwitchAsync("shop", role: null, runWorkers: false, runPlanner: false, reason: "web instances stay idle", by: user);
+await monitor.SetSwitchAsync("shop", role: "worker", runWorkers: true, runPlanner: true, reason: "the worker syncs", by: user);
 ```
 
-Over HTTP: `POST /synclane/switch?application=app&role=worker&workers=true&planner=true&reason=first%20start`. The same call with `false` stops the worker later; its running jobs are handed back with their cursors. The web instances, with no role, stay idle. See [Switching an application on and off](operations.md#switching-an-application-on-and-off).
+Over HTTP: `POST /synclane/switch?application=shop&workers=false&planner=false&reason=web%20instances%20stay%20idle`, then `POST /synclane/switch?application=shop&role=worker&workers=true&planner=true&reason=the%20worker%20syncs`. The same call with `false` stops the worker later; its running jobs are handed back with their cursors. A new replica of either reads its switch when it starts, so scaling needs nothing more. See [Switching an application on and off](operations.md#switching-an-application-on-and-off).
+
+The switches live in the database of each environment: set them once in each (test, staging, production). Where none is set, both containers run workers, which is safe for the data but takes CPU from the web instances.
 
 Background services of the project that must run once, not in every web copy, belong to the worker too: register them only in the worker role.
 
@@ -322,7 +332,7 @@ if (builder.Configuration["SyncLane:Role"] == "worker")
     builder.Services.AddHostedService<ExpiredDataCleanup>();
 ```
 
-**Done when** nothing runs before the switch, jobs complete after it, and `GetSwitchesAsync()` shows the worker role with its instances running workers and the planner, and the web instances running neither.
+**Done when** `GetSwitchesAsync()` shows the application's two rows, the worker role with its instances running workers and the planner and the web instances running neither, and jobs complete.
 
 ### Step 7. Health check and telemetry
 
@@ -345,7 +355,7 @@ A worker without an HTTP port reports through its telemetry and its row in `sync
 app.MapSyncLane("/synclane").RequireAuthorization("ops");
 ```
 
-It answers only requests from the same machine until it requires authorization. Every action (pause, requeue, skip, sync now) is logged with who and why. The routes are in [the package's readme](../src/SyncLane.AspNetCore/README.md); in code, inject `ISyncLaneMonitor` ([Watching it run](monitoring.md)).
+It answers only requests from the same machine until it requires authorization. Require it before anything else: the switches stop and start every application on the schema, not only this one. Every action (pause, requeue, skip, sync now) is logged with who and why. The routes are in [the package's readme](../src/SyncLane.AspNetCore/README.md); in code, inject `ISyncLaneMonitor` ([Watching it run](monitoring.md)).
 
 **Done when** `GET /synclane/overview` returns the queue with an authorized user, and is refused without one.
 
@@ -354,19 +364,19 @@ It answers only requests from the same machine until it requires authorization. 
 A "refresh" button or a webhook fetches from where the owner's data ends to now, at high priority. A burst of calls is one fetch, and the call returns at once; the worker does the work:
 
 ```csharp
-await monitor.SyncNowAsync("shops", owner: shop.Id.ToString(), type: "orders", by: user.Id);
+await monitor.SyncNowAsync("shop.stores", owner: shop.Id.ToString(), type: "orders", by: user.Id);
 ```
 
 An account that just connected is planned now instead of at the next round:
 
 ```csharp
-await syncLane.PlanAsync("shops", new JobOwner(shop.Id.ToString(), Name: shop.Name));
+await syncLane.PlanAsync("shop.stores", new JobOwner(shop.Id.ToString(), Name: shop.Name));
 ```
 
 "Connecting..." on screen needs no status column of the project's own:
 
 ```csharp
-var progress = await syncLane.GetProgressAsync("shops", shop.Id.ToString());
+var progress = await syncLane.GetProgressAsync("shop.stores", shop.Id.ToString());
 ```
 
 Every call returns a result: check `Succeeded`, and map `Error.Kind` with `ToHttpStatusCode()` in an endpoint ([Working with jobs](jobs.md#results-and-errors)).
@@ -388,10 +398,10 @@ Never delete job rows by hand: the planner's summary would stay, and an owner th
 
 If another system already loaded the history, record it so it is not fetched again. Mark only ranges without holes.
 
-1. Deploy with `RunPlanner` and `RunWorkers` off.
+1. Switch the application off from the monitor (`SetSwitchAsync("shop", null, runWorkers: false, runPlanner: false, …)`), then deploy.
 2. Call `syncLane.MarkLoadedAsync(queue, ranges)` with what the old system loaded ([Moving from another system](operations.md#moving-from-another-system)).
 3. Stop the old system.
-4. Turn the planner and the workers on.
+4. Switch the planner and the workers on.
 
 **Done when** the first jobs of a migrated owner cover only what is older than its marked range and what came after.
 
@@ -434,8 +444,8 @@ public async Task A_connected_shops_orders_reach_the_orders_table()
     var syncLane = host.Services.GetRequiredService<ISyncLane>();
     await WaitUntilAsync(async () =>
     {
-        var all = await syncLane.GetJobsAsync(new JobQuery { Queue = "shops", IncludeTotal = true });
-        var done = await syncLane.GetJobsAsync(new JobQuery { Queue = "shops", Status = JobStatus.Completed, IncludeTotal = true });
+        var all = await syncLane.GetJobsAsync(new JobQuery { Queue = "shop.stores", IncludeTotal = true });
+        var done = await syncLane.GetJobsAsync(new JobQuery { Queue = "shop.stores", Status = JobStatus.Completed, IncludeTotal = true });
         return all.Total > 0 && done.Total == all.Total;
     }, timeout: TimeSpan.FromMinutes(1));
 
@@ -499,7 +509,9 @@ Run the [production trial](production-trial.md): one integration that is allowed
 | A slice that takes hours for the biggest owner | A failure late in the slice repeats most of it. | A slice that finishes in minutes at the API's rate. |
 | Looping over all pages in one handler call | Nothing is saved until the end; a crash starts over. | Return after one page. |
 | A budget declared only in the worker | The web process's calls do not count against the limit. | The same `AddBudget` in every process that calls the API. |
-| Two applications running one queue | The second one is refused at start-up (`SL1011`). | One application per queue, or one `Application` name. |
+| Two applications running one queue | The second one is refused at start-up (`SL1011`). | One application per queue, its name starting with the application's. |
+| Two applications under the default name (`Api`) | One switch stops both; the monitor shows them as one; SyncLane warns (`SharesNameWith`, Degraded). | `SyncLane:Application`, a name of its own, in each. |
+| `RunWorkers: false` in `appsettings.json` to keep web instances idle | The decision is spread over every project and needs a deploy to change. | Leave it out; switch the web instances off from the monitor. |
 | `RunPlanner` off in every process | No jobs are created. | At least one process plans; `GetOverviewAsync` shows `Planners` per queue, and `GetSwitchesAsync` what each role runs. |
 | Listening through PgBouncer in transaction mode | Live changes never arrive, and other clients see timeouts. | `ListenConnectionString` around the pooler, or `ListenForChanges = false`. |
 | Deleting job rows by hand | A returning owner never loads its history again. | `ForgetOwnerAsync`. |
@@ -521,7 +533,8 @@ Run the [production trial](production-trial.md): one integration that is allowed
 - [ ] Each handler returns after one page, uses the job's window and cursor, and throws the right exception for `429` and revoked access.
 - [ ] Budgets are declared in every process that calls the API.
 - [ ] No credential in code, recipes, configuration files, tests or cursors.
-- [ ] Roles are set; one process per container; at least one process plans, switched on from the monitor where the settings keep it off.
+- [ ] `SyncLane:Application` is set to a name of its own, and every queue name starts with it.
+- [ ] `RunWorkers` and `RunPlanner` are not in the settings; roles are set where one build runs as web and worker, and their switches are set in each environment; one process per container; at least one process plans.
 - [ ] Health check, telemetry and alerts are wired.
 - [ ] The monitor requires authorization.
 - [ ] Disconnect and removal call `CancelAsync` and `ForgetOwnerAsync`.

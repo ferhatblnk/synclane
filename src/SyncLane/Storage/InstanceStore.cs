@@ -58,32 +58,44 @@ internal sealed class InstanceStore(NpgsqlDataSource dataSource, InstanceSql sql
     }
 
     /// <summary>
-    /// Says this instance is alive, forgets instances silent since <paramref name="forgetBefore"/> and reads this
-    /// application's switch, in one round trip.
+    /// Says this instance is alive, forgets instances silent since <paramref name="forgetBefore"/>, and reads this
+    /// application's switch and its other instances alive since <paramref name="aliveSince"/>, in one round trip.
     /// </summary>
-    public async Task<SwitchRow?> HeartbeatAsync(
-        InstanceIdentity identity, InstanceRow me, DateTimeOffset now, DateTimeOffset forgetBefore, CancellationToken cancellationToken)
+    public async Task<(SwitchRow? Set, IReadOnlyList<InstanceRow> Namesakes)> HeartbeatAsync(
+        InstanceIdentity identity, InstanceRow me, DateTimeOffset now, DateTimeOffset aliveSince, DateTimeOffset forgetBefore,
+        CancellationToken cancellationToken)
     {
         await using var connection = await dataSource.OpenConnectionAsync(cancellationToken);
         await using var batch = new NpgsqlBatch(connection);
 
+        var namesakes = new NpgsqlBatchCommand(sql.Namesakes);
+        namesakes.Parameters.AddWithValue("application", identity.Application);
+        namesakes.Parameters.AddWithValue("id", identity.Id);
+        namesakes.Parameters.AddWithValue("alive_since", aliveSince.ToUniversalTime());
         var upsert = new NpgsqlBatchCommand(sql.Upsert);
         AddValues(upsert.Parameters, me, now);
         var forget = new NpgsqlBatchCommand(sql.Forget);
         forget.Parameters.AddWithValue("forget_before", forgetBefore.ToUniversalTime());
         batch.BatchCommands.Add(SwitchCommand(identity));
+        batch.BatchCommands.Add(namesakes);
         batch.BatchCommands.Add(upsert);
         batch.BatchCommands.Add(forget);
 
         await using var reader = await batch.ExecuteReaderAsync(cancellationToken);
         var set = await ReadSwitchAsync(reader, cancellationToken);
+        await reader.NextResultAsync(cancellationToken);
+        var others = new List<InstanceRow>();
+
+        // Sequential: reading rows of one data reader.
+        while (await reader.ReadAsync(cancellationToken))
+            others.Add(Read(reader));
 
         // Sequential: the remaining results of one batch, so an error in the upsert or the clean-up is not lost.
         while (await reader.NextResultAsync(cancellationToken))
         {
         }
 
-        return set;
+        return (set, others);
     }
 
     private NpgsqlBatchCommand SwitchCommand(InstanceIdentity me)
@@ -145,6 +157,10 @@ internal sealed class InstanceStore(NpgsqlDataSource dataSource, InstanceSql sql
         parameters.Add(Flag("runs_workers", me.RunsWorkers));
         parameters.Add(Flag("runs_planner", me.RunsPlanner));
         parameters.Add(Flag("listens", me.Listens));
+        parameters.Add(new NpgsqlParameter("declares", NpgsqlDbType.Array | NpgsqlDbType.Text)
+        {
+            Value = me.Declares is { } declares ? declares.ToArray() : DBNull.Value
+        });
     }
 
     private static NpgsqlParameter Flag(string name, bool? value) =>
@@ -163,7 +179,8 @@ internal sealed class InstanceStore(NpgsqlDataSource dataSource, InstanceSql sql
         reader.GetString(9),
         reader.IsDBNull(10) ? null : reader.GetBoolean(10),
         reader.IsDBNull(11) ? null : reader.GetBoolean(11),
-        reader.IsDBNull(12) ? null : reader.GetBoolean(12));
+        reader.IsDBNull(12) ? null : reader.GetBoolean(12),
+        reader.IsDBNull(13) ? null : reader.GetFieldValue<string[]>(13));
 
     // Written and read by hand: a few fields at start-up and every half minute, and no serializer to keep in step.
     internal static string WriteBudgets(IReadOnlyList<BudgetDescription> budgets)

@@ -42,10 +42,18 @@ public sealed partial class SyncLaneOptions
     /// </summary>
     public bool CreateSchema { get; set; } = true;
 
-    /// <summary>Run the planner in this process.</summary>
+    /// <summary>
+    /// Run the planner in this process, unless a switch in the database says otherwise. Leave it as it is and switch
+    /// applications from the monitor (<see cref="ISyncLaneMonitor.SetSwitchAsync"/>); turn it off here only where
+    /// nobody manages switches.
+    /// </summary>
     public bool RunPlanner { get; set; } = true;
 
-    /// <summary>Run the workers in this process. Turn it off in instances that only enqueue and read.</summary>
+    /// <summary>
+    /// Run the workers in this process, unless a switch in the database says otherwise. Leave it as it is and switch
+    /// applications from the monitor (<see cref="ISyncLaneMonitor.SetSwitchAsync"/>); turn it off here only where
+    /// nobody manages switches, in instances that only enqueue and read.
+    /// </summary>
     public bool RunWorkers { get; set; } = true;
 
     /// <summary>How often the planner checks what is missing.</summary>
@@ -61,9 +69,11 @@ public sealed partial class SyncLaneOptions
     public TimeSpan MaxBudgetWait { get; set; } = TimeSpan.FromSeconds(30);
 
     /// <summary>
-    /// The name instances register under. Instances of one application share their queues; a live instance of another
-    /// application that runs one of them stops this one at start-up. Defaults to the host's application name, which is
-    /// the entry assembly's name unless the host sets another.
+    /// The name instances register under, and the switches and the monitor know the application by. Instances of one
+    /// application share their queues; a live instance of another application that runs one of them stops this one at
+    /// start-up. Defaults to the host's application name, which is the entry assembly's name unless the host sets
+    /// another. Set it to a name of its own when other applications share the schema: projects built from one template
+    /// often share an assembly name, and two applications under one name are switched and shown as one.
     /// </summary>
     public string? Application { get; set; }
 

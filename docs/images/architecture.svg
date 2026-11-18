@@ -28,7 +28,7 @@
 <rect x="44" y="116" width="142.8" height="30" rx="15" fill="#f8fafc" stroke="#cbd5e1" stroke-width="1"/>
 <text x="115.4" y="136" font-family='-apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif' font-size="13" font-weight="500" fill="#334155" text-anchor="middle">4 NuGet packages</text>
 <rect x="196.8" y="116" width="208.5" height="30" rx="15" fill="#f8fafc" stroke="#cbd5e1" stroke-width="1"/>
-<text x="301.05" y="136" font-family='-apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif' font-size="13" font-weight="500" fill="#334155" text-anchor="middle">15 append-only migrations</text>
+<text x="301.05" y="136" font-family='-apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif' font-size="13" font-weight="500" fill="#334155" text-anchor="middle">16 append-only migrations</text>
 <rect x="415.3" y="116" width="347.2" height="30" rx="15" fill="#f8fafc" stroke="#cbd5e1" stroke-width="1"/>
 <text x="588.9" y="136" font-family='-apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif' font-size="13" font-weight="500" fill="#334155" text-anchor="middle">760+ tests on PostgreSQL 14–18 and PgBouncer</text>
 <rect x="772.5" y="116" width="179.29999999999998" height="30" rx="15" fill="#f8fafc" stroke="#cbd5e1" stroke-width="1"/>

@@ -132,6 +132,9 @@ That is the whole integration. The table is created at start-up, the planner run
 | A window fetched again from its first page | `monitor.RestartJobAsync(id)` |
 | One job never to run, so the jobs behind it go on | `monitor.SkipJobAsync(id, reason)` |
 | An API called more gently for a while | `monitor.LimitBudgetAsync(budget, key, limit, per, reason, until: ...)` |
+| An application's syncing stopped or started, without a deploy | `monitor.SetSwitchAsync(application, role, runWorkers, runPlanner, reason)`: kept in the database, read by every instance when it starts |
+| Web instances kept idle while a worker of the same build syncs | `SyncLane__Role=worker` in the worker's environment, and a switch per role ([switching](docs/operations.md#switching-an-application-on-and-off)) |
+| Several applications on one database, told apart | `SyncLane:Application`, a name of its own in each, and queue names that start with it |
 
 Every operator call is logged with who and why, and is also on HTTP with `SyncLane.AspNetCore` ([docs/monitoring.md](docs/monitoring.md)).
 

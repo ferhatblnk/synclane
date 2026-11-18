@@ -56,6 +56,41 @@ public class InstanceRulesTests
     }
 
     [Fact]
+    public void An_instance_declares_every_job_type_of_every_queue_with_its_handler_whether_it_runs_them_or_not()
+    {
+        var options = new SyncLaneOptions { RunPlanner = false, RunWorkers = false }
+            .AddQueue("orders", queue => queue.Handle<Support.OrderHandler>("orders").Handle<Support.ProductHandler>("products"))
+            .AddQueue("labels", queue => queue.Handle<Support.ProductHandler>("labels"));
+
+        Assert.Equal(
+            ["labels/labels/SyncLane.Tests.Support.ProductHandler", "orders/orders/SyncLane.Tests.Support.OrderHandler", "orders/products/SyncLane.Tests.Support.ProductHandler"],
+            InstanceRules.Declarations(options));
+    }
+
+    [Fact]
+    public void Only_live_instances_of_the_same_name_that_declare_nothing_alike_are_strangers()
+    {
+        var me = Declaring("me:1", "shipping", ["orders/orders/A", "labels/labels/A"]);
+        InstanceRow[] live =
+        [
+            me,
+            Declaring("copy:1", "shipping", ["orders/orders/A", "labels/labels/A"]),
+            Declaring("deploying:1", "shipping", ["orders/orders/A", "returns/returns/A"]),
+            Declaring("stranger:1", "shipping", ["stock/stock/B"]),
+            Declaring("other-app:1", "billing", ["invoices/invoices/C"]),
+            Declaring("older:1", "shipping", null),
+            Declaring("monitor:1", "shipping", []),
+            Declaring("stopped:1", "shipping", ["stock/stock/B"]) with { StoppedAt = Now }
+        ];
+
+        var strangers = InstanceRules.Strangers(me, live).Select(row => row.Id).ToList();
+        var fromOneThatDeclaresNothing = InstanceRules.Strangers(Declaring("monitor:1", "shipping", []), live);
+
+        Assert.Equal(["stranger:1"], strangers);
+        Assert.Empty(fromOneThatDeclaresNothing);
+    }
+
+    [Fact]
     public void Budgets_are_stored_as_json_and_read_back_the_same()
     {
         BudgetDescription[] budgets = [new("api", 40, TimeSpan.FromMinutes(1), 2), new("search", 1, TimeSpan.FromSeconds(0.5), 1)];
@@ -105,4 +140,7 @@ public class InstanceRulesTests
 
     private static InstanceRow Row(string id, string application, string[] queues, params BudgetDescription[] budgets) =>
         new(id, application, id.Split(':')[0], "1.0.0", queues, budgets, Now.AddMinutes(-5), Now.AddSeconds(-10));
+
+    private static InstanceRow Declaring(string id, string application, string[]? declares) =>
+        Row(id, application, []) with { Declares = declares };
 }
