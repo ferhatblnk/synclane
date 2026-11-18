@@ -4,6 +4,10 @@ on:
   push:
     branches: [main]
   pull_request:
+  # Weekly, so a change that breaks macOS is found even in a week without merges.
+  schedule:
+    - cron: "0 6 * * 1"
+  workflow_dispatch:
 
 permissions:
   contents: read
@@ -133,7 +137,9 @@ jobs:
       fail-fast: false
       matrix:
         # The CLI is a tool people run on their own machines. Without SYNCLANE_TEST_DB the PostgreSQL tests are skipped.
-        os: [windows-latest, macos-latest]
+        # macOS runs on main, weekly and by hand, not on pull requests: its hosted runners often wait many minutes for
+        # capacity, and a pull request should not wait on that. Windows covers a second platform on every pull request.
+        os: ${{ fromJSON(github.event_name == 'pull_request' && '["windows-latest"]' || '["windows-latest", "macos-latest"]') }}
 
     steps:
       - uses: actions/checkout@v7
