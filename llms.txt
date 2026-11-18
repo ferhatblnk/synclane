@@ -12,6 +12,7 @@ Notes for writing recipes:
 
 ## Docs
 
+- [Integrating SyncLane into an application](https://raw.githubusercontent.com/ferhatblnk/synclane/main/docs/integrating.md): start here to add SyncLane to a project: the questions to ask the user first, the decisions with their defaults, every step from the package to production with a check after each, and the mistakes to avoid
 - [Recipes](https://raw.githubusercontent.com/ferhatblnk/synclane/main/docs/recipes.md): every part of a recipe: requests, records, paging styles, windows, keys, destinations, authentication, rate budgets, placeholders, what a recipe can never do
 - [Recipe JSON Schema](https://raw.githubusercontent.com/ferhatblnk/synclane/main/schemas/recipe.schema.json): every field and value with its description, generated from the types
 - [Writing recipes with an AI assistant](https://raw.githubusercontent.com/ferhatblnk/synclane/main/docs/ai.md): `synclane mcp`, its tools, and how credentials stay out of the conversation

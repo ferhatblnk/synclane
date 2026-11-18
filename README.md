@@ -107,7 +107,7 @@ public sealed class ConnectedShops(AppDb db) : IOwnerSource
 }
 ```
 
-That is the whole integration. The table is created at start-up, the planner runs once a minute and the workers start pulling. Every other setting has a default you can leave alone ([docs/configuration.md](docs/configuration.md)).
+That is the whole integration. The table is created at start-up, the planner runs once a minute and the workers start pulling. Every other setting has a default you can leave alone ([docs/configuration.md](docs/configuration.md)). To add it to an existing application step by step, with the questions to settle first, follow [Integrating](docs/integrating.md).
 
 ## What do I use for...
 
@@ -161,6 +161,7 @@ Every operator call is logged with who and why, and is also on HTTP with `SyncLa
 
 | | |
 | --- | --- |
+| [Integrating](docs/integrating.md) | Adding SyncLane to an existing application from A to Z, written so you can hand it to an AI assistant |
 | [How it works](docs/how-it-works.md) | The table, a job's life, the statements and the indexes behind the guarantees |
 | [Planning](docs/planning.md) | History, slices, periods and overlap, and why |
 | [Recipes](docs/recipes.md) | Every part of a recipe; [with an AI assistant](docs/ai.md) |
