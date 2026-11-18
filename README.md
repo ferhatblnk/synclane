@@ -11,6 +11,10 @@
 
 If your application pulls orders, products or anything else from an external API for many accounts, it needs the same things every time: load two years of history in slices, pick up what is new every few minutes, continue after a crash instead of starting over, back off when the other side says "slow down", never hit one account's limit from two workers at once, and send data back in order. SyncLane is a .NET library that does exactly that, inside your process, with no dependency beyond Npgsql and the `Microsoft.Extensions` abstractions.
 
+<p align="center"><img src="docs/images/architecture.png" width="100%" alt="SyncLane's architecture: the PostgreSQL schema with the jobs table and the indexes that carry the guarantees; the planner, lease, page loop, failure policy, rate budgets, change feed, instances and monitor inside your application; the recipe pipeline of SyncLane.Http; their APIs and your tables; and what it promises."></p>
+
+How a job runs, from the planner to a saved cursor and every way back when something fails: [the picture](docs/images/how-it-works.png), and [How it works](docs/how-it-works.md) in words.
+
 ## Why
 
 Hangfire, Quartz and the like are good at "run this method at that time". A sync job is a different animal. It has a range of time it covers, a position inside that range, and a neighbour it must not overlap with. When you put that on top of a general scheduler, the interesting state ends up somewhere you cannot see: in serialized arguments, in a second table of your own, or in a lock.
@@ -23,6 +27,16 @@ SyncLane keeps that state where you can read and change it:
 - **Rate budgets.** Requests to one account go out at the pace you declare, shared by every job and queue that calls it. When the API says "slow down", every job on that account waits, not only the one that heard it.
 - **Planning that can be repeated.** The planner compares what should exist with what exists and adds the difference. Calling it a thousand times changes nothing. Raising the history from 60 days to two years fills only the gap.
 - **A row you can act on.** `status`, `attempt_count`, `error`, `next_run_at`, `leased_by`. If something is stuck, `SELECT` tells you why and `UPDATE` fixes it.
+
+## What it aims to be
+
+SyncLane does not try to be a scheduler, a workflow engine or a data platform. Hangfire, Quartz and cron services run anything on time, and they do it well. SyncLane aims to be the small, dependable piece you add when your application pulls data from someone else's API:
+
+- **Quick to connect.** A package, a connection string, an owner source, and a handler or a recipe. Every other setting has a default you can leave alone.
+- **Compact.** A library inside your process. PostgreSQL is all it needs: no broker, no extra service, no dashboard to host.
+- **It takes the hard parts on itself.** Slicing history, resuming from the last page, retries, an account's rate limit shared by every instance and learned from its answers, delivering in order, and fencing out a worker that lost its lease. Your code handles one page.
+- **Safe by default.** It stores no credential, and logs no header, body or cursor. It calls no host of its own: no telemetry, no license check, no update check.
+- **Open.** Apache 2.0, free, with no registration and no paid edition.
 
 ## Quick start
 
@@ -138,7 +152,7 @@ Every operator call is logged with who and why, and is also on HTTP with `SyncLa
 
 ## Limitations
 
-- **PostgreSQL only.** The lease is a single statement that relies on `FOR UPDATE SKIP LOCKED` and partial unique indexes.
+- **PostgreSQL only, for now.** The lease is a single statement that relies on `FOR UPDATE SKIP LOCKED` and partial unique indexes. Support for other databases is planned; each will come with its own way of keeping the same guarantees, and its own tests.
 - **No job arguments yet.** A job knows its owner (with its values), type, window, dedup key and who asked; anything else the handler looks up.
 - **Periods are aligned to the clock.** "Every day" means once per UTC day.
 - **No dashboard.** The monitor is an API, and HTTP endpoints with `SyncLane.AspNetCore`; the screens are yours.

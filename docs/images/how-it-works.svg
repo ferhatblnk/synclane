@@ -1,0 +1,183 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1600 1150" width="1600" height="1150" role="img" aria-label="How a SyncLane job runs: planned, taken, run page by page with a saved cursor, completed; what happens when a page fails, when a worker goes away, and when the API says slow down.">
+<title>How a sync job runs</title>
+<defs>
+<marker id="m-slate" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#475569"/></marker>
+<marker id="m-teal" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#0f766e"/></marker>
+<marker id="m-indigo" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#4f46e5"/></marker>
+<marker id="m-amber" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#d97706"/></marker>
+<marker id="m-red" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#dc2626"/></marker>
+<marker id="m-purple" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#7c3aed"/></marker>
+<marker id="m-green" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#16a34a"/></marker>
+<marker id="m-blue" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#2563eb"/></marker>
+</defs>
+<rect x="1" y="1" width="1598" height="1148" rx="20" fill="#ffffff" stroke="#e2e8f0"/>
+<text x="44" y="64" font-family='-apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif' font-size="34" font-weight="700" fill="#0f172a">SyncLane <tspan font-weight="400" fill="#64748b">how a job runs</tspan></text>
+<text x="44" y="96" font-family='-apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif' font-size="16" font-weight="400" fill="#475569" text-anchor="start">From the planner to a saved cursor, and every way back when something goes wrong.</text>
+<rect x="1120" y="40" width="16" height="16" rx="4" fill="#f1f5f9" stroke="#64748b" stroke-width="1.5"/>
+<text x="1144" y="53" font-family='-apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif' font-size="13" font-weight="400" fill="#334155" text-anchor="start">pending</text>
+<rect x="1270" y="40" width="16" height="16" rx="4" fill="#eff6ff" stroke="#2563eb" stroke-width="1.5"/>
+<text x="1294" y="53" font-family='-apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif' font-size="13" font-weight="400" fill="#334155" text-anchor="start">running</text>
+<rect x="1420" y="40" width="16" height="16" rx="4" fill="#f0fdf4" stroke="#16a34a" stroke-width="1.5"/>
+<text x="1444" y="53" font-family='-apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif' font-size="13" font-weight="400" fill="#334155" text-anchor="start">completed</text>
+<rect x="1120" y="66" width="16" height="16" rx="4" fill="#fffbeb" stroke="#d97706" stroke-width="1.5"/>
+<text x="1144" y="79" font-family='-apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif' font-size="13" font-weight="400" fill="#334155" text-anchor="start">failed</text>
+<rect x="1270" y="66" width="16" height="16" rx="4" fill="#faf5ff" stroke="#7c3aed" stroke-width="1.5"/>
+<text x="1294" y="79" font-family='-apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif' font-size="13" font-weight="400" fill="#334155" text-anchor="start">deferred</text>
+<rect x="1420" y="66" width="16" height="16" rx="4" fill="#fef2f2" stroke="#dc2626" stroke-width="1.5"/>
+<text x="1444" y="79" font-family='-apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif' font-size="13" font-weight="400" fill="#334155" text-anchor="start">abandoned</text>
+<text x="44" y="150" font-family='-apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif' font-size="13" font-weight="700" fill="#1d4ed8" text-anchor="start">1 · THE PATH OF A JOB</text>
+<rect x="32" y="166" width="296" height="236" rx="14" fill="#f1f5f9" stroke="#64748b" stroke-width="1.5"/>
+<circle cx="60" cy="194" r="14" fill="#64748b"/>
+<text x="60" y="199" font-family='-apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif' font-size="14" font-weight="700" fill="#ffffff" text-anchor="middle">1</text>
+<text x="84" y="200" font-family='-apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif' font-size="17" font-weight="700" fill="#334155" text-anchor="start">Plan</text>
+<text x="50" y="232" font-family='-apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif' font-size="13.5" font-weight="400" fill="#334155" text-anchor="start">every minute, on every instance,</text>
+<text x="50" y="252" font-family='-apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif' font-size="13.5" font-weight="400" fill="#334155" text-anchor="start">asks IOwnerSource who is connected;</text>
+<text x="50" y="272" font-family='-apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif' font-size="13.5" font-weight="400" fill="#334155" text-anchor="start">history in slices to the horizon,</text>
+<text x="50" y="292" font-family='-apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif' font-size="13.5" font-weight="400" fill="#334155" text-anchor="start">one recurring job per period,</text>
+<text x="50" y="312" font-family='-apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif' font-size="13.5" font-weight="400" fill="#334155" text-anchor="start">its window from where data ends</text>
+<rect x="46" y="352" width="268" height="36" rx="8" fill="#ffffff" stroke="#64748b" stroke-width="1"/>
+<text x="180" y="375" font-family='ui-monospace, SFMono-Regular, Menlo, Consolas, monospace' font-size="12" font-weight="500" fill="#0f172a" text-anchor="middle">INSERT … ON CONFLICT DO NOTHING</text>
+<rect x="342" y="166" width="296" height="236" rx="14" fill="#eff6ff" stroke="#2563eb" stroke-width="1.5"/>
+<circle cx="370" cy="194" r="14" fill="#2563eb"/>
+<text x="370" y="199" font-family='-apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif' font-size="14" font-weight="700" fill="#ffffff" text-anchor="middle">2</text>
+<text x="394" y="200" font-family='-apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif' font-size="17" font-weight="700" fill="#1d4ed8" text-anchor="start">Take</text>
+<text x="360" y="232" font-family='-apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif' font-size="13.5" font-weight="400" fill="#334155" text-anchor="start">a slot is free; the job is due,</text>
+<text x="360" y="252" font-family='-apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif' font-size="13.5" font-weight="400" fill="#334155" text-anchor="start">its lane free, its owner not paused;</text>
+<text x="360" y="272" font-family='-apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif' font-size="13.5" font-weight="400" fill="#334155" text-anchor="start">urgent first, newest window first;</text>
+<text x="360" y="292" font-family='-apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif' font-size="13.5" font-weight="400" fill="#334155" text-anchor="start">running, attempt + 1, lease 5 min,</text>
+<text x="360" y="312" font-family='-apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif' font-size="13.5" font-weight="400" fill="#334155" text-anchor="start">lease_generation + 1</text>
+<rect x="356" y="352" width="268" height="36" rx="8" fill="#ffffff" stroke="#2563eb" stroke-width="1"/>
+<text x="490" y="375" font-family='ui-monospace, SFMono-Regular, Menlo, Consolas, monospace' font-size="12" font-weight="500" fill="#0f172a" text-anchor="middle">UPDATE … FOR UPDATE SKIP LOCKED</text>
+<rect x="652" y="166" width="296" height="236" rx="14" fill="#eff6ff" stroke="#2563eb" stroke-width="1.5"/>
+<circle cx="680" cy="194" r="14" fill="#2563eb"/>
+<text x="680" y="199" font-family='-apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif' font-size="14" font-weight="700" fill="#ffffff" text-anchor="middle">3</text>
+<text x="704" y="200" font-family='-apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif' font-size="17" font-weight="700" fill="#1d4ed8" text-anchor="start">Run a page</text>
+<text x="670" y="232" font-family='-apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif' font-size="13.5" font-weight="400" fill="#334155" text-anchor="start">a fresh DI scope; the handler or</text>
+<text x="670" y="252" font-family='-apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif' font-size="13.5" font-weight="400" fill="#334155" text-anchor="start">recipe takes a budget token,</text>
+<text x="670" y="272" font-family='-apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif' font-size="13.5" font-weight="400" fill="#334155" text-anchor="start">requests one page and upserts</text>
+<text x="670" y="292" font-family='-apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif' font-size="13.5" font-weight="400" fill="#334155" text-anchor="start">the records into your tables;</text>
+<text x="670" y="312" font-family='-apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif' font-size="13.5" font-weight="400" fill="#334155" text-anchor="start">a heartbeat keeps the lease</text>
+<rect x="666" y="352" width="268" height="36" rx="8" fill="#ffffff" stroke="#2563eb" stroke-width="1"/>
+<text x="800" y="375" font-family='ui-monospace, SFMono-Regular, Menlo, Consolas, monospace' font-size="12" font-weight="500" fill="#0f172a" text-anchor="middle">RunPageAsync(job) → JobPage</text>
+<rect x="962" y="166" width="296" height="236" rx="14" fill="#eff6ff" stroke="#2563eb" stroke-width="1.5"/>
+<circle cx="990" cy="194" r="14" fill="#2563eb"/>
+<text x="990" y="199" font-family='-apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif' font-size="14" font-weight="700" fill="#ffffff" text-anchor="middle">4</text>
+<text x="1014" y="200" font-family='-apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif' font-size="17" font-weight="700" fill="#1d4ed8" text-anchor="start">Save</text>
+<text x="980" y="232" font-family='-apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif' font-size="13.5" font-weight="400" fill="#334155" text-anchor="start">cursor and count, lease renewed,</text>
+<text x="980" y="252" font-family='-apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif' font-size="13.5" font-weight="400" fill="#334155" text-anchor="start">in one UPDATE; attempts reset;</text>
+<text x="980" y="272" font-family='-apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif' font-size="13.5" font-weight="400" fill="#334155" text-anchor="start">written only while leased_by and</text>
+<text x="980" y="292" font-family='-apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif' font-size="13.5" font-weight="400" fill="#334155" text-anchor="start">lease_generation still match;</text>
+<text x="980" y="312" font-family='-apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif' font-size="13.5" font-weight="400" fill="#334155" text-anchor="start">a next cursor: back to 3</text>
+<rect x="976" y="352" width="268" height="36" rx="8" fill="#ffffff" stroke="#2563eb" stroke-width="1"/>
+<text x="1110" y="375" font-family='ui-monospace, SFMono-Regular, Menlo, Consolas, monospace' font-size="12" font-weight="500" fill="#0f172a" text-anchor="middle">WHERE lease_generation = @g</text>
+<rect x="1272" y="166" width="296" height="236" rx="14" fill="#f0fdf4" stroke="#16a34a" stroke-width="1.5"/>
+<circle cx="1300" cy="194" r="14" fill="#16a34a"/>
+<text x="1300" y="199" font-family='-apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif' font-size="14" font-weight="700" fill="#ffffff" text-anchor="middle">5</text>
+<text x="1324" y="200" font-family='-apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif' font-size="17" font-weight="700" fill="#166534" text-anchor="start">Complete</text>
+<text x="1290" y="232" font-family='-apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif' font-size="13.5" font-weight="400" fill="#334155" text-anchor="start">no next cursor: completed;</text>
+<text x="1290" y="252" font-family='-apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif' font-size="13.5" font-weight="400" fill="#334155" text-anchor="start">coverage moves to window_end,</text>
+<text x="1290" y="272" font-family='-apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif' font-size="13.5" font-weight="400" fill="#334155" text-anchor="start">so the next window starts there;</text>
+<text x="1290" y="292" font-family='-apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif' font-size="13.5" font-weight="400" fill="#334155" text-anchor="start">counted per hour in job_stats;</text>
+<text x="1290" y="312" font-family='-apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif' font-size="13.5" font-weight="400" fill="#334155" text-anchor="start">the row is kept 7 days</text>
+<rect x="1286" y="352" width="268" height="36" rx="8" fill="#ffffff" stroke="#16a34a" stroke-width="1"/>
+<text x="1420" y="375" font-family='ui-monospace, SFMono-Regular, Menlo, Consolas, monospace' font-size="12" font-weight="500" fill="#0f172a" text-anchor="middle">status = &#x27;completed&#x27;</text>
+<text x="44" y="476" font-family='-apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif' font-size="13" font-weight="700" fill="#92400e" text-anchor="start">2 · WHEN A PAGE FAILS</text>
+<rect x="32" y="520" width="200" height="92" rx="14" fill="#eff6ff" stroke="#2563eb" stroke-width="1.8"/>
+<text x="132.0" y="546" font-family='ui-monospace, SFMono-Regular, Menlo, Consolas, monospace' font-size="15" font-weight="700" fill="#1d4ed8" text-anchor="middle">running</text>
+<text x="132.0" y="567" font-family='-apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif' font-size="12.5" font-weight="400" fill="#334155" text-anchor="middle">a page throws</text>
+<rect x="330" y="520" width="270" height="92" rx="14" fill="#fffbeb" stroke="#d97706" stroke-width="1.8"/>
+<text x="465.0" y="546" font-family='ui-monospace, SFMono-Regular, Menlo, Consolas, monospace' font-size="15" font-weight="700" fill="#92400e" text-anchor="middle">failed</text>
+<text x="465.0" y="567" font-family='-apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif' font-size="12.5" font-weight="400" fill="#334155" text-anchor="middle">waits 1 min, 2, 4, 8 … at most 1 h,</text>
+<text x="465.0" y="585" font-family='-apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif' font-size="12.5" font-weight="400" fill="#334155" text-anchor="middle">then continues from its cursor</text>
+<rect x="700" y="520" width="300" height="92" rx="14" fill="#faf5ff" stroke="#7c3aed" stroke-width="1.8"/>
+<text x="850.0" y="546" font-family='ui-monospace, SFMono-Regular, Menlo, Consolas, monospace' font-size="15" font-weight="700" fill="#6d28d9" text-anchor="middle">deferred</text>
+<text x="850.0" y="567" font-family='-apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif' font-size="12.5" font-weight="400" fill="#334155" text-anchor="middle">the 5th try failed: it steps aside,</text>
+<text x="850.0" y="585" font-family='-apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif' font-size="12.5" font-weight="400" fill="#334155" text-anchor="middle">the lane&#x27;s other jobs run, then</text>
+<text x="850.0" y="603" font-family='-apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif' font-size="12.5" font-weight="400" fill="#334155" text-anchor="middle">it gets one more try on its own</text>
+<rect x="1100" y="520" width="250" height="92" rx="14" fill="#fef2f2" stroke="#dc2626" stroke-width="1.8"/>
+<text x="1225.0" y="546" font-family='ui-monospace, SFMono-Regular, Menlo, Consolas, monospace' font-size="15" font-weight="700" fill="#991b1b" text-anchor="middle">abandoned</text>
+<text x="1225.0" y="567" font-family='-apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif' font-size="12.5" font-weight="400" fill="#334155" text-anchor="middle">that try failed too, or a</text>
+<text x="1225.0" y="585" font-family='-apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif' font-size="12.5" font-weight="400" fill="#334155" text-anchor="middle">JobAbandonedException: waits</text>
+<rect x="1390" y="520" width="178" height="92" rx="14" fill="#f8fafc" stroke="#64748b" stroke-width="1.5"/>
+<text x="1479" y="546" font-family='-apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif' font-size="15" font-weight="700" fill="#0f172a" text-anchor="middle">an operator</text>
+<text x="1479" y="568" font-family='ui-monospace, SFMono-Regular, Menlo, Consolas, monospace' font-size="12.5" font-weight="400" fill="#334155" text-anchor="middle">requeue → pending</text>
+<text x="1479" y="586" font-family='ui-monospace, SFMono-Regular, Menlo, Consolas, monospace' font-size="12.5" font-weight="400" fill="#334155" text-anchor="middle">restart → page 1</text>
+<text x="1479" y="604" font-family='ui-monospace, SFMono-Regular, Menlo, Consolas, monospace' font-size="12.5" font-weight="400" fill="#334155" text-anchor="middle">skip → deleted</text>
+<rect x="32" y="630" width="376" height="78" rx="12" fill="#ffffff" stroke="#d97706" stroke-width="1.5"/>
+<text x="48" y="654" font-family='-apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif' font-size="14" font-weight="700" fill="#92400e" text-anchor="start">429 without a budget</text>
+<text x="48" y="675" font-family='-apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif' font-size="13" font-weight="400" fill="#334155" text-anchor="start">waits for Retry-After, or 5 min</text>
+<text x="48" y="694" font-family='-apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif' font-size="13" font-weight="400" fill="#334155" text-anchor="start">doubling to 30 min</text>
+<rect x="420" y="630" width="376" height="78" rx="12" fill="#ffffff" stroke="#64748b" stroke-width="1.5"/>
+<text x="436" y="654" font-family='-apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif' font-size="14" font-weight="700" fill="#334155" text-anchor="start">Postponed</text>
+<text x="436" y="675" font-family='-apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif' font-size="13" font-weight="400" fill="#334155" text-anchor="start">a budget wait over 30 s, a report</text>
+<text x="436" y="694" font-family='-apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif' font-size="13" font-weight="400" fill="#334155" text-anchor="start">not ready: no attempt is used</text>
+<rect x="808" y="630" width="376" height="78" rx="12" fill="#ffffff" stroke="#2563eb" stroke-width="1.5"/>
+<text x="824" y="654" font-family='-apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif' font-size="14" font-weight="700" fill="#1d4ed8" text-anchor="start">Counted from the last page</text>
+<text x="824" y="675" font-family='-apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif' font-size="13" font-weight="400" fill="#334155" text-anchor="start">a saved page resets the attempts:</text>
+<text x="824" y="694" font-family='-apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif' font-size="13" font-weight="400" fill="#334155" text-anchor="start">a long job still finishes</text>
+<rect x="1196" y="630" width="376" height="78" rx="12" fill="#ffffff" stroke="#7c3aed" stroke-width="1.5"/>
+<text x="1212" y="654" font-family='-apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif' font-size="14" font-weight="700" fill="#6d28d9" text-anchor="start">Ordered queue</text>
+<text x="1212" y="675" font-family='-apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif' font-size="13" font-weight="400" fill="#334155" text-anchor="start">a failed job holds only its lane</text>
+<text x="1212" y="694" font-family='-apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif' font-size="13" font-weight="400" fill="#334155" text-anchor="start">until it completes or is skipped</text>
+<text x="44" y="752" font-family='-apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif' font-size="13" font-weight="700" fill="#1d4ed8" text-anchor="start">3 · WHEN A WORKER GOES AWAY</text>
+<rect x="32" y="768" width="376" height="112" rx="12" fill="#f1f5f9" stroke="#64748b" stroke-width="1.5"/>
+<text x="48" y="794" font-family='-apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif' font-size="15" font-weight="700" fill="#334155" text-anchor="start">It stops: a deploy</text>
+<text x="48" y="816" font-family='-apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif' font-size="13" font-weight="400" fill="#334155" text-anchor="start">hands its job back: pending,</text>
+<text x="48" y="835" font-family='-apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif' font-size="13" font-weight="400" fill="#334155" text-anchor="start">attempt returned, cursor kept;</text>
+<text x="48" y="854" font-family='-apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif' font-size="13" font-weight="400" fill="#334155" text-anchor="start">another slot takes it at once</text>
+<rect x="420" y="768" width="376" height="112" rx="12" fill="#eff6ff" stroke="#2563eb" stroke-width="1.5"/>
+<text x="436" y="794" font-family='-apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif' font-size="15" font-weight="700" fill="#1d4ed8" text-anchor="start">It dies: memory, node gone</text>
+<text x="436" y="816" font-family='-apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif' font-size="13" font-weight="400" fill="#334155" text-anchor="start">no heartbeat; once the lease</text>
+<text x="436" y="835" font-family='-apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif' font-size="13" font-weight="400" fill="#334155" text-anchor="start">runs out, another slot takes</text>
+<text x="436" y="854" font-family='-apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif' font-size="13" font-weight="400" fill="#334155" text-anchor="start">it over from the cursor</text>
+<rect x="808" y="768" width="376" height="112" rx="12" fill="#fef2f2" stroke="#dc2626" stroke-width="1.5"/>
+<text x="824" y="794" font-family='-apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif' font-size="15" font-weight="700" fill="#991b1b" text-anchor="start">It wakes up after all</text>
+<text x="824" y="816" font-family='-apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif' font-size="13" font-weight="400" fill="#334155" text-anchor="start">its writes match no row:</text>
+<text x="824" y="835" font-family='-apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif' font-size="13" font-weight="400" fill="#334155" text-anchor="start">the generation moved on;</text>
+<text x="824" y="854" font-family='-apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif' font-size="13" font-weight="400" fill="#334155" text-anchor="start">it stops and writes nothing</text>
+<rect x="1196" y="768" width="376" height="112" rx="12" fill="#faf5ff" stroke="#7c3aed" stroke-width="1.5"/>
+<text x="1212" y="794" font-family='-apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif' font-size="15" font-weight="700" fill="#6d28d9" text-anchor="start">An operator pauses it</text>
+<text x="1212" y="816" font-family='-apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif' font-size="13" font-weight="400" fill="#334155" text-anchor="start">NOTIFY cuts it on every instance,</text>
+<text x="1212" y="835" font-family='-apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif' font-size="13" font-weight="400" fill="#334155" text-anchor="start">handed back without an attempt;</text>
+<text x="1212" y="854" font-family='-apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif' font-size="13" font-weight="400" fill="#334155" text-anchor="start">resume goes on from the cursor</text>
+<text x="44" y="924" font-family='-apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif' font-size="13" font-weight="700" fill="#9a3412" text-anchor="start">4 · WHEN THE API SAYS SLOW DOWN</text>
+<rect x="32" y="940" width="290" height="96" rx="12" fill="#fff7ed" stroke="#ea580c" stroke-width="1.5"/>
+<text x="48" y="966" font-family='-apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif' font-size="15" font-weight="700" fill="#9a3412" text-anchor="start">429 on instance 1</text>
+<text x="48" y="988" font-family='-apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif' font-size="13" font-weight="400" fill="#334155" text-anchor="start">Retry-After: 20</text>
+<rect x="342" y="940" width="290" height="96" rx="12" fill="#f0fdfa" stroke="#0f766e" stroke-width="1.5"/>
+<text x="358" y="966" font-family='-apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif' font-size="15" font-weight="700" fill="#115e59" text-anchor="start">the account&#x27;s bucket pauses</text>
+<text x="358" y="988" font-family='-apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif' font-size="13" font-weight="400" fill="#334155" text-anchor="start">for every instance, in its row</text>
+<rect x="652" y="940" width="290" height="96" rx="12" fill="#eff6ff" stroke="#2563eb" stroke-width="1.5"/>
+<text x="668" y="966" font-family='-apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif' font-size="15" font-weight="700" fill="#1d4ed8" text-anchor="start">the others wait</text>
+<text x="668" y="988" font-family='-apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif' font-size="13" font-weight="400" fill="#334155" text-anchor="start">or give the slot back if the</text>
+<text x="668" y="1007" font-family='-apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif' font-size="13" font-weight="400" fill="#334155" text-anchor="start">wait is over 30 s, no attempt</text>
+<rect x="962" y="940" width="290" height="96" rx="12" fill="#f0fdf4" stroke="#16a34a" stroke-width="1.5"/>
+<text x="978" y="966" font-family='-apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif' font-size="15" font-weight="700" fill="#166534" text-anchor="start">after the pause</text>
+<text x="978" y="988" font-family='-apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif' font-size="13" font-weight="400" fill="#334155" text-anchor="start">refill from empty at ×0.7,</text>
+<text x="978" y="1007" font-family='-apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif' font-size="13" font-weight="400" fill="#334155" text-anchor="start">then climb back to the limit</text>
+<rect x="1272" y="940" width="290" height="96" rx="12" fill="#fffbeb" stroke="#d97706" stroke-width="1.5"/>
+<text x="1288" y="966" font-family='-apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif' font-size="15" font-weight="700" fill="#92400e" text-anchor="start">refused again at once</text>
+<text x="1288" y="988" font-family='-apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif' font-size="13" font-weight="400" fill="#334155" text-anchor="start">the pause doubles, up to</text>
+<text x="1288" y="1007" font-family='-apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif' font-size="13" font-weight="400" fill="#334155" text-anchor="start">5 minutes, then resets</text>
+<line x1="44" y1="1086" x2="1556" y2="1086" stroke="#e2e8f0"/>
+<text x="44" y="1114" font-family='-apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif' font-size="13" font-weight="400" fill="#475569" text-anchor="start">Defaults shown: MaxAttempts 5 · RetryBaseDelay 1 min → RetryMaxDelay 1 h · LeaseDuration 5 min · MaxBudgetWait 30 s · KeepCompletedJobs 7 days</text>
+<text x="1556" y="1114" font-family='-apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif' font-size="13" font-weight="500" fill="#64748b" text-anchor="end">every one is a setting</text>
+<line x1="328" y1="284" x2="341" y2="284" stroke="#475569" stroke-width="2" marker-end="url(#m-slate)"/>
+<line x1="638" y1="284" x2="651" y2="284" stroke="#475569" stroke-width="2" marker-end="url(#m-slate)"/>
+<line x1="948" y1="284" x2="961" y2="284" stroke="#475569" stroke-width="2" marker-end="url(#m-slate)"/>
+<line x1="1258" y1="284" x2="1271" y2="284" stroke="#475569" stroke-width="2" marker-end="url(#m-slate)"/>
+<path d="M962,402 C962,446 760,446 760,406" fill="none" stroke="#2563eb" stroke-width="1.8" marker-end="url(#m-blue)"/>
+<rect x="765" y="439.5" width="192" height="19.5" rx="4" fill="#ffffff"/>
+<text x="861" y="452" font-family='-apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif' font-size="12.5" font-weight="600" fill="#1d4ed8" text-anchor="middle">next cursor: the next page</text>
+<line x1="232" y1="566" x2="326" y2="566" stroke="#d97706" stroke-width="1.8" marker-end="url(#m-amber)"/>
+<path d="M465,520 C465,496 132,496 132,516" fill="none" stroke="#d97706" stroke-width="1.6" stroke-dasharray="5 4" marker-end="url(#m-amber)"/>
+<rect x="263" y="494" width="70" height="19" rx="4" fill="#ffffff"/>
+<text x="298" y="506" font-family='-apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif' font-size="12" font-weight="600" fill="#92400e" text-anchor="middle">due again</text>
+<line x1="600" y1="566" x2="696" y2="566" stroke="#7c3aed" stroke-width="1.8" marker-end="url(#m-purple)"/>
+<line x1="1000" y1="566" x2="1096" y2="566" stroke="#dc2626" stroke-width="1.8" marker-end="url(#m-red)"/>
+<line x1="1350" y1="566" x2="1386" y2="566" stroke="#475569" stroke-width="1.8" marker-end="url(#m-slate)"/>
+<line x1="322" y1="988" x2="341" y2="988" stroke="#475569" stroke-width="1.8" marker-end="url(#m-slate)"/>
+<line x1="632" y1="988" x2="651" y2="988" stroke="#475569" stroke-width="1.8" marker-end="url(#m-slate)"/>
+<line x1="942" y1="988" x2="961" y2="988" stroke="#475569" stroke-width="1.8" marker-end="url(#m-slate)"/>
+<line x1="1252" y1="988" x2="1271" y2="988" stroke="#475569" stroke-width="1.8" marker-end="url(#m-slate)"/>
+</svg>

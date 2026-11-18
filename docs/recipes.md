@@ -13,6 +13,15 @@ synclane init curl 'https://api.example-shop.com/v2/orders?updated_after=2026-10
   -H 'Authorization: Bearer <token>'
 ```
 
+```mermaid
+flowchart LR
+    curl["A curl that works"] -->|"synclane init"| draft["orders.jsonc<br/>a comment on every guess"]
+    draft -->|"synclane test"| check["two pages, no database<br/>structure, never data"]
+    check -->|"fix and test again"| draft
+    check -->|"ship it"| app["your app<br/>http.Recipe(...)"]
+    ai["your AI assistant<br/>synclane mcp"] -.->|"the same steps, for you"| draft
+```
+
 `init` sends the request once and writes `orders.jsonc` from what the answer shows:
 - where the records are;
 - how to page:
@@ -482,7 +491,23 @@ lane.AddBudget("example-shop", limit: 2, per: TimeSpan.FromSeconds(1), burst: 40
 - A `429` pauses the budget for everyone on the key: for `Retry-After` when the API sent it, otherwise for one token's time, at least a second. After the pause the bucket refills from empty at 0.7 times its rate, and the rate climbs back while requests go through, never above the ceiling: the declared limit, or the one the API reports. The pause doubles, up to five minutes, only while the first request after each pause is refused again. A `429` for a request sent before the pause began does not count again, unless its `Retry-After` asks for longer.
 - A token further away than `MaxBudgetWait` (30 seconds) postpones the job: it gives its slot back without using an attempt.
 - Several recipes can name one budget: an account's limit is usually shared by all its endpoints. An API that limits each operation separately gets one budget per operation.
-- Buckets live in the database, so every instance draws from the same one. A `429` heard by one instance pauses the key on all of them.
+- Buckets live in the database, so every instance draws from the same one. A `429` heard by one instance pauses the key on all of them:
+
+  ```mermaid
+  sequenceDiagram
+      participant I1 as Instance 1
+      participant R as rate_buckets
+      participant I2 as Instance 2
+      participant A as Their API
+      I1->>R: take a token for the account
+      I1->>A: request a page
+      A-->>I1: 429, Retry-After: 20
+      I1->>R: pause the account's bucket for 20 s
+      I2->>R: take a token for the account
+      R-->>I2: paused for 20 s
+      Note over I2: waits, or gives its slot back<br/>when the wait is over MaxBudgetWait
+      Note over R: after the pause: refill from empty<br/>at 0.7× the rate, then climb back
+  ```
 - **Choosing the numbers.** Read the API's documentation for its algorithm and scope.
   - For a token or leaky bucket, set `limit` per `per` to its rate and `burst` to its bucket size.
   - For a window that resets on the clock, keep `burst` at 1, or name its headers.
