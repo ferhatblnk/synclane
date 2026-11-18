@@ -147,6 +147,7 @@ The statement in `JobSql.cs` is this one with the schema name filled in and the 
 - **Who is a candidate.** A job that is due and is `pending`, `failed`, `running` with a lease that ran out, or `deferred` while nothing else is waiting in its lane.
 - **The lane rule.** A candidate is skipped while another job of its lane is `running`. Note that this does not ask whether that other job's lease is still alive. A lane with a dead worker stays closed until that same job is taken over; only then does the lane move on. This is deliberate, see [The lane is closed by the row, not by the lease](#the-lane-is-closed-by-the-row-not-by-the-lease).
 - **The order.** Deferred jobs last. Then by type, in the order the types were declared. Then the newest window first, so a fresh recurring window runs before older slices of history. Then by due time.
+- **How it is found.** The index `jobs_lease_order` holds the jobs that have not completed in exactly this order, so PostgreSQL walks it from the front and stops at the first job that passes the checks above, instead of reading and sorting every waiting job. On 25,000 waiting jobs that is 0.1 ms instead of 20 ms; under load it was the difference between the lease being the bottleneck and not.
 - **`SKIP LOCKED`.** Two slots asking at once do not wait for each other; each gets a different row.
 
 ### Why the index is needed on top

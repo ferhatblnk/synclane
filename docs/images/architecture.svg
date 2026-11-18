@@ -28,7 +28,7 @@
 <rect x="44" y="116" width="142.8" height="30" rx="15" fill="#f8fafc" stroke="#cbd5e1" stroke-width="1"/>
 <text x="115.4" y="136" font-family='-apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif' font-size="13" font-weight="500" fill="#334155" text-anchor="middle">4 NuGet packages</text>
 <rect x="196.8" y="116" width="208.5" height="30" rx="15" fill="#f8fafc" stroke="#cbd5e1" stroke-width="1"/>
-<text x="301.05" y="136" font-family='-apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif' font-size="13" font-weight="500" fill="#334155" text-anchor="middle">13 append-only migrations</text>
+<text x="301.05" y="136" font-family='-apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif' font-size="13" font-weight="500" fill="#334155" text-anchor="middle">14 append-only migrations</text>
 <rect x="415.3" y="116" width="347.2" height="30" rx="15" fill="#f8fafc" stroke="#cbd5e1" stroke-width="1"/>
 <text x="588.9" y="136" font-family='-apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif' font-size="13" font-weight="500" fill="#334155" text-anchor="middle">760+ tests on PostgreSQL 14–18 and PgBouncer</text>
 <rect x="772.5" y="116" width="179.29999999999998" height="30" rx="15" fill="#f8fafc" stroke="#cbd5e1" stroke-width="1"/>
@@ -62,11 +62,11 @@
 <text x="80" y="513" font-family='ui-monospace, SFMono-Regular, Menlo, Consolas, monospace' font-size="12" font-weight="400" fill="#475569" text-anchor="start">UNIQUE (queue, lane) WHERE running</text>
 <text x="68" y="536" font-family='ui-monospace, SFMono-Regular, Menlo, Consolas, monospace' font-size="12.5" font-weight="700" fill="#0f172a" text-anchor="start">jobs_dedup</text>
 <text x="80" y="553" font-family='ui-monospace, SFMono-Regular, Menlo, Consolas, monospace' font-size="12" font-weight="400" fill="#475569" text-anchor="start">UNIQUE (queue, owner, type, dedup_key)</text>
-<text x="68" y="576" font-family='ui-monospace, SFMono-Regular, Menlo, Consolas, monospace' font-size="12.5" font-weight="700" fill="#0f172a" text-anchor="start">jobs_due</text>
-<text x="80" y="593" font-family='ui-monospace, SFMono-Regular, Menlo, Consolas, monospace' font-size="12" font-weight="400" fill="#475569" text-anchor="start">(queue, next_run_at) WHERE open</text>
+<text x="68" y="576" font-family='ui-monospace, SFMono-Regular, Menlo, Consolas, monospace' font-size="12.5" font-weight="700" fill="#0f172a" text-anchor="start">jobs_lease_order</text>
+<text x="80" y="593" font-family='ui-monospace, SFMono-Regular, Menlo, Consolas, monospace' font-size="12" font-weight="400" fill="#475569" text-anchor="start">(queue, the lease&#x27;s order) WHERE open</text>
 <text x="68" y="616" font-family='ui-monospace, SFMono-Regular, Menlo, Consolas, monospace' font-size="12.5" font-weight="700" fill="#0f172a" text-anchor="start">jobs_lane_order</text>
 <text x="80" y="633" font-family='ui-monospace, SFMono-Regular, Menlo, Consolas, monospace' font-size="12" font-weight="400" fill="#475569" text-anchor="start">(queue, lane, id) WHERE unfinished</text>
-<text x="68" y="654" font-family='ui-monospace, SFMono-Regular, Menlo, Consolas, monospace' font-size="11.5" font-weight="400" fill="#64748b" text-anchor="start">+ jobs_open · jobs_initial · jobs_finished · jobs_owner</text>
+<text x="68" y="654" font-family='ui-monospace, SFMono-Regular, Menlo, Consolas, monospace' font-size="11.5" font-weight="400" fill="#64748b" text-anchor="start">+ jobs_due · _open · _initial · _finished · _owner</text>
 <rect x="52" y="688" width="436" height="212" rx="12" fill="#ffffff" stroke="#0f766e" stroke-width="1.5"/>
 <text x="68" y="714" font-family='ui-monospace, SFMono-Regular, Menlo, Consolas, monospace' font-size="13" font-weight="700" fill="#0f172a" text-anchor="start">coverage</text>
 <text x="196" y="714" font-family='-apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif' font-size="13" font-weight="400" fill="#475569" text-anchor="start">how far each owner&#x27;s data reaches</text>
@@ -100,7 +100,7 @@
 <text x="874" y="289" font-family='-apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif' font-size="13.5" font-weight="400" fill="#334155" text-anchor="start">urgent → high → normal → low,</text>
 <text x="874" y="308" font-family='-apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif' font-size="13.5" font-weight="400" fill="#334155" text-anchor="start">then declared type, newest window</text>
 <text x="874" y="327" font-family='-apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif' font-size="13.5" font-weight="400" fill="#334155" text-anchor="start">skips busy lanes, paused owners</text>
-<text x="874" y="347" font-family='ui-monospace, SFMono-Regular, Menlo, Consolas, monospace' font-size="12" font-weight="500" fill="#2563eb" text-anchor="start">→ jobs_due · one_running_per_lane</text>
+<text x="874" y="347" font-family='ui-monospace, SFMono-Regular, Menlo, Consolas, monospace' font-size="12" font-weight="500" fill="#2563eb" text-anchor="start">→ jobs_lease_order · one_running_…</text>
 <rect x="560" y="370" width="282" height="142" rx="12" fill="#eff6ff" stroke="#2563eb" stroke-width="1.5"/>
 <text x="576" y="397" font-family='-apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif' font-size="16" font-weight="700" fill="#1d4ed8" text-anchor="start">Page loop</text>
 <text x="576" y="422" font-family='-apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif' font-size="13.5" font-weight="400" fill="#334155" text-anchor="start">a fresh DI scope for every page</text>

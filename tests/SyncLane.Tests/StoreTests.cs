@@ -1,3 +1,4 @@
+using SyncLane.Storage;
 using SyncLane.Tests.Support;
 
 namespace SyncLane.Tests;
@@ -157,4 +158,26 @@ public class StoreTests : PostgresTest
             WHERE id = {job.Id}
             """);
     }
+
+    [PostgresFact]
+    public async Task A_large_planning_round_brings_the_statistics_up_to_date_at_once()
+    {
+        var jobs = Enumerable.Range(0, JobStore.AnalyzeAfter).Select(n => Planned($"owner-{n}", key: "initial")).ToArray();
+
+        await EnqueueAsync(Noon, jobs);
+
+        Assert.Equal(JobStore.AnalyzeAfter, await RowsBelievedAsync());
+    }
+
+    [PostgresFact]
+    public async Task A_small_planning_round_leaves_the_statistics_to_autovacuum()
+    {
+        await EnqueueAsync(Noon, Planned("a", key: "initial"), Planned("b", key: "initial"));
+
+        Assert.True(await RowsBelievedAsync() <= 0);
+    }
+
+    /// <summary>How many rows PostgreSQL's statistics say the jobs table holds; -1 before it was ever analysed.</summary>
+    private async Task<long> RowsBelievedAsync() =>
+        await ScalarAsync<long>($"SELECT reltuples::bigint FROM pg_class WHERE oid = '{Schema}.jobs'::regclass");
 }
