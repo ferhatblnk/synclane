@@ -81,7 +81,7 @@ Decide per row of [the inventory](#1-what-the-project-does-today) and write the 
 | Layout | When | Settings |
 | --- | --- | --- |
 | **One process** | Small and medium loads; the default. | Nothing to set. |
-| **Web and worker, one image** | Syncing must not take CPU or memory from user requests. | The same build runs as two containers. Web: `SyncLane__RunWorkers=false`, `SyncLane__RunPlanner=false`. Worker: both `true` (the default). |
+| **Web and worker, one image** | Syncing must not take CPU or memory from user requests. | The same build runs as two containers; the worker's environment gives it a role, `SyncLane__Role=worker`. `RunWorkers` and `RunPlanner` are `false` in `appsettings.json`, and the worker role is switched on from the monitor ([step 6](#step-6-split-the-roles-if-you-chose-to)). |
 | **Several workers** | More owners loading side by side. | Run more copies of the worker. Jobs, planning and budgets are shared through the table; nothing else to configure. |
 
 - Keep one application per queue. Copies of one application share their queues; a second application that runs the same queue is refused at start-up (`SL1011`). An instance with both `RunWorkers` and `RunPlanner` off claims no queue and may call `ISyncLane` and the monitor freely.
@@ -290,26 +290,39 @@ builder.Services.AddSyncLane(builder.Configuration.GetSection("SyncLane"), lane 
 
 ### Step 6. Split the roles, if you chose to
 
-For the web and worker layout ([D2](#d2-which-process-does-what)), the same image runs twice:
+For the web and worker layout ([D2](#d2-which-process-does-what)), the same image runs twice, and only the worker has a role:
 
 ```yaml
 web:
   image: app
-  environment:
-    SyncLane__RunWorkers: "false"
-    SyncLane__RunPlanner: "false"
 worker:
   image: app
+  environment:
+    SyncLane__Role: "worker"
 ```
 
-The worker keeps the defaults: it plans and runs. Background services of the project that must run once, not in every web copy, belong to the worker role too: register them only when `RunWorkers` is on.
+Both start idle, because the settings say so:
+
+```json
+"SyncLane": { "RunWorkers": false, "RunPlanner": false }
+```
+
+Then the worker role is switched on from the monitor, once, without a deploy:
 
 ```csharp
-if (builder.Configuration.GetValue("SyncLane:RunWorkers", true))
+await monitor.SetSwitchAsync("app", role: "worker", runWorkers: true, runPlanner: true, reason: "first start", by: user);
+```
+
+Over HTTP: `POST /synclane/switch?application=app&role=worker&workers=true&planner=true&reason=first%20start`. The same call with `false` stops the worker later; its running jobs are handed back with their cursors. The web instances, with no role, stay idle. See [Switching an application on and off](operations.md#switching-an-application-on-and-off).
+
+Background services of the project that must run once, not in every web copy, belong to the worker too: register them only in the worker role.
+
+```csharp
+if (builder.Configuration["SyncLane:Role"] == "worker")
     builder.Services.AddHostedService<ExpiredDataCleanup>();
 ```
 
-**Done when** jobs complete with the web instances' `RunWorkers` off, and `GetInstancesAsync()` lists both roles.
+**Done when** nothing runs before the switch, jobs complete after it, and `GetSwitchesAsync()` shows the worker role with its instances running workers and the planner, and the web instances running neither.
 
 ### Step 7. Health check and telemetry
 
@@ -487,7 +500,7 @@ Run the [production trial](production-trial.md): one integration that is allowed
 | Looping over all pages in one handler call | Nothing is saved until the end; a crash starts over. | Return after one page. |
 | A budget declared only in the worker | The web process's calls do not count against the limit. | The same `AddBudget` in every process that calls the API. |
 | Two applications running one queue | The second one is refused at start-up (`SL1011`). | One application per queue, or one `Application` name. |
-| `RunPlanner` off in every process | No jobs are created. | At least one process plans. |
+| `RunPlanner` off in every process | No jobs are created. | At least one process plans; `GetOverviewAsync` shows `Planners` per queue, and `GetSwitchesAsync` what each role runs. |
 | Listening through PgBouncer in transaction mode | Live changes never arrive, and other clients see timeouts. | `ListenConnectionString` around the pooler, or `ListenForChanges = false`. |
 | Deleting job rows by hand | A returning owner never loads its history again. | `ForgetOwnerAsync`. |
 | Following this page over the project's own `CLAUDE.md` or `ARCHITECTURE.md` | The integration breaks the project's conventions. | The project's rules first; this page inside them. |
@@ -508,7 +521,7 @@ Run the [production trial](production-trial.md): one integration that is allowed
 - [ ] Each handler returns after one page, uses the job's window and cursor, and throws the right exception for `429` and revoked access.
 - [ ] Budgets are declared in every process that calls the API.
 - [ ] No credential in code, recipes, configuration files, tests or cursors.
-- [ ] Roles are set; one process per container; at least one process plans.
+- [ ] Roles are set; one process per container; at least one process plans, switched on from the monitor where the settings keep it off.
 - [ ] Health check, telemetry and alerts are wired.
 - [ ] The monitor requires authorization.
 - [ ] Disconnect and removal call `CancelAsync` and `ForgetOwnerAsync`.
