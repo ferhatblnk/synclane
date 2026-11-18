@@ -15,8 +15,9 @@ namespace SyncLane;
 /// </para>
 /// <para>
 /// Degraded: it has not registered yet, the latest planning round of a queue failed, the switch in the database turns
-/// its workers or planner on but another application runs one of its queues, or it does not hear job changes (behind a
-/// pooler in transaction mode, or while it reconnects); workers still find jobs by polling.
+/// its workers or planner on but another application runs one of its queues, another application registers under its
+/// name (it declares none of the same queues and job types), or it does not hear job changes (behind a pooler in
+/// transaction mode, or while it reconnects); workers still find jobs by polling.
 /// </para>
 /// <para>
 /// Each check costs one small query. Descriptions name what is wrong and how to fix it, and never hold a connection
@@ -72,6 +73,12 @@ public sealed class SyncLaneHealthCheck : IHealthCheck
         var problems = new List<string>();
         foreach (var (queue, since) in _signals.PlanFailures.OrderBy(failure => failure.Key, StringComparer.Ordinal))
             problems.Add($"Planning queue {queue} has failed since {since:O}; no new jobs are planned for it. The log says why.");
+
+        if (_signals.SharedName is var (application, others))
+            problems.Add(
+                $"Instances {others} also register as application {application} but declare none of this instance's queues " +
+                "and job types: most likely another application that took the same name, so one switch turns both on and off. " +
+                "Give one of them a name of its own with options.Application (SyncLane:Application).");
 
         if (_signals.SwitchRefused is { } refused)
             problems.Add($"The switch in the database turns this instance's workers or planner on, but they stay off: {refused}");

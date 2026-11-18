@@ -16,7 +16,7 @@ internal sealed class InstanceSql
         LockKey = $"synclane.instances:{schema}";
 
         const string columns =
-            "id, application, host, version, queues, budgets::text, started_at, heartbeat_at, stopped_at, role, runs_workers, runs_planner, listens";
+            "id, application, host, version, queues, budgets::text, started_at, heartbeat_at, stopped_at, role, runs_workers, runs_planner, listens, declares";
 
         // A stopped instance keeps its row so people can see when it stopped, but holds no queue.
         Live =
@@ -26,18 +26,27 @@ internal sealed class InstanceSql
             WHERE id <> @id AND heartbeat_at > @alive_since AND stopped_at IS NULL
             """;
 
+        // Read with every heartbeat, so an instance hears of a namesake that started after it.
+        Namesakes =
+            $"""
+            SELECT {columns}
+            FROM {table}
+            WHERE application = @application AND id <> @id AND heartbeat_at > @alive_since AND stopped_at IS NULL
+            """;
+
         // Every value is written again on a heartbeat, so a row deleted while the instance was silent comes back, and a
         // process that restarts under the same id is live again.
         Upsert =
             $"""
-            INSERT INTO {table} (id, application, host, version, queues, budgets, started_at, heartbeat_at, role, runs_workers, runs_planner, listens)
-            VALUES (@id, @application, @host, @version, @queues, @budgets::jsonb, @started_at, @now, @role, @runs_workers, @runs_planner, @listens)
+            INSERT INTO {table} (id, application, host, version, queues, budgets, started_at, heartbeat_at, role, runs_workers, runs_planner, listens, declares)
+            VALUES (@id, @application, @host, @version, @queues, @budgets::jsonb, @started_at, @now, @role, @runs_workers, @runs_planner, @listens, @declares)
             ON CONFLICT (id) DO UPDATE
             SET application = excluded.application,
                 role = excluded.role,
                 runs_workers = excluded.runs_workers,
                 runs_planner = excluded.runs_planner,
                 listens = excluded.listens,
+                declares = excluded.declares,
                 host = excluded.host,
                 version = excluded.version,
                 queues = excluded.queues,
@@ -63,6 +72,9 @@ internal sealed class InstanceSql
     public string LockKey { get; }
 
     public string Live { get; }
+
+    /// <summary>The live instances of one application but this one.</summary>
+    public string Namesakes { get; }
 
     public string Upsert { get; }
 

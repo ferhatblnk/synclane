@@ -78,6 +78,7 @@ internal sealed partial class SyncLaneMonitor(
     {
         var aliveSince = time.GetUtcNow() - InstanceRules.GoneAfter;
         var rows = await instances.AllAsync(cancellationToken);
+        var live = rows.Where(row => IsAlive(row)).ToList();
         return SyncResult<IReadOnlyList<InstanceInfo>>.Success(rows.Select(row => new InstanceInfo
         {
             Id = row.Id,
@@ -93,8 +94,11 @@ internal sealed partial class SyncLaneMonitor(
             StartedAt = row.StartedAt,
             LastHeartbeatAt = row.HeartbeatAt,
             StoppedAt = row.StoppedAt,
-            IsAlive = row.StoppedAt is null && row.HeartbeatAt > aliveSince
+            IsAlive = IsAlive(row),
+            SharesNameWith = IsAlive(row) ? InstanceRules.Strangers(row, live).Select(other => other.Id).ToList() : []
         }).ToList());
+
+        bool IsAlive(InstanceRow row) => row.StoppedAt is null && row.HeartbeatAt > aliveSince;
     }
 
     public async Task<SyncResult<IReadOnlyList<VolumeBucket>>> GetVolumeAsync(VolumeQuery query, CancellationToken cancellationToken = default)

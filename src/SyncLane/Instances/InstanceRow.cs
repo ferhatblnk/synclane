@@ -2,7 +2,7 @@ namespace SyncLane.Instances;
 
 /// <summary>
 /// One registered instance, as the table holds it. What it runs is <c>null</c> for instances of versions before the
-/// switches, which do not write it.
+/// switches, and what it declares for those before the declarations, which do not write them.
 /// </summary>
 internal sealed record InstanceRow(
     string Id,
@@ -17,4 +17,5 @@ internal sealed record InstanceRow(
     string Role = "",
     bool? RunsWorkers = null,
     bool? RunsPlanner = null,
-    bool? Listens = null);
+    bool? Listens = null,
+    IReadOnlyList<string>? Declares = null);

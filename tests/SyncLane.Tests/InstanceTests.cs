@@ -218,6 +218,73 @@ public class InstanceTests : PostgresTest
         Assert.Equal(0, await ScalarAsync<int>($"SELECT cardinality(queues) FROM {Schema}.instances WHERE application = 'shop'"));
     }
 
+    [PostgresFact]
+    public async Task Two_applications_that_took_one_name_are_each_told_of_the_other_and_the_monitor_shows_it_until_one_stops()
+    {
+        var shopHealth = new Monitoring.HealthSignals();
+        var stockHealth = new Monitoring.HealthSignals();
+        var shop = Registry("Api", "shop-1:1:aaaaaa", ["shop.orders"], health: shopHealth);
+        var stock = Registry("Api", "stock-1:1:bbbbbb", ["stock.items"], health: stockHealth);
+        await shop.StartAsync(CancellationToken.None);
+        await stock.StartAsync(CancellationToken.None);
+        var shopBeforeItsHeartbeat = shopHealth.SharedName;
+
+        await shop.HeartbeatAsync(CancellationToken.None);
+        var shown = (await MonitorTests.MonitorFor(Store, Schema, _clock).GetInstancesAsync()).GetValueOrThrow();
+        var shopSaw = shopHealth.SharedName;
+        await stock.StopAsync(CancellationToken.None);
+        await shop.HeartbeatAsync(CancellationToken.None);
+
+        Assert.Null(shopBeforeItsHeartbeat);
+        Assert.Equal(("Api", "stock-1:1:bbbbbb on stock-1"), shopSaw);
+        Assert.Equal(("Api", "shop-1:1:aaaaaa on shop-1"), stockHealth.SharedName);
+        Assert.Equal(
+            [("shop-1:1:aaaaaa", "stock-1:1:bbbbbb"), ("stock-1:1:bbbbbb", "shop-1:1:aaaaaa")],
+            shown.Select(instance => (instance.Id, Assert.Single(instance.SharesNameWith))).ToList());
+        Assert.Null(shopHealth.SharedName);
+    }
+
+    [PostgresFact]
+    public async Task Copies_of_one_application_a_web_instance_and_a_deploy_that_adds_a_queue_share_its_name_without_a_warning()
+    {
+        var healths = new List<Monitoring.HealthSignals>();
+        foreach (var (id, queues, runs) in new[]
+                 {
+                     ("worker-1:1:aaaaaa", new[] { "orders" }, true),
+                     ("worker-2:1:bbbbbb", new[] { "orders" }, true),
+                     ("web-1:1:cccccc", new[] { "orders" }, false),
+                     ("worker-3:1:dddddd", new[] { "orders", "returns" }, true)
+                 })
+        {
+            var health = new Monitoring.HealthSignals();
+            healths.Add(health);
+            await Registry("shop", id, queues, runs: runs, health: health).StartAsync(CancellationToken.None);
+        }
+
+        var shown = (await MonitorTests.MonitorFor(Store, Schema, _clock).GetInstancesAsync()).GetValueOrThrow();
+
+        Assert.All(healths, health => Assert.Null(health.SharedName));
+        Assert.All(shown, instance => Assert.Empty(instance.SharesNameWith));
+    }
+
+    [PostgresFact]
+    public async Task An_instance_that_shares_its_name_with_another_application_is_degraded_and_told_how_to_fix_it()
+    {
+        var health = new Monitoring.HealthSignals();
+        await Registry("Api", "stock-1:1:bbbbbb", ["stock.items"]).StartAsync(CancellationToken.None);
+        await Registry("Api", "shop-1:1:aaaaaa", ["shop.orders"], health: health).StartAsync(CancellationToken.None);
+        var check = new SyncLaneHealthCheck(
+            Store, health,
+            new Monitoring.JobChangeFeed(ConnectionString!, Store.DataSource, Schema, _clock, NullLogger<Monitoring.JobChangeFeed>.Instance, listens: false),
+            _clock);
+
+        var result = await check.CheckHealthAsync(new Microsoft.Extensions.Diagnostics.HealthChecks.HealthCheckContext());
+
+        Assert.Equal(Microsoft.Extensions.Diagnostics.HealthChecks.HealthStatus.Degraded, result.Status);
+        Assert.Contains("Instances stock-1:1:bbbbbb on stock-1 also register as application Api", result.Description);
+        Assert.Contains("options.Application (SyncLane:Application)", result.Description);
+    }
+
     private Task<int> SwitchAsync(string application, string role, bool workers, bool planner) =>
         ExecuteAsync(
             $"INSERT INTO {Schema}.switches (application, role, run_workers, run_planner, changed_at) " +

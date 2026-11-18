@@ -278,6 +278,8 @@ app.MapHealthChecks("/health/ready", new() { Predicate = check => check.Tags.Con
 | Unhealthy | No heartbeat for two minutes | Other instances count this one as gone, and another application may take its queues. The log says why the heartbeat fails. |
 | Degraded | Starting | Nothing: it has not registered yet. |
 | Degraded | The latest planning round of a queue failed | No new jobs are planned for it until a round succeeds. The log says why, usually the owner source. |
+| Degraded | A switch turns workers or the planner on, but another application runs one of the queues | They stay off. Rename the queue in one of them, or give both the same `Application`. See [Switching an application on and off](#switching-an-application-on-and-off). |
+| Degraded | Another application registers under the same name | Give one of them a name of its own with `options.Application`. See [Several applications on one schema](#several-applications-on-one-schema). |
 | Degraded | It does not hear job changes | Workers poll every `PollInterval`. See [Behind a connection pooler](#behind-a-connection-pooler). |
 
 ASP.NET Core answers 200 for degraded and 503 for unhealthy by default, so a readiness probe keeps a degraded instance in service. Use it for readiness rather than liveness: a database outage makes every instance unhealthy at once, and restarting them all helps nothing.
@@ -286,11 +288,19 @@ ASP.NET Core answers 200 for degraded and 503 for unhealthy by default, so a rea
 
 Run as many instances as you like against the same table. Planning is safe to do from all of them, and so is taking jobs.
 
-If your web instances should not do background work, set `RunWorkers = false` and `RunPlanner = false` there. `ISyncLane` works the same either way.
+If your web instances should not do background work, give the worker a role and switch the web instances off from the monitor ([Switching an application on and off](#switching-an-application-on-and-off)). `ISyncLane` works the same either way.
 
 ## Switching an application on and off
 
-`RunWorkers` and `RunPlanner` are read from the application's settings. A switch set from the monitor overrides them, without a deploy, a configuration change or a visit to the server:
+**What a process is comes from its settings; whether it works comes from the database.** The settings name the process, and nothing else about this:
+
+| What | Where | Example |
+| --- | --- | --- |
+| The application's name, its own on the schema | `SyncLane:Application` in `appsettings.json`, committed | `"Application": "shop"` |
+| The role, only when one build runs as web and worker | the worker's environment | `SyncLane__Role=worker` |
+| Whether it runs workers and the planner | a switch per application and role, in the database | set from the monitor, below |
+
+`RunWorkers` and `RunPlanner` stay at their default, `true`, and a switch set from the monitor overrides them, without a deploy, a configuration change or a visit to the server. With ten applications on one schema, that is one place to start and stop all of them:
 
 ```csharp
 await monitor.SetSwitchAsync("shop", role: "worker", runWorkers: true, runPlanner: true, reason: "launch", by: user);
@@ -301,7 +311,9 @@ Over HTTP: `POST /synclane/switch?application=shop&role=worker&workers=true&plan
 - **Per application and role.** One build often runs as web instances and a worker under one application name. Give the worker a role in its environment (`SyncLane__Role=worker`) and switch that role; the web instances, with no role, are left as they are.
 - **A value overrides, `null` gives the choice back.** `runWorkers: false` stops the workers whatever the settings say; `runWorkers: null` returns to `RunWorkers`.
 - **Off is immediate, on takes up to half a minute.** Instances whose workers run hear the switch at once, and their running jobs are handed back with their cursors, without using an attempt, as at shutdown. Instances that run nothing read it with their next heartbeat; they open no listening connection for it.
-- **An application can be switched before it starts.** A new application deployed with `RunWorkers` and `RunPlanner` off in its settings stays idle until someone switches it on.
+- **A switch survives restarts, deploys and new replicas.** It belongs to the application and role, never to an instance, whose id changes with every start. Each instance reads it when it registers, before its planner and workers start, so a container that crashes and comes back, or a replica added by the orchestrator, does what the switch says from its first moment.
+- **An application can be switched before it starts.** Set the web instances off and the worker role on, then deploy: neither works where it should not, even for a moment.
+- **Switches are per database.** Set them once in each environment (test, staging, production). Where none is set, every instance runs workers and the planner, as without switches.
 - **On is checked like a start.** If another application runs one of the queues, the instance stays off, logs a warning and its health check says why (`SL1011`).
 - **Every change is in the actions log** with who and why. `GetOverviewAsync` shows per queue how many live instances plan it and run its workers: zero planners means no new jobs.
 - Instances of versions before 0.7 do not read switches; switch an application once all its instances run 0.7 or later.
@@ -344,6 +356,7 @@ Each process registers in `instances` at start-up and every half minute after. I
 - its host;
 - the SyncLane version;
 - the queues it runs with its planner or workers, and whether it runs workers, the planner and listening;
+- what it declares: every job type with its queue and handler;
 - its budgets.
 
 Its id is the host, the process id and a random part, so two containers that share a hostname and both run as process 1 are still two rows.
@@ -360,6 +373,7 @@ The application is `options.Application`. It defaults to the host's application 
   FROM synclane.instances
   ORDER BY application, started_at;
   ```
+- **Each application needs a name of its own.** The default name is the entry assembly's, and projects built from one template often share it (`Api`, `WebApi`). Two applications under one name are one application to SyncLane: one switch turns both on and off, and the monitor shows them as one. So each instance also records what it declares, every job type with its queue and handler, whether it runs them or not, and with each heartbeat compares it with the live instances of its name. One that declares nothing in common with it is reported in the log, in the health check (Degraded) and in the instances list (`InstanceInfo.SharesNameWith`, `GET /instances`). Copies, web instances and a deploy that adds or removes a queue keep most of it in common and are not reported. Set `SyncLane:Application` in each application's settings to a name of its own, and start its queue names with it (`shop.orders`), so neither the name nor the queues can meet another's.
 - A budget that another live instance declares with another limit, period or burst is logged as a warning at start-up: instances that disagree pace a shared budget differently. During a deploy that changes a limit this passes by itself.
 - Instances of SyncLane versions before the instances table do not register, so they are not seen by this check.
 

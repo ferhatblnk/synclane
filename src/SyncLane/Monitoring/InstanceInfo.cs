@@ -27,6 +27,15 @@ public sealed record InstanceInfo
     /// </summary>
     public bool? ListensForChanges { get; init; }
 
+    /// <summary>
+    /// Ids of live instances registered under the same application that declare none of the queues and job types this
+    /// one declares: most likely another application that took the same name, so one switch turns both on and off and
+    /// they look like one here. Give one of them a name of its own with <see cref="SyncLaneOptions.Application"/>. Empty
+    /// when there are none, for an instance that is gone or declares no queue, and for instances of earlier versions,
+    /// which do not say what they declare.
+    /// </summary>
+    public IReadOnlyList<string> SharesNameWith { get; init; } = [];
+
     /// <summary>The machine it runs on.</summary>
     public required string Host { get; init; }
 

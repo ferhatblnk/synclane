@@ -23,6 +23,14 @@ internal sealed class HealthSignals
 
     public void Refused(string? why) => SwitchRefused = why;
 
+    /// <summary>
+    /// The application's name, and the live instances under it that declare none of what this one declares;
+    /// <c>null</c> when there are none.
+    /// </summary>
+    public (string Application, string Instances)? SharedName { get; private set; }
+
+    public void Strangers((string Application, string Instances)? shared) => SharedName = shared;
+
     public void Heartbeat(DateTimeOffset at) => Interlocked.Exchange(ref _heartbeatAt, at.UtcTicks);
 
     public void Planned(string queue) => _planFailingSince.TryRemove(queue, out _);

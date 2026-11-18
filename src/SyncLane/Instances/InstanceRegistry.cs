@@ -10,11 +10,18 @@ namespace SyncLane.Instances;
 /// up the types they do not know. Then it says it is alive every half minute, and marks itself stopped when it stops.
 /// </summary>
 /// <remarks>
+/// <para>
 /// It also decides whether the workers and the planner run: the options say so, unless an operator set a switch for this
 /// application and role in the database. The switch is read at registration and with every heartbeat; while the
 /// workers run, a switch announced for this application is read at once, so turning them off takes effect immediately
 /// and turning them on within half a minute. A switch that would turn them on while another application runs one of the
 /// queues leaves them off, and the health check says why.
+/// </para>
+/// <para>
+/// At registration and with every heartbeat it also looks for live instances under its application's name that declare
+/// none of its queues and job types, and warns: two applications that took one name share its switch and look like one
+/// in the monitor.
+/// </para>
 /// </remarks>
 internal sealed partial class InstanceRegistry(
     SyncLaneOptions options,
@@ -27,8 +34,10 @@ internal sealed partial class InstanceRegistry(
     ILogger<InstanceRegistry> logger) : BackgroundService
 {
     private readonly SemaphoreSlim _settling = new(1, 1);
+    private readonly IReadOnlyList<string> _declares = InstanceRules.Declarations(options);
     private InstanceRow? _me;
     private string? _refused;
+    private string? _strangers;
 
     public override async Task StartAsync(CancellationToken cancellationToken)
     {
@@ -44,6 +53,7 @@ internal sealed partial class InstanceRegistry(
         _me = me;
         roles.Set(me.RunsWorkers == true, me.RunsPlanner == true);
         health.Heartbeat(now);
+        Notice(InstanceRules.Strangers(me, live));
         LogRegistered(identity.Id, identity.Application, me.Queues.Count);
         await base.StartAsync(cancellationToken);
     }
@@ -77,8 +87,10 @@ internal sealed partial class InstanceRegistry(
         try
         {
             var now = time.GetUtcNow();
-            var set = await store.HeartbeatAsync(identity, _me, now, now - InstanceRules.ForgetAfter, cancellationToken);
+            var (set, namesakes) = await store.HeartbeatAsync(
+                identity, _me, now, now - InstanceRules.GoneAfter, now - InstanceRules.ForgetAfter, cancellationToken);
             health.Heartbeat(now);
+            Notice(InstanceRules.Strangers(_me, namesakes));
             settle = Wanted(set) != (roles.Workers, roles.Planner);
         }
         catch (Exception exception) when (!cancellationToken.IsCancellationRequested)
@@ -129,6 +141,17 @@ internal sealed partial class InstanceRegistry(
         {
             _settling.Release();
         }
+    }
+
+    /// <summary>Warns once for each new set of strangers under this application's name, and tells the health check.</summary>
+    private void Notice(List<InstanceRow> strangers)
+    {
+        var ids = strangers.Count == 0 ? null : string.Join(", ", strangers.Select(other => $"{other.Id} on {other.Host}"));
+        if (ids is not null && ids != _strangers)
+            LogStrangers(identity.Id, identity.Application, ids);
+
+        _strangers = ids;
+        health.Strangers(ids is null ? null : (identity.Application, ids));
     }
 
     private async Task BeatAsync(CancellationToken stoppingToken)
@@ -195,7 +218,7 @@ internal sealed partial class InstanceRegistry(
 
         var row = new InstanceRow(
             identity.Id, identity.Application, identity.Host, identity.Version, queues, options.DescribeBudgets(), startedAt, now,
-            Role: identity.Role, RunsWorkers: workers, RunsPlanner: planner, Listens: options.ListenForChanges);
+            Role: identity.Role, RunsWorkers: workers, RunsPlanner: planner, Listens: options.ListenForChanges, Declares: _declares);
         return (row, conflicts);
     }
 
@@ -208,6 +231,13 @@ internal sealed partial class InstanceRegistry(
         "differently. Declare it the same way everywhere; during a deploy that changes it this passes by itself.")]
     private partial void LogBudgetDisagrees(
         string budget, int limit, TimeSpan per, int burst, string instance, string application, int otherLimit, TimeSpan otherPer, int otherBurst);
+
+    [LoggerMessage(Level = LogLevel.Warning, Message =
+        "SyncLane instance {Instance} registers as application {Application}, and so do {Others}, which declare none of " +
+        "its queues and job types: most likely another application that took the same name. Both are switched on and " +
+        "off together and the monitor shows them as one. Give one of them a name of its own with options.Application " +
+        "(SyncLane:Application); during a deploy that renames every queue, job type or handler this passes by itself.")]
+    private partial void LogStrangers(string instance, string application, string others);
 
     [LoggerMessage(Level = LogLevel.Warning, Message = "SyncLane instance {Instance} could not say it is alive and tries again in half a minute.")]
     private partial void LogHeartbeatFailed(Exception exception, string instance);

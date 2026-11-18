@@ -22,6 +22,7 @@ internal static class Migrations
         new(13, "lease generation", LeaseGeneration),
         new(14, "lease order", LeaseOrder),
         new(15, "switches", Switches),
+        new(16, "declarations", Declarations),
     ];
 
     public static int Latest => All[^1].Version;
@@ -375,6 +376,19 @@ internal static class Migrations
 
         CREATE INDEX IF NOT EXISTS jobs_lane_order
             ON {schema}.{JobSql.TableName} (queue, lane, id) WHERE status <> 'completed';
+        """;
+
+    /// <summary>
+    /// What each instance declares, one entry per job type with its queue and handler, whether it runs them or not: two
+    /// instances of one application that declare nothing alike are most likely two applications that took the same name.
+    /// Each heartbeat reads the live instances of its own application, hence the index. Older instances do not write the
+    /// column, which stays null for them.
+    /// </summary>
+    private static string Declarations(string schema) =>
+        $"""
+        ALTER TABLE {schema}.{InstanceSql.TableName} ADD COLUMN IF NOT EXISTS declares text[];
+
+        CREATE INDEX IF NOT EXISTS instances_application ON {schema}.{InstanceSql.TableName} (application);
         """;
 
     /// <summary>

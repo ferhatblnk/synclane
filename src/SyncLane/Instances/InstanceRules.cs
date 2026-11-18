@@ -20,6 +20,34 @@ internal static class InstanceRules
         planner || workers ? options.Queues.Select(queue => queue.Name).ToList() : [];
 
     /// <summary>
+    /// What this instance declares: one entry per job type, with its queue and handler, whether it runs them or not. A
+    /// web instance whose workers are off declares what the worker built from the same code declares.
+    /// </summary>
+    public static IReadOnlyList<string> Declarations(SyncLaneOptions options) =>
+        options.Queues
+            .SelectMany(queue => queue.Types.Select(type => $"{queue.Name}/{type.Name}/{type.Handler.FullName ?? type.Handler.Name}"))
+            .Order(StringComparer.Ordinal)
+            .ToList();
+
+    /// <summary>
+    /// Live instances registered under this one's application that declare none of what it declares: most likely another
+    /// application that took the same name. Copies of one application declare the same, and a deploy that adds or removes
+    /// a queue still leaves most of it in common. Instances that declare nothing, and those of versions that do not say,
+    /// are left out.
+    /// </summary>
+    public static List<InstanceRow> Strangers(InstanceRow me, IEnumerable<InstanceRow> live)
+    {
+        if (me.Declares is not { Count: > 0 } mine)
+            return [];
+
+        return live
+            .Where(other => other.Id != me.Id && other.Application == me.Application && other.StoppedAt is null)
+            .Where(other => other.Declares is { Count: > 0 } theirs && !theirs.Intersect(mine, StringComparer.Ordinal).Any())
+            .OrderBy(other => other.Id, StringComparer.Ordinal)
+            .ToList();
+    }
+
+    /// <summary>
     /// One error per queue this instance runs that a live instance of another application runs too. Instances of one
     /// application share their queues: they are copies of the same code.
     /// </summary>
