@@ -6,11 +6,13 @@ The order is fixed: write down what the project does today, answer the questions
 
 ## For an AI assistant reading this page
 
+- **The project's own rules come first.** Before anything else, read the project's `CLAUDE.md` and `ARCHITECTURE.md`, and any file of the same kind it has (`AGENTS.md`, `CONTRIBUTING.md`, `.editorconfig`, a coding standard). Everything on this page is applied inside those rules, never over them: where they disagree, follow the project's rule and tell the user which part of this page gave way. If the project keeps a decision log, record the decisions of [section 3](#3-decisions) there, in its format.
+- **Write no comments in the code.** Names and small methods say what the code does; the reasons go in the pull request. The one exception is a comment the project's own rules require, such as XML documentation on public members. `synclane init` writes a comment beside every guess in a recipe draft: confirm each guess with the user, then remove its comment.
 - **Keep what the project does.** The integration changes when and how the work runs, not what is fetched, how it is mapped, or what the business rules decide. Write down today's behaviour first ([section 1](#1-what-the-project-does-today)) and prove at the end that the data is the same ([section 5](#5-prove-it)). Speed may improve; results may not change.
 - **Leave the existing tests alone.** Every test that passed before passes after, unchanged. Never edit, skip or delete a test to make it pass: a test that fails means the behaviour changed.
 - **Ask before you write code.** Work through [the questions](#2-questions-to-answer-first) with the user. Where the user does not know, take the default in the table and say that you did.
 - **Use only what is documented.** The calls, settings and types on this page and the pages it links to. If something seems to be missing, say so; do not invent an overload or a setting.
-- **Follow the project's conventions.** Its layers, folder structure, DI style, naming and test framework. SyncLane's own repository rules (its `CLAUDE.md`) are for changing SyncLane, not for applications that use it.
+- **Follow the project's conventions.** Its layers, folder structure, DI style, naming and test framework. SyncLane's own repository rules (SyncLane's `CLAUDE.md`) are for changing SyncLane, not for applications that use it.
 - **Never put a credential anywhere you write.** Not in code, a recipe, `appsettings.json`, a test, a curl you suggest or a reply. Credentials come from the project's own storage through an `ICredentialStore`, or from an environment variable while testing.
 - **Finish each step before the next.** Each step ends with "Done when"; check it, and report what you saw.
 - **Stop and ask** when a step's check fails twice, when the project's database is not PostgreSQL 14 or later, or when the target framework is below .NET 10.
@@ -127,9 +129,11 @@ Sync/
 
 ```bash
 dotnet add package SyncLane
-dotnet add package SyncLane.Http          # only for recipes
-dotnet add package SyncLane.AspNetCore    # only for the monitor over HTTP
+dotnet add package SyncLane.Http
+dotnet add package SyncLane.AspNetCore
 ```
+
+`SyncLane.Http` is needed only for recipes, `SyncLane.AspNetCore` only for the monitor over HTTP.
 
 **Done when** the project builds.
 
@@ -169,12 +173,13 @@ public sealed class ConnectedShops(AppDb db) : IOwnerSource
             .Where(shop => shop.IsConnected)
             .Select(shop => new JobOwner(shop.Id.ToString(), Name: shop.Name)
             {
-                Priority = shop.IsNew ? JobPriority.High : JobPriority.Normal   // a new account's history loads first
+                Priority = shop.IsNew ? JobPriority.High : JobPriority.Normal
             })
             .ToListAsync(cancellationToken);
 }
 ```
 
+- A `High` priority for new accounts makes their history load before the others'.
 - Return only owners that should have jobs. An owner left out gets no new jobs; the jobs it already has still run until they are cancelled ([step 10](#step-10-accounts-that-disconnect-or-leave)).
 - It is resolved in a scope of its own, so a scoped `DbContext` is fine.
 
@@ -249,11 +254,11 @@ builder.Services.AddSyncLaneHttp(http =>
 {
     http.Credentials<ShopCredentials>();
     http.Recipe("orders", File.ReadAllText(Path.Combine(AppContext.BaseDirectory, "Sync/Recipes/orders.jsonc")))
-        .WriteToPostgres("shop_orders", table => table.VersionedBy("$.updated_at"));   // or .WriteTo<OrderSink>()
+        .WriteToPostgres("shop_orders", table => table.VersionedBy("$.updated_at"));
 });
 ```
 
-`WriteToPostgres` creates the table and upserts one row per owner and record. For the project's own tables, implement `IRecordSink` (one method, `WriteAsync(RecordPage page, ...)`) and upsert there.
+`WriteToPostgres` creates the table and upserts one row per owner and record. For the project's own tables, implement `IRecordSink` (one method, `WriteAsync(RecordPage page, ...)`), upsert there, and register it with `.WriteTo<OrderSink>()` instead.
 
 **Done when** `synclane test Sync/Recipes/orders.jsonc` reads two pages and the application starts without a recipe error.
 
@@ -295,10 +300,9 @@ web:
     SyncLane__RunPlanner: "false"
 worker:
   image: app
-  # the defaults: plans and runs
 ```
 
-Background services of the project that must run once, not in every web copy, belong to the worker role too: register them only when `RunWorkers` is on.
+The worker keeps the defaults: it plans and runs. Background services of the project that must run once, not in every web copy, belong to the worker role too: register them only when `RunWorkers` is on.
 
 ```csharp
 if (builder.Configuration.GetValue("SyncLane:RunWorkers", true))
@@ -334,15 +338,21 @@ It answers only requests from the same machine until it requires authorization. 
 
 ### Step 9. Refresh on demand and new accounts
 
+A "refresh" button or a webhook fetches from where the owner's data ends to now, at high priority. A burst of calls is one fetch, and the call returns at once; the worker does the work:
+
 ```csharp
-// A "refresh" button or a webhook: fetch from where the owner's data ends to now, at high priority.
-// A burst of calls is one fetch. Returns at once; the worker does the work.
 await monitor.SyncNowAsync("shops", owner: shop.Id.ToString(), type: "orders", by: user.Id);
+```
 
-// An account that just connected: plan it now instead of at the next round.
+An account that just connected is planned now instead of at the next round:
+
+```csharp
 await syncLane.PlanAsync("shops", new JobOwner(shop.Id.ToString(), Name: shop.Name));
+```
 
-// "Connecting..." on screen without a status column of your own.
+"Connecting..." on screen needs no status column of the project's own:
+
+```csharp
 var progress = await syncLane.GetProgressAsync("shops", shop.Id.ToString());
 ```
 
@@ -388,7 +398,7 @@ No page can promise that an integration works. These gates are how you know it d
 
 - **The project's existing tests.** Run the whole suite before you start and keep the result. After the integration the same tests pass, unchanged.
 - **A unit test per handler:** the four cases of [step 4a](#step-4a-a-handler), and the rules from the inventory: the same input gives the same stored result as the old code did.
-- **One end-to-end test against a real PostgreSQL.** It runs the project's own registration with a fake API client and checks that the records arrive. A schema of its own per run keeps it apart from everything else. `WaitUntilAsync`, `CountOrdersAsync` and `DropSchemaAsync` are small helpers of the test project, and the test database holds the shops the owner source returns:
+- **One end-to-end test against a real PostgreSQL.** It runs the project's own registration with a fake API client and checks that the records arrive. A schema of its own per run keeps it apart from everything else. `WaitUntilAsync`, `CountOrdersAsync` and `DropSchemaAsync` are small helpers of the test project; `TestDatabase.ConnectionString` reads an environment variable, never a literal; `AddShopSync` is the same registration `Program.cs` calls; and the test database holds the shops the owner source returns:
 
 ```csharp
 [Fact]
@@ -398,12 +408,12 @@ public async Task A_connected_shops_orders_reach_the_orders_table()
     var builder = Host.CreateApplicationBuilder();
     builder.Configuration.AddInMemoryCollection(new Dictionary<string, string?>
     {
-        ["ConnectionStrings:Postgres"] = TestDatabase.ConnectionString,   // from an environment variable, never a literal
+        ["ConnectionStrings:Postgres"] = TestDatabase.ConnectionString,
         ["SyncLane:Schema"] = schema,
         ["SyncLane:PlanInterval"] = "00:00:01",
         ["SyncLane:PollInterval"] = "00:00:01",
     });
-    builder.Services.AddShopSync(builder.Configuration);                 // the same registration as Program.cs
+    builder.Services.AddShopSync(builder.Configuration);
     builder.Services.AddSingleton<IShopClient>(new FakeShopClient(ordersPerPage: 100, pages: 3));
     using var host = builder.Build();
     await host.StartAsync();
@@ -480,12 +490,15 @@ Run the [production trial](production-trial.md): one integration that is allowed
 | `RunPlanner` off in every process | No jobs are created. | At least one process plans. |
 | Listening through PgBouncer in transaction mode | Live changes never arrive, and other clients see timeouts. | `ListenConnectionString` around the pooler, or `ListenForChanges = false`. |
 | Deleting job rows by hand | A returning owner never loads its history again. | `ForgetOwnerAsync`. |
+| Following this page over the project's own `CLAUDE.md` or `ARCHITECTURE.md` | The integration breaks the project's conventions. | The project's rules first; this page inside them. |
 | Copying a business rule into the handler | Two copies drift apart; the old and new data stop matching. | Call the service that holds the rule today. |
 | Editing an existing test so it passes | A change in behaviour goes unnoticed. | Find what the integration changed, and fix that. |
 | A token in a recipe, a test or `appsettings.json` | A secret in the repository. | `ICredentialStore`, or an environment variable while testing. |
 
 ## Checklist
 
+- [ ] The project's `CLAUDE.md`, `ARCHITECTURE.md` and similar rules are followed; every place this page gave way to them is listed in the pull request.
+- [ ] The code adds no comments, except those the project's rules require.
 - [ ] Today's behaviour is written down, one row per job, with the decision for each.
 - [ ] The questions in section 2 are answered, or their defaults written down.
 - [ ] SyncLane's code lives in one place, registered by one method.
