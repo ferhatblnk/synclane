@@ -4,6 +4,11 @@ All notable changes to this project are recorded here. The format follows [Keep 
 
 ## [Unreleased]
 
+### Changed
+
+- Two pictures: the architecture opens the README (the schema and the indexes behind the guarantees, the engine's parts inside your application, the recipe pipeline, and what it promises), and how a job runs opens [how-it-works.md](docs/how-it-works.md) (its path, its failures, a worker going away, a `429`). Three diagrams join the docs: a page from lease to saved cursor ([how-it-works.md](docs/how-it-works.md#running-a-job)), a `429` pausing a budget on every instance, and a curl becoming a recipe ([recipes.md](docs/recipes.md)).
+- The README says what SyncLane aims to be: quick to connect, compact, taking the hard parts on itself, safe by default, and open; and that support for other databases than PostgreSQL is planned.
+
 ## [0.6.2] - 2026-11-17
 
 The monitor's HTTP endpoints take a status or a unit in the query string the way they write it. No migration.

@@ -4,6 +4,8 @@ SyncLane is four pieces around one table: a planner that inserts rows, worker sl
 
 ## At a glance
 
+<p align="center"><img src="images/how-it-works.png" width="100%" alt="How a SyncLane job runs: planned, taken with one UPDATE, run page by page with the cursor saved under the lease, completed; what happens when a page fails, when a worker goes away, and when the API says slow down."></p>
+
 ```mermaid
 flowchart LR
     owners["Your accounts<br/>(IOwnerSource)"] --> planner["Planner<br/>what should exist<br/>minus what exists"]
@@ -174,6 +176,29 @@ repeat
          renew the lease
 until page.NextCursor is null
 mark completed
+```
+
+The same, with everything a page touches:
+
+```mermaid
+sequenceDiagram
+    participant W as Worker slot
+    participant J as synclane.jobs
+    participant H as Handler or recipe
+    participant B as Rate budget
+    participant A as Their API
+    participant T as Your tables
+    W->>J: take the next due job whose lane is free<br/>(running, leased_by, lease_generation + 1)
+    loop every page
+        W->>H: run one page from the cursor
+        H->>B: wait for a token of the account
+        H->>A: request the page
+        A-->>H: records, and where the next page starts
+        H->>T: upsert the records
+        H-->>W: next cursor, record count
+        W->>J: save the cursor and the count, renew the lease<br/>(only while the lease is still this worker's)
+    end
+    W->>J: completed (only while the lease is still this worker's)
 ```
 
 Three things happen around that loop.

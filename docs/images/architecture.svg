@@ -1,0 +1,249 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1600 1150" width="1600" height="1150" role="img" aria-label="SyncLane&#x27;s architecture: the PostgreSQL schema with its tables and indexes, the engine&#x27;s subsystems inside your application, the declarative HTTP source, their APIs, your tables, and the guarantees.">
+<title>How SyncLane is built</title>
+<defs>
+<marker id="m-slate" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#475569"/></marker>
+<marker id="m-teal" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#0f766e"/></marker>
+<marker id="m-indigo" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#4f46e5"/></marker>
+<marker id="m-amber" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#d97706"/></marker>
+<marker id="m-red" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#dc2626"/></marker>
+<marker id="m-purple" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#7c3aed"/></marker>
+<marker id="m-green" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#16a34a"/></marker>
+<marker id="m-blue" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#2563eb"/></marker>
+</defs>
+<rect x="1" y="1" width="1598" height="1148" rx="20" fill="#ffffff" stroke="#e2e8f0"/>
+<text x="44" y="64" font-family='-apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif' font-size="34" font-weight="700" fill="#0f172a">SyncLane <tspan font-weight="400" fill="#64748b">architecture</tspan></text>
+<text x="44" y="96" font-family='-apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif' font-size="16" font-weight="400" fill="#475569" text-anchor="start">A .NET library inside your process. One PostgreSQL schema holds every job, budget and decision.</text>
+<rect x="1120" y="40" width="16" height="16" rx="4" fill="#eff6ff" stroke="#2563eb" stroke-width="1.5"/>
+<text x="1144" y="53" font-family='-apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif' font-size="13" font-weight="400" fill="#334155" text-anchor="start">Your application</text>
+<rect x="1270" y="40" width="16" height="16" rx="4" fill="#f0fdfa" stroke="#0f766e" stroke-width="1.5"/>
+<text x="1294" y="53" font-family='-apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif' font-size="13" font-weight="400" fill="#334155" text-anchor="start">PostgreSQL</text>
+<rect x="1420" y="40" width="16" height="16" rx="4" fill="#eef2ff" stroke="#4f46e5" stroke-width="1.5"/>
+<text x="1444" y="53" font-family='-apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif' font-size="13" font-weight="400" fill="#334155" text-anchor="start">Recipes</text>
+<rect x="1120" y="66" width="16" height="16" rx="4" fill="#fff7ed" stroke="#ea580c" stroke-width="1.5"/>
+<text x="1144" y="79" font-family='-apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif' font-size="13" font-weight="400" fill="#334155" text-anchor="start">Their side</text>
+<rect x="1270" y="66" width="16" height="16" rx="4" fill="#f8fafc" stroke="#64748b" stroke-width="1.5"/>
+<text x="1294" y="79" font-family='-apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif' font-size="13" font-weight="400" fill="#334155" text-anchor="start">Your code</text>
+<rect x="1420" y="66" width="16" height="16" rx="4" fill="#faf5ff" stroke="#7c3aed" stroke-width="1.5" stroke-dasharray="4 3"/>
+<text x="1444" y="79" font-family='-apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif' font-size="13" font-weight="400" fill="#334155" text-anchor="start">Your machine</text>
+<rect x="44" y="116" width="142.8" height="30" rx="15" fill="#f8fafc" stroke="#cbd5e1" stroke-width="1"/>
+<text x="115.4" y="136" font-family='-apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif' font-size="13" font-weight="500" fill="#334155" text-anchor="middle">4 NuGet packages</text>
+<rect x="196.8" y="116" width="208.5" height="30" rx="15" fill="#f8fafc" stroke="#cbd5e1" stroke-width="1"/>
+<text x="301.05" y="136" font-family='-apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif' font-size="13" font-weight="500" fill="#334155" text-anchor="middle">13 append-only migrations</text>
+<rect x="415.3" y="116" width="347.2" height="30" rx="15" fill="#f8fafc" stroke="#cbd5e1" stroke-width="1"/>
+<text x="588.9" y="136" font-family='-apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif' font-size="13" font-weight="500" fill="#334155" text-anchor="middle">760+ tests on PostgreSQL 14–18 and PgBouncer</text>
+<rect x="772.5" y="116" width="179.29999999999998" height="30" rx="15" fill="#f8fafc" stroke="#cbd5e1" stroke-width="1"/>
+<text x="862.15" y="136" font-family='-apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif' font-size="13" font-weight="500" fill="#334155" text-anchor="middle">a lease is one UPDATE</text>
+<rect x="961.8" y="116" width="237.7" height="30" rx="15" fill="#f8fafc" stroke="#cbd5e1" stroke-width="1"/>
+<text x="1080.6499999999999" y="136" font-family='-apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif' font-size="13" font-weight="500" fill="#334155" text-anchor="middle">no broker, no second database</text>
+<rect x="1209.5" y="116" width="99.0" height="30" rx="15" fill="#f8fafc" stroke="#cbd5e1" stroke-width="1"/>
+<text x="1259.0" y="136" font-family='-apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif' font-size="13" font-weight="500" fill="#334155" text-anchor="middle">Apache 2.0</text>
+<rect x="32" y="172" width="476" height="742" rx="18" fill="#f0fdfa" stroke="#0f766e" stroke-width="1.5"/>
+<text x="52" y="202" font-family='-apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif' font-size="19" font-weight="700" fill="#115e59" text-anchor="start">PostgreSQL</text>
+<text x="178" y="202" font-family='-apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif' font-size="13.5" font-weight="400" fill="#64748b" text-anchor="start">one schema, created at start-up or by script</text>
+<rect x="52" y="218" width="436" height="456" rx="12" fill="#ffffff" stroke="#0f766e" stroke-width="1.5"/>
+<path d="M52,254 L52,230 Q52,218 64,218 L476,218 Q488,218 488,230 L488,254 Z" fill="#ccfbf1"/>
+<text x="68" y="242" font-family='ui-monospace, SFMono-Regular, Menlo, Consolas, monospace' font-size="15" font-weight="700" fill="#0f172a" text-anchor="start">synclane.jobs</text>
+<text x="200" y="242" font-family='-apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif' font-size="13" font-weight="400" fill="#475569" text-anchor="start">one row per job: everything about it</text>
+<text x="68" y="280" font-family='-apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif' font-size="11" font-weight="700" fill="#0f766e" text-anchor="start">WHO</text>
+<text x="150" y="280" font-family='ui-monospace, SFMono-Regular, Menlo, Consolas, monospace' font-size="13" font-weight="400" fill="#0f172a" text-anchor="start">queue · owner · lane · type</text>
+<text x="150" y="299" font-family='ui-monospace, SFMono-Regular, Menlo, Consolas, monospace' font-size="13" font-weight="400" fill="#0f172a" text-anchor="start">mode · priority · requested_by</text>
+<text x="68" y="326" font-family='-apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif' font-size="11" font-weight="700" fill="#0f766e" text-anchor="start">WINDOW</text>
+<text x="150" y="326" font-family='ui-monospace, SFMono-Regular, Menlo, Consolas, monospace' font-size="13" font-weight="400" fill="#0f172a" text-anchor="start">window_start → window_end</text>
+<text x="150" y="345" font-family='ui-monospace, SFMono-Regular, Menlo, Consolas, monospace' font-size="13" font-weight="400" fill="#0f172a" text-anchor="start">dedup_key</text>
+<text x="68" y="372" font-family='-apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif' font-size="11" font-weight="700" fill="#0f766e" text-anchor="start">PROGRESS</text>
+<text x="150" y="372" font-family='ui-monospace, SFMono-Regular, Menlo, Consolas, monospace' font-size="13" font-weight="400" fill="#0f172a" text-anchor="start">cursor · processed_count</text>
+<text x="150" y="391" font-family='ui-monospace, SFMono-Regular, Menlo, Consolas, monospace' font-size="13" font-weight="400" fill="#0f172a" text-anchor="start">attempt_count · error · next_run_at</text>
+<text x="68" y="418" font-family='-apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif' font-size="11" font-weight="700" fill="#0f766e" text-anchor="start">LEASE</text>
+<text x="150" y="418" font-family='ui-monospace, SFMono-Regular, Menlo, Consolas, monospace' font-size="13" font-weight="400" fill="#0f172a" text-anchor="start">status · leased_by</text>
+<text x="150" y="437" font-family='ui-monospace, SFMono-Regular, Menlo, Consolas, monospace' font-size="13" font-weight="400" fill="#0f172a" text-anchor="start">lease_expires_at · lease_generation</text>
+<line x1="68" y1="452" x2="472" y2="452" stroke="#e2e8f0"/>
+<text x="68" y="472" font-family='-apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif' font-size="11" font-weight="700" fill="#0f766e" text-anchor="start">INDEXES THAT CARRY THE GUARANTEES</text>
+<text x="68" y="496" font-family='ui-monospace, SFMono-Regular, Menlo, Consolas, monospace' font-size="12.5" font-weight="700" fill="#0f172a" text-anchor="start">jobs_one_running_per_lane</text>
+<text x="80" y="513" font-family='ui-monospace, SFMono-Regular, Menlo, Consolas, monospace' font-size="12" font-weight="400" fill="#475569" text-anchor="start">UNIQUE (queue, lane) WHERE running</text>
+<text x="68" y="536" font-family='ui-monospace, SFMono-Regular, Menlo, Consolas, monospace' font-size="12.5" font-weight="700" fill="#0f172a" text-anchor="start">jobs_dedup</text>
+<text x="80" y="553" font-family='ui-monospace, SFMono-Regular, Menlo, Consolas, monospace' font-size="12" font-weight="400" fill="#475569" text-anchor="start">UNIQUE (queue, owner, type, dedup_key)</text>
+<text x="68" y="576" font-family='ui-monospace, SFMono-Regular, Menlo, Consolas, monospace' font-size="12.5" font-weight="700" fill="#0f172a" text-anchor="start">jobs_due</text>
+<text x="80" y="593" font-family='ui-monospace, SFMono-Regular, Menlo, Consolas, monospace' font-size="12" font-weight="400" fill="#475569" text-anchor="start">(queue, next_run_at) WHERE open</text>
+<text x="68" y="616" font-family='ui-monospace, SFMono-Regular, Menlo, Consolas, monospace' font-size="12.5" font-weight="700" fill="#0f172a" text-anchor="start">jobs_lane_order</text>
+<text x="80" y="633" font-family='ui-monospace, SFMono-Regular, Menlo, Consolas, monospace' font-size="12" font-weight="400" fill="#475569" text-anchor="start">(queue, lane, id) WHERE unfinished</text>
+<text x="68" y="654" font-family='ui-monospace, SFMono-Regular, Menlo, Consolas, monospace' font-size="11.5" font-weight="400" fill="#64748b" text-anchor="start">+ jobs_open · jobs_initial · jobs_finished · jobs_owner</text>
+<rect x="52" y="688" width="436" height="212" rx="12" fill="#ffffff" stroke="#0f766e" stroke-width="1.5"/>
+<text x="68" y="714" font-family='ui-monospace, SFMono-Regular, Menlo, Consolas, monospace' font-size="13" font-weight="700" fill="#0f172a" text-anchor="start">coverage</text>
+<text x="196" y="714" font-family='-apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif' font-size="13" font-weight="400" fill="#475569" text-anchor="start">how far each owner&#x27;s data reaches</text>
+<text x="68" y="738" font-family='ui-monospace, SFMono-Regular, Menlo, Consolas, monospace' font-size="13" font-weight="700" fill="#0f172a" text-anchor="start">owners</text>
+<text x="196" y="738" font-family='-apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif' font-size="13" font-weight="400" fill="#475569" text-anchor="start">names and values, one row each</text>
+<text x="68" y="762" font-family='ui-monospace, SFMono-Regular, Menlo, Consolas, monospace' font-size="13" font-weight="700" fill="#0f172a" text-anchor="start">rate_buckets</text>
+<text x="196" y="762" font-family='-apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif' font-size="13" font-weight="400" fill="#475569" text-anchor="start">tokens and pause streak per key</text>
+<text x="68" y="786" font-family='ui-monospace, SFMono-Regular, Menlo, Consolas, monospace' font-size="13" font-weight="700" fill="#0f172a" text-anchor="start">budget_limits</text>
+<text x="196" y="786" font-family='-apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif' font-size="13" font-weight="400" fill="#475569" text-anchor="start">an operator&#x27;s lower limit</text>
+<text x="68" y="810" font-family='ui-monospace, SFMono-Regular, Menlo, Consolas, monospace' font-size="13" font-weight="700" fill="#0f172a" text-anchor="start">instances</text>
+<text x="196" y="810" font-family='-apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif' font-size="13" font-weight="400" fill="#475569" text-anchor="start">who runs, heartbeat every 30 s</text>
+<text x="68" y="834" font-family='ui-monospace, SFMono-Regular, Menlo, Consolas, monospace' font-size="13" font-weight="700" fill="#0f172a" text-anchor="start">pauses</text>
+<text x="196" y="834" font-family='-apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif' font-size="13" font-weight="400" fill="#475569" text-anchor="start">what is stopped, until when, why</text>
+<text x="68" y="858" font-family='ui-monospace, SFMono-Regular, Menlo, Consolas, monospace' font-size="13" font-weight="700" fill="#0f172a" text-anchor="start">actions</text>
+<text x="196" y="858" font-family='-apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif' font-size="13" font-weight="400" fill="#475569" text-anchor="start">who did what to which job, and why</text>
+<text x="68" y="882" font-family='ui-monospace, SFMono-Regular, Menlo, Consolas, monospace' font-size="13" font-weight="700" fill="#0f172a" text-anchor="start">job_stats</text>
+<text x="196" y="882" font-family='-apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif' font-size="13" font-weight="400" fill="#475569" text-anchor="start">per hour: done, records, failures</text>
+<rect x="540" y="172" width="620" height="742" rx="18" fill="#f8fafc" stroke="#cbd5e1" stroke-width="1.5"/>
+<text x="560" y="202" font-family='-apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif' font-size="19" font-weight="700" fill="#0f172a" text-anchor="start">Your application × N</text>
+<text x="770" y="202" font-family='-apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif' font-size="13.5" font-weight="400" fill="#64748b" text-anchor="start">package SyncLane, started with AddSyncLane</text>
+<rect x="560" y="218" width="282" height="142" rx="12" fill="#eff6ff" stroke="#2563eb" stroke-width="1.5"/>
+<text x="576" y="245" font-family='-apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif' font-size="16" font-weight="700" fill="#1d4ed8" text-anchor="start">Planner</text>
+<text x="576" y="270" font-family='-apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif' font-size="13.5" font-weight="400" fill="#334155" text-anchor="start">every minute, on every instance:</text>
+<text x="576" y="289" font-family='-apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif' font-size="13.5" font-weight="400" fill="#334155" text-anchor="start">should exist minus what exists</text>
+<text x="576" y="308" font-family='-apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif' font-size="13.5" font-weight="400" fill="#334155" text-anchor="start">history in slices from 00:00 UTC</text>
+<text x="576" y="327" font-family='-apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif' font-size="13.5" font-weight="400" fill="#334155" text-anchor="start">same call, same rows: added once</text>
+<text x="576" y="347" font-family='ui-monospace, SFMono-Regular, Menlo, Consolas, monospace' font-size="12" font-weight="500" fill="#2563eb" text-anchor="start">→ jobs, coverage · ON CONFLICT</text>
+<rect x="858" y="218" width="282" height="142" rx="12" fill="#eff6ff" stroke="#2563eb" stroke-width="1.5"/>
+<text x="874" y="245" font-family='-apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif' font-size="16" font-weight="700" fill="#1d4ed8" text-anchor="start">Lease</text>
+<text x="874" y="270" font-family='-apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif' font-size="13.5" font-weight="400" fill="#334155" text-anchor="start">one UPDATE … SKIP LOCKED</text>
+<text x="874" y="289" font-family='-apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif' font-size="13.5" font-weight="400" fill="#334155" text-anchor="start">urgent → high → normal → low,</text>
+<text x="874" y="308" font-family='-apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif' font-size="13.5" font-weight="400" fill="#334155" text-anchor="start">then declared type, newest window</text>
+<text x="874" y="327" font-family='-apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif' font-size="13.5" font-weight="400" fill="#334155" text-anchor="start">skips busy lanes, paused owners</text>
+<text x="874" y="347" font-family='ui-monospace, SFMono-Regular, Menlo, Consolas, monospace' font-size="12" font-weight="500" fill="#2563eb" text-anchor="start">→ jobs_due · one_running_per_lane</text>
+<rect x="560" y="370" width="282" height="142" rx="12" fill="#eff6ff" stroke="#2563eb" stroke-width="1.5"/>
+<text x="576" y="397" font-family='-apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif' font-size="16" font-weight="700" fill="#1d4ed8" text-anchor="start">Page loop</text>
+<text x="576" y="422" font-family='-apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif' font-size="13.5" font-weight="400" fill="#334155" text-anchor="start">a fresh DI scope for every page</text>
+<text x="576" y="441" font-family='-apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif' font-size="13.5" font-weight="400" fill="#334155" text-anchor="start">cursor saved after every page</text>
+<text x="576" y="460" font-family='-apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif' font-size="13.5" font-weight="400" fill="#334155" text-anchor="start">heartbeat every LeaseDuration / 3</text>
+<text x="576" y="479" font-family='-apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif' font-size="13.5" font-weight="400" fill="#334155" text-anchor="start">every write fenced by the lease</text>
+<text x="576" y="499" font-family='ui-monospace, SFMono-Regular, Menlo, Consolas, monospace' font-size="12" font-weight="500" fill="#2563eb" text-anchor="start">→ UPDATE … WHERE generation = @g</text>
+<rect x="858" y="370" width="282" height="142" rx="12" fill="#eff6ff" stroke="#2563eb" stroke-width="1.5"/>
+<text x="874" y="397" font-family='-apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif' font-size="16" font-weight="700" fill="#1d4ed8" text-anchor="start">Failure policy</text>
+<text x="874" y="422" font-family='-apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif' font-size="13.5" font-weight="400" fill="#334155" text-anchor="start">failed: 1 min, doubling to 1 h</text>
+<text x="874" y="441" font-family='-apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif' font-size="13.5" font-weight="400" fill="#334155" text-anchor="start">429: Retry-After, or 5 → 30 min</text>
+<text x="874" y="460" font-family='-apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif' font-size="13.5" font-weight="400" fill="#334155" text-anchor="start">postponed: no attempt used</text>
+<text x="874" y="479" font-family='-apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif' font-size="13.5" font-weight="400" fill="#334155" text-anchor="start">5th try deferred, then abandoned</text>
+<text x="874" y="499" font-family='ui-monospace, SFMono-Regular, Menlo, Consolas, monospace' font-size="12" font-weight="500" fill="#2563eb" text-anchor="start">attempts count from the last page</text>
+<rect x="560" y="522" width="282" height="142" rx="12" fill="#eff6ff" stroke="#2563eb" stroke-width="1.5"/>
+<text x="576" y="549" font-family='-apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif' font-size="16" font-weight="700" fill="#1d4ed8" text-anchor="start">Rate budgets, self-tuning</text>
+<text x="576" y="574" font-family='-apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif' font-size="13.5" font-weight="400" fill="#334155" text-anchor="start">a token bucket per account, a row</text>
+<text x="576" y="593" font-family='-apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif' font-size="13.5" font-weight="400" fill="#334155" text-anchor="start">learns: ×0.7 on a 429, then climbs</text>
+<text x="576" y="612" font-family='-apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif' font-size="13.5" font-weight="400" fill="#334155" text-anchor="start">reads limit, remaining and reset</text>
+<text x="576" y="631" font-family='-apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif' font-size="13.5" font-weight="400" fill="#334155" text-anchor="start">a 429 pauses it on every instance</text>
+<text x="576" y="651" font-family='ui-monospace, SFMono-Regular, Menlo, Consolas, monospace' font-size="12" font-weight="500" fill="#2563eb" text-anchor="start">→ rate_buckets · pause up to 5 min</text>
+<rect x="858" y="522" width="282" height="142" rx="12" fill="#eff6ff" stroke="#2563eb" stroke-width="1.5"/>
+<text x="874" y="549" font-family='-apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif' font-size="16" font-weight="700" fill="#1d4ed8" text-anchor="start">Change feed</text>
+<text x="874" y="574" font-family='-apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif' font-size="13.5" font-weight="400" fill="#334155" text-anchor="start">a trigger NOTIFYs every change</text>
+<text x="874" y="593" font-family='-apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif' font-size="13.5" font-weight="400" fill="#334155" text-anchor="start">LISTEN wakes idle slots at once</text>
+<text x="874" y="612" font-family='-apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif' font-size="13.5" font-weight="400" fill="#334155" text-anchor="start">probes a pooler before listening</text>
+<text x="874" y="631" font-family='-apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif' font-size="13.5" font-weight="400" fill="#334155" text-anchor="start">polls every 5 s when it can&#x27;t</text>
+<text x="874" y="651" font-family='ui-monospace, SFMono-Regular, Menlo, Consolas, monospace' font-size="12" font-weight="500" fill="#2563eb" text-anchor="start">→ jobs_announce_* · pg_notify</text>
+<rect x="560" y="674" width="282" height="142" rx="12" fill="#eff6ff" stroke="#2563eb" stroke-width="1.5"/>
+<text x="576" y="701" font-family='-apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif' font-size="16" font-weight="700" fill="#1d4ed8" text-anchor="start">Instances &amp; health</text>
+<text x="576" y="726" font-family='-apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif' font-size="13.5" font-weight="400" fill="#334155" text-anchor="start">registered, heartbeat every 30 s</text>
+<text x="576" y="745" font-family='-apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif' font-size="13.5" font-weight="400" fill="#334155" text-anchor="start">gone after 2 min, kept for a day</text>
+<text x="576" y="764" font-family='-apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif' font-size="13.5" font-weight="400" fill="#334155" text-anchor="start">one application per queue</text>
+<text x="576" y="783" font-family='-apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif' font-size="13.5" font-weight="400" fill="#334155" text-anchor="start">Healthy · Degraded · Unhealthy</text>
+<text x="576" y="803" font-family='ui-monospace, SFMono-Regular, Menlo, Consolas, monospace' font-size="12" font-weight="500" fill="#2563eb" text-anchor="start">→ instances · SyncLaneHealthCheck</text>
+<rect x="858" y="674" width="282" height="142" rx="12" fill="#eff6ff" stroke="#2563eb" stroke-width="1.5"/>
+<text x="874" y="701" font-family='-apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif' font-size="16" font-weight="700" fill="#1d4ed8" text-anchor="start">Monitor &amp; telemetry</text>
+<text x="874" y="726" font-family='-apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif' font-size="13.5" font-weight="400" fill="#334155" text-anchor="start">overview · freshness · problems</text>
+<text x="874" y="745" font-family='-apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif' font-size="13.5" font-weight="400" fill="#334155" text-anchor="start">pause · requeue · skip · sync now</text>
+<text x="874" y="764" font-family='-apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif' font-size="13.5" font-weight="400" fill="#334155" text-anchor="start">every action logged: who, why</text>
+<text x="874" y="783" font-family='-apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif' font-size="13.5" font-weight="400" fill="#334155" text-anchor="start">13 OpenTelemetry instruments</text>
+<text x="874" y="803" font-family='ui-monospace, SFMono-Regular, Menlo, Consolas, monospace' font-size="12" font-weight="500" fill="#2563eb" text-anchor="start">→ actions · MapSyncLane over HTTP</text>
+<text x="560" y="836" font-family='-apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif' font-size="11" font-weight="700" fill="#64748b" text-anchor="start">YOUR CODE PLUGS IN HERE</text>
+<rect x="560" y="848" width="137" height="50" rx="10" fill="#f8fafc" stroke="#64748b" stroke-width="1.5"/>
+<text x="628.5" y="879" font-family='ui-monospace, SFMono-Regular, Menlo, Consolas, monospace' font-size="13" font-weight="700" fill="#0f172a" text-anchor="middle">IOwnerSource</text>
+<rect x="707" y="848" width="137" height="50" rx="10" fill="#f8fafc" stroke="#64748b" stroke-width="1.5"/>
+<text x="775.5" y="879" font-family='ui-monospace, SFMono-Regular, Menlo, Consolas, monospace' font-size="13" font-weight="700" fill="#0f172a" text-anchor="middle">IJobHandler</text>
+<rect x="854" y="848" width="137" height="50" rx="10" fill="#f8fafc" stroke="#64748b" stroke-width="1.5"/>
+<text x="922.5" y="879" font-family='ui-monospace, SFMono-Regular, Menlo, Consolas, monospace' font-size="13" font-weight="700" fill="#0f172a" text-anchor="middle">ICredentialStore</text>
+<rect x="1001" y="848" width="137" height="50" rx="10" fill="#f8fafc" stroke="#64748b" stroke-width="1.5"/>
+<text x="1069.5" y="879" font-family='ui-monospace, SFMono-Regular, Menlo, Consolas, monospace' font-size="13" font-weight="700" fill="#0f172a" text-anchor="middle">IRecordSink</text>
+<rect x="1192" y="172" width="376" height="494" rx="18" fill="#eef2ff" stroke="#4f46e5" stroke-width="1.5"/>
+<text x="1212" y="202" font-family='-apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif' font-size="19" font-weight="700" fill="#4338ca" text-anchor="start">SyncLane.Http</text>
+<text x="1356" y="202" font-family='-apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif' font-size="13.5" font-weight="400" fill="#64748b" text-anchor="start">a recipe, not a handler</text>
+<rect x="1208" y="218" width="344" height="66" rx="10" fill="#ffffff" stroke="#c7d2fe" stroke-width="1"/>
+<circle cx="1230" cy="240" r="11" fill="#4f46e5"/>
+<text x="1230" y="245" font-family='-apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif' font-size="12.5" font-weight="700" fill="#ffffff" text-anchor="middle">1</text>
+<text x="1250" y="245" font-family='-apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif' font-size="14.5" font-weight="700" fill="#0f172a" text-anchor="start">Render</text>
+<text x="1250" y="264" font-family='-apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif' font-size="12.5" font-weight="400" fill="#334155" text-anchor="start">window, owner values, request.id;</text>
+<text x="1250" y="279" font-family='-apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif' font-size="12.5" font-weight="400" fill="#334155" text-anchor="start">the host only from request.hosts</text>
+<rect x="1208" y="292" width="344" height="66" rx="10" fill="#ffffff" stroke="#c7d2fe" stroke-width="1"/>
+<circle cx="1230" cy="314" r="11" fill="#4f46e5"/>
+<text x="1230" y="319" font-family='-apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif' font-size="12.5" font-weight="700" fill="#ffffff" text-anchor="middle">2</text>
+<text x="1250" y="319" font-family='-apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif' font-size="14.5" font-weight="700" fill="#0f172a" text-anchor="start">Authenticate</text>
+<text x="1250" y="338" font-family='-apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif' font-size="12.5" font-weight="400" fill="#334155" text-anchor="start">bearer · basic · apiKey · oauth2 · signed</text>
+<text x="1250" y="353" font-family='-apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif' font-size="12.5" font-weight="400" fill="#334155" text-anchor="start">from your ICredentialStore; a 401 renews once</text>
+<rect x="1208" y="366" width="344" height="66" rx="10" fill="#ffffff" stroke="#c7d2fe" stroke-width="1"/>
+<circle cx="1230" cy="388" r="11" fill="#4f46e5"/>
+<text x="1230" y="393" font-family='-apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif' font-size="12.5" font-weight="700" fill="#ffffff" text-anchor="middle">3</text>
+<text x="1250" y="393" font-family='-apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif' font-size="14.5" font-weight="700" fill="#0f172a" text-anchor="start">Draw a token</text>
+<text x="1250" y="412" font-family='-apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif' font-size="12.5" font-weight="400" fill="#334155" text-anchor="start">from the account&#x27;s rate budget,</text>
+<text x="1250" y="427" font-family='-apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif' font-size="12.5" font-weight="400" fill="#334155" text-anchor="start">before every request, on every instance</text>
+<rect x="1208" y="440" width="344" height="66" rx="10" fill="#ffffff" stroke="#c7d2fe" stroke-width="1"/>
+<circle cx="1230" cy="462" r="11" fill="#4f46e5"/>
+<text x="1230" y="467" font-family='-apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif' font-size="12.5" font-weight="700" fill="#ffffff" text-anchor="middle">4</text>
+<text x="1250" y="467" font-family='-apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif' font-size="14.5" font-weight="700" fill="#0f172a" text-anchor="start">Send</text>
+<text x="1250" y="486" font-family='-apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif' font-size="12.5" font-weight="400" fill="#334155" text-anchor="start">no redirects; a key in the URL is</text>
+<text x="1250" y="501" font-family='-apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif' font-size="12.5" font-weight="400" fill="#334155" text-anchor="start">stripped before it becomes a cursor</text>
+<rect x="1208" y="514" width="344" height="66" rx="10" fill="#ffffff" stroke="#c7d2fe" stroke-width="1"/>
+<circle cx="1230" cy="536" r="11" fill="#4f46e5"/>
+<text x="1230" y="541" font-family='-apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif' font-size="12.5" font-weight="700" fill="#ffffff" text-anchor="middle">5</text>
+<text x="1250" y="541" font-family='-apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif' font-size="14.5" font-weight="700" fill="#0f172a" text-anchor="start">Page</text>
+<text x="1250" y="560" font-family='-apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif' font-size="12.5" font-weight="400" fill="#334155" text-anchor="start">page · offset · cursor · nextUrl · link</text>
+<text x="1250" y="575" font-family='-apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif' font-size="12.5" font-weight="400" fill="#334155" text-anchor="start">the next page stays on the same host</text>
+<rect x="1208" y="588" width="344" height="66" rx="10" fill="#ffffff" stroke="#c7d2fe" stroke-width="1"/>
+<circle cx="1230" cy="610" r="11" fill="#4f46e5"/>
+<text x="1230" y="615" font-family='-apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif' font-size="12.5" font-weight="700" fill="#ffffff" text-anchor="middle">6</text>
+<text x="1250" y="615" font-family='-apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif' font-size="14.5" font-weight="700" fill="#0f172a" text-anchor="start">Write</text>
+<text x="1250" y="634" font-family='-apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif' font-size="12.5" font-weight="400" fill="#334155" text-anchor="start">WriteToPostgres: a versioned upsert;</text>
+<text x="1250" y="649" font-family='-apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif' font-size="12.5" font-weight="400" fill="#334155" text-anchor="start">HTTP, or your own IRecordSink</text>
+<rect x="1192" y="682" width="376" height="108" rx="12" fill="#fff7ed" stroke="#ea580c" stroke-width="1.5"/>
+<text x="1212" y="708" font-family='-apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif' font-size="16" font-weight="700" fill="#9a3412" text-anchor="start">Their APIs</text>
+<rect x="1212" y="720" width="336" height="26" rx="8" fill="#ffffff" stroke="#fdba74" stroke-width="1"/>
+<circle cx="1227" cy="733" r="4" fill="#16a34a"/>
+<text x="1240" y="738" font-family='ui-monospace, SFMono-Regular, Menlo, Consolas, monospace' font-size="12.5" font-weight="400" fill="#0f172a" text-anchor="start">GET /orders?cursor=…   200</text>
+<rect x="1212" y="752" width="336" height="26" rx="8" fill="#ffffff" stroke="#fdba74" stroke-width="1"/>
+<circle cx="1227" cy="765" r="4" fill="#f59e0b"/>
+<text x="1240" y="770" font-family='ui-monospace, SFMono-Regular, Menlo, Consolas, monospace' font-size="12.5" font-weight="400" fill="#0f172a" text-anchor="start">429 Too Many Requests · Retry-After</text>
+<rect x="1192" y="802" width="376" height="50" rx="12" fill="#f8fafc" stroke="#64748b" stroke-width="1.5"/>
+<text x="1212" y="832" font-family='-apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif' font-size="15" font-weight="700" fill="#0f172a" text-anchor="start">Your tables</text>
+<text x="1314" y="832" font-family='-apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif' font-size="13" font-weight="400" fill="#475569" text-anchor="start">upserts: a page may arrive twice</text>
+<rect x="1192" y="864" width="376" height="50" rx="12" fill="#faf5ff" stroke="#7c3aed" stroke-width="1.5" stroke-dasharray="6 4"/>
+<text x="1212" y="894" font-family='-apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif' font-size="15" font-weight="700" fill="#6d28d9" text-anchor="start">SyncLane.Cli</text>
+<text x="1318" y="894" font-family='-apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif' font-size="13" font-weight="400" fill="#475569" text-anchor="start">init · test · mcp: a curl → a recipe</text>
+<text x="44" y="950" font-family='-apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif' font-size="12" font-weight="700" fill="#166534" text-anchor="start">WHAT IT PROMISES, AND WHAT MAKES IT TRUE</text>
+<rect x="32" y="964" width="247" height="112" rx="12" fill="#f0fdf4" stroke="#16a34a" stroke-width="1.5"/>
+<text x="48" y="991" font-family='-apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif' font-size="15" font-weight="700" fill="#166534" text-anchor="start">A page at least once</text>
+<text x="48" y="1016" font-family='-apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif' font-size="13" font-weight="400" fill="#334155" text-anchor="start">a page may run twice;</text>
+<text x="48" y="1035" font-family='-apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif' font-size="13" font-weight="400" fill="#334155" text-anchor="start">upserts make it harmless</text>
+<rect x="291" y="964" width="247" height="112" rx="12" fill="#f0fdf4" stroke="#16a34a" stroke-width="1.5"/>
+<text x="307" y="991" font-family='-apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif' font-size="15" font-weight="700" fill="#166534" text-anchor="start">One job per lane</text>
+<text x="307" y="1016" font-family='-apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif' font-size="13" font-weight="400" fill="#334155" text-anchor="start">a unique index, not a lock:</text>
+<text x="307" y="1035" font-family='-apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif' font-size="13" font-weight="400" fill="#334155" text-anchor="start">the database refuses a 2nd</text>
+<rect x="550" y="964" width="247" height="112" rx="12" fill="#f0fdf4" stroke="#16a34a" stroke-width="1.5"/>
+<text x="566" y="991" font-family='-apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif' font-size="15" font-weight="700" fill="#166534" text-anchor="start">Planned exactly once</text>
+<text x="566" y="1016" font-family='-apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif' font-size="13" font-weight="400" fill="#334155" text-anchor="start">dedup keys under an index,</text>
+<text x="566" y="1035" font-family='-apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif' font-size="13" font-weight="400" fill="#334155" text-anchor="start">however many planners run</text>
+<rect x="809" y="964" width="247" height="112" rx="12" fill="#f0fdf4" stroke="#16a34a" stroke-width="1.5"/>
+<text x="825" y="991" font-family='-apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif' font-size="15" font-weight="700" fill="#166534" text-anchor="start">Nothing lost</text>
+<text x="825" y="1016" font-family='-apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif' font-size="13" font-weight="400" fill="#334155" text-anchor="start">the cursor is on the row;</text>
+<text x="825" y="1035" font-family='-apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif' font-size="13" font-weight="400" fill="#334155" text-anchor="start">crash or deploy: next page</text>
+<rect x="1068" y="964" width="247" height="112" rx="12" fill="#f0fdf4" stroke="#16a34a" stroke-width="1.5"/>
+<text x="1084" y="991" font-family='-apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif' font-size="15" font-weight="700" fill="#166534" text-anchor="start">A lost lease writes nothing</text>
+<text x="1084" y="1016" font-family='-apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif' font-size="13" font-weight="400" fill="#334155" text-anchor="start">leased_by and the generation</text>
+<text x="1084" y="1035" font-family='-apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif' font-size="13" font-weight="400" fill="#334155" text-anchor="start">are in every UPDATE</text>
+<rect x="1327" y="964" width="247" height="112" rx="12" fill="#f0fdf4" stroke="#16a34a" stroke-width="1.5"/>
+<text x="1343" y="991" font-family='-apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif' font-size="15" font-weight="700" fill="#166534" text-anchor="start">Nothing leaves</text>
+<text x="1343" y="1016" font-family='-apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif' font-size="13" font-weight="400" fill="#334155" text-anchor="start">no secret stored, no body</text>
+<text x="1343" y="1035" font-family='-apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif' font-size="13" font-weight="400" fill="#334155" text-anchor="start">logged, no telemetry home</text>
+<line x1="44" y1="1100" x2="1556" y2="1100" stroke="#e2e8f0"/>
+<text x="44" y="1126" font-family='-apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif' font-size="13" font-weight="500" fill="#475569" text-anchor="start">SyncLane · SyncLane.Http · SyncLane.AspNetCore · SyncLane.Cli</text>
+<text x="1556" y="1126" font-family='-apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif' font-size="13" font-weight="400" fill="#64748b" text-anchor="end">.NET 10 · PostgreSQL 14–18 · github.com/ferhatblnk/synclane</text>
+<line x1="1230" y1="284" x2="1230" y2="291" stroke="#4f46e5" stroke-width="1.6" marker-end="url(#m-indigo)"/>
+<line x1="1230" y1="358" x2="1230" y2="365" stroke="#4f46e5" stroke-width="1.6" marker-end="url(#m-indigo)"/>
+<line x1="1230" y1="432" x2="1230" y2="439" stroke="#4f46e5" stroke-width="1.6" marker-end="url(#m-indigo)"/>
+<line x1="1230" y1="506" x2="1230" y2="513" stroke="#4f46e5" stroke-width="1.6" marker-end="url(#m-indigo)"/>
+<line x1="1230" y1="580" x2="1230" y2="587" stroke="#4f46e5" stroke-width="1.6" marker-end="url(#m-indigo)"/>
+<line x1="508" y1="289" x2="540" y2="289" stroke="#0f766e" stroke-width="1.8" marker-start="url(#m-teal)" marker-end="url(#m-teal)"/>
+<line x1="508" y1="441" x2="540" y2="441" stroke="#0f766e" stroke-width="1.8" marker-start="url(#m-teal)" marker-end="url(#m-teal)"/>
+<line x1="508" y1="593" x2="540" y2="593" stroke="#0f766e" stroke-width="1.8" marker-start="url(#m-teal)" marker-end="url(#m-teal)"/>
+<line x1="508" y1="745" x2="540" y2="745" stroke="#0f766e" stroke-width="1.8" marker-start="url(#m-teal)" marker-end="url(#m-teal)"/>
+<text x="524" y="168" font-family='-apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif' font-size="11.5" font-weight="700" fill="#0f766e" text-anchor="middle">SQL</text>
+<line x1="1160" y1="300" x2="1192" y2="300" stroke="#4f46e5" stroke-width="1.8" marker-start="url(#m-indigo)" marker-end="url(#m-indigo)"/>
+<text x="1176" y="168" font-family='-apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif' font-size="11.5" font-weight="700" fill="#4338ca" text-anchor="middle">a page</text>
+<line x1="1380" y1="666" x2="1380" y2="682" stroke="#ea580c" stroke-width="1.6" marker-start="url(#m-slate)" marker-end="url(#m-slate)"/>
+</svg>
