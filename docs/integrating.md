@@ -2,18 +2,46 @@
 
 This page takes an existing .NET application from nothing to data flowing in production, step by step. It is written so that you can hand it to an AI assistant in your project ("read this page and integrate SyncLane"), and so that a developer can follow it alone. Every call on it exists in the current version.
 
-The order is fixed: answer the questions, make the decisions, follow the steps, check each one, then run the production trial. Nothing below asks you to change SyncLane; everything happens in your application.
+The order is fixed: write down what the project does today, answer the questions, make the decisions, follow the steps with a check after each, prove the data is the same as before, then run the production trial. Nothing below asks you to change SyncLane; everything happens in your application.
 
 ## For an AI assistant reading this page
 
-- **Ask before you write code.** Work through [the questions](#1-questions-to-answer-first) with the user. Where the user does not know, take the default in the table and say that you did.
+- **Keep what the project does.** The integration changes when and how the work runs, not what is fetched, how it is mapped, or what the business rules decide. Write down today's behaviour first ([section 1](#1-what-the-project-does-today)) and prove at the end that the data is the same ([section 5](#5-prove-it)). Speed may improve; results may not change.
+- **Leave the existing tests alone.** Every test that passed before passes after, unchanged. Never edit, skip or delete a test to make it pass: a test that fails means the behaviour changed.
+- **Ask before you write code.** Work through [the questions](#2-questions-to-answer-first) with the user. Where the user does not know, take the default in the table and say that you did.
 - **Use only what is documented.** The calls, settings and types on this page and the pages it links to. If something seems to be missing, say so; do not invent an overload or a setting.
 - **Follow the project's conventions.** Its layers, folder structure, DI style, naming and test framework. SyncLane's own repository rules (its `CLAUDE.md`) are for changing SyncLane, not for applications that use it.
 - **Never put a credential anywhere you write.** Not in code, a recipe, `appsettings.json`, a test, a curl you suggest or a reply. Credentials come from the project's own storage through an `ICredentialStore`, or from an environment variable while testing.
 - **Finish each step before the next.** Each step ends with "Done when"; check it, and report what you saw.
 - **Stop and ask** when a step's check fails twice, when the project's database is not PostgreSQL 14 or later, or when the target framework is below .NET 10.
 
-## 1. Questions to answer first
+## 1. What the project does today
+
+Before any decision, write down every piece of sync work the project does now: scheduled jobs, hosted services, timers, "refresh" endpoints. One row each. The table is the specification of the integration, and it goes into the pull request.
+
+| Column | Example |
+| --- | --- |
+| Name and where it lives | `OrderSyncJob`, a recurring job every 15 minutes |
+| What it calls | `GET /orders?updated_after=` for each connected shop, 100 per page |
+| For which accounts | shops that are connected and have an active subscription |
+| Rules on the way | skips draft orders; converts the currency; computes the net total with `PriceCalculator` |
+| Where it writes, by which key | `Orders`, upsert by `(ShopId, ExternalId)`; `OrderItems` replaced per order |
+| Side effects | publishes `OrderImported`; sends a low-stock email |
+| Time range | since the last successful run, minus 5 minutes |
+| How it fails today | retries 3 times, then logs |
+| Who starts it by hand | the "refresh" button on the orders page |
+
+**Must not change:** which records are fetched (accounts, filters, time ranges), how they are mapped and validated, the keys they are stored under, and the side effects.
+
+**May change:** when and how often the work runs (within what users expect), how many accounts load side by side, retries and backoff, and speed.
+
+How the rows translate:
+- Each row becomes a job type ([step 5](#step-5-declare-the-queue)), or stays where it is when users wait for its answer ([D2](#d2-which-process-does-what)).
+- Each rule moves into the handler by **calling the code that implements it today**, not by copying it. A business rule keeps living in one place.
+- "Since the last run" becomes the job's window: SyncLane starts each recurring window where the last one ended, and `overlap` replaces the "minus 5 minutes".
+- "Retries 3 times, then logs" becomes the failure policy: retries with backoff, then `deferred`, then `abandoned`, all visible in the monitor.
+
+## 2. Questions to answer first
 
 | # | Question | Why it matters | Default when nobody knows |
 | --- | --- | --- | --- |
@@ -34,7 +62,7 @@ The order is fixed: answer the questions, make the decisions, follow the steps, 
 | Q15 | Should users trigger a refresh (a button, a webhook)? | `SyncNowAsync` ([step 9](#step-9-refresh-on-demand-and-new-accounts)). | No. |
 | Q16 | Who may see and repair jobs, and through what? | The monitor over HTTP, behind an authorization policy ([step 8](#step-8-the-monitor-over-http)). | Nobody yet; add it before production. |
 
-## 2. Decisions
+## 3. Decisions
 
 ### D1. Handler or recipe
 
@@ -44,7 +72,7 @@ The order is fixed: answer the questions, make the decisions, follow the steps, 
 | Paging is by page number, offset, cursor, next URL or `Link` header. | Records must be transformed or validated with the project's rules before they are stored. |
 | Authentication is bearer, basic, an API key, OAuth 2.0 or a request signer. | The data goes to several tables in one transaction. |
 
-A recipe is a JSON file; [Recipes](recipes.md) describes every part, and `synclane init` writes one from a curl that works ([with an AI assistant](ai.md)). A handler is a class with one method. One queue can mix both: each job type chooses.
+Decide per row of [the inventory](#1-what-the-project-does-today) and write the decision into it. A row with any rule, mapping or side effect is a handler: the rule stays in the project's code and the handler calls it. A recipe is a JSON file; [Recipes](recipes.md) describes every part, and `synclane init` writes one from a curl that works ([with an AI assistant](ai.md)). A handler is a class with one method. One queue can mix both: each job type chooses.
 
 ### D2. Which process does what
 
@@ -67,7 +95,33 @@ A recipe is a JSON file; [Recipes](recipes.md) describes every part, and `syncla
 - **Name:** what people call the owner, shown and searched by the monitor. It may change at any time.
 - **Values:** what a recipe needs besides the key, such as a region or a marketplace, as `JobOwner.Values`.
 
-## 3. Steps
+### D4. Where the code lives
+
+Keep everything that belongs to SyncLane in one place, so it can be found, tested and, if need be, removed. Follow the project's own layers and names; this shape works as a folder of a single project or of its infrastructure layer:
+
+```
+Sync/
+  SyncRegistration.cs          AddShopSync(services, configuration): every AddSyncLane, AddBudget and AddSyncLaneHttp call
+  Owners/
+    ConnectedShops.cs          IOwnerSource
+  Handlers/
+    Orders/OrderHandler.cs     one folder per job type
+    Products/ProductHandler.cs
+  Recipes/
+    orders.jsonc               copied to the output
+  Credentials/
+    ShopCredentials.cs         ICredentialStore over the project's own storage
+  Sinks/
+    OrderSink.cs               IRecordSink, when a recipe writes to the project's tables
+```
+
+- **Handlers are thin.** Fetch one page, call the project's existing services for the rules, write through its existing repositories. No business rule is written twice.
+- **In a layered project,** what the domain needs stays in the application layer; handlers, the owner source and the credential store go where the infrastructure lives, because they touch the database and the network.
+- **One registration method.** `Program.cs` gets one line, `builder.Services.AddShopSync(builder.Configuration);`, and the end-to-end test of [section 5](#5-prove-it) calls the same method.
+- **Recipes travel with the build:** `<None Include="Sync/Recipes/*.jsonc" CopyToOutputDirectory="PreserveNewest" />` in the project file.
+- **The old jobs stay** until the cut-over in [section 5](#5-prove-it), and are deleted in a later change.
+
+## 4. Steps
 
 ### Step 1. Add the packages
 
@@ -99,6 +153,8 @@ Add a connection string, and a `SyncLane` section for the numbers that change pe
 
 The password comes from where the project keeps secrets, never from a committed file. Behind PgBouncer in transaction mode, also set `SyncLane:ListenConnectionString` to a connection that goes around the pooler, or set `SyncLane:ListenForChanges` to `false` ([Behind a connection pooler](operations.md#behind-a-connection-pooler)).
 
+**The schema needs no work by hand.** With the defaults, the first start creates the schema `synclane` in the database of `ConnectionString`, with every table and index, behind a lock so instances that start together do not collide; each later SyncLane version adds its migrations the same way. SyncLane never touches the project's own tables. Several applications can share one database and one schema: each declares its own queues, and the monitor of any of them shows every application's jobs ([Several applications on one schema](operations.md#several-applications-on-one-schema)). Keep the default name unless the project's database rules say otherwise (`SyncLane:Schema`, lower case). If the application's database user may not create a schema, run the script from the project's migrations instead ([step 12](#step-12-deploy)).
+
 **Done when** the application starts with the section present and the connection string resolves.
 
 ### Step 3. The owner source
@@ -129,7 +185,7 @@ public sealed class ConnectedShops(AppDb db) : IOwnerSource
 One page per call. SyncLane saves the returned cursor after every page and calls again until the cursor is `null`.
 
 ```csharp
-public sealed class OrderHandler(ShopClient client, OrderRepository orders, RateBudgets budgets) : IJobHandler
+public sealed class OrderHandler(IShopClient client, OrderRepository orders, RateBudgets budgets) : IJobHandler
 {
     public async Task<JobPage> RunPageAsync(Job job, CancellationToken cancellationToken)
     {
@@ -166,7 +222,7 @@ The rules of a handler:
 
 ### Step 4b. A recipe
 
-Write the recipe with `synclane init` from a curl that works, check it with `synclane test` (two pages, no database), and keep it in the project, for example `recipes/orders.jsonc`. Then a credential store over the project's own storage:
+Write the recipe with `synclane init` from a curl that works, check it with `synclane test` (two pages, no database), and keep it in the project, for example `Sync/Recipes/orders.jsonc`. Then a credential store over the project's own storage:
 
 ```csharp
 public sealed class ShopCredentials(AppDb db) : ICredentialStore
@@ -192,14 +248,14 @@ public sealed class ShopCredentials(AppDb db) : ICredentialStore
 builder.Services.AddSyncLaneHttp(http =>
 {
     http.Credentials<ShopCredentials>();
-    http.Recipe("orders", File.ReadAllText("recipes/orders.jsonc"))
+    http.Recipe("orders", File.ReadAllText(Path.Combine(AppContext.BaseDirectory, "Sync/Recipes/orders.jsonc")))
         .WriteToPostgres("shop_orders", table => table.VersionedBy("$.updated_at"));   // or .WriteTo<OrderSink>()
 });
 ```
 
 `WriteToPostgres` creates the table and upserts one row per owner and record. For the project's own tables, implement `IRecordSink` (one method, `WriteAsync(RecordPage page, ...)`) and upsert there.
 
-**Done when** `synclane test recipes/orders.jsonc` reads two pages and the application starts without a recipe error.
+**Done when** `synclane test Sync/Recipes/orders.jsonc` reads two pages and the application starts without a recipe error.
 
 ### Step 5. Declare the queue
 
@@ -225,7 +281,7 @@ builder.Services.AddSyncLane(builder.Configuration.GetSection("SyncLane"), lane 
 - Types run in the order they are declared, within a priority.
 - Declare the same budgets in every process that calls the API, the web process included.
 
-**Done when** the application starts, the log shows no `SL1xxx` error, and `synclane.jobs` has rows for the owners from step 3.
+**Done when** the application starts, the log shows no `SL1xxx` error, the schema `synclane` exists with its tables, and `synclane.jobs` has rows for the owners from step 3.
 
 ### Step 6. Split the roles, if you chose to
 
@@ -324,9 +380,67 @@ If another system already loaded the history, record it so it is not fetched aga
 
 **Done when** two copies of the worker run side by side for a day with every job created once and never two running jobs in one lane.
 
-## 4. The first run
+## 5. Prove it
 
-What a healthy first hour looks like:
+No page can promise that an integration works. These gates are how you know it does; the integration is done when every one of them has passed, with the evidence in the pull request.
+
+### Tests
+
+- **The project's existing tests.** Run the whole suite before you start and keep the result. After the integration the same tests pass, unchanged.
+- **A unit test per handler:** the four cases of [step 4a](#step-4a-a-handler), and the rules from the inventory: the same input gives the same stored result as the old code did.
+- **One end-to-end test against a real PostgreSQL.** It runs the project's own registration with a fake API client and checks that the records arrive. A schema of its own per run keeps it apart from everything else. `WaitUntilAsync`, `CountOrdersAsync` and `DropSchemaAsync` are small helpers of the test project, and the test database holds the shops the owner source returns:
+
+```csharp
+[Fact]
+public async Task A_connected_shops_orders_reach_the_orders_table()
+{
+    var schema = $"t_{Guid.NewGuid():N}";
+    var builder = Host.CreateApplicationBuilder();
+    builder.Configuration.AddInMemoryCollection(new Dictionary<string, string?>
+    {
+        ["ConnectionStrings:Postgres"] = TestDatabase.ConnectionString,   // from an environment variable, never a literal
+        ["SyncLane:Schema"] = schema,
+        ["SyncLane:PlanInterval"] = "00:00:01",
+        ["SyncLane:PollInterval"] = "00:00:01",
+    });
+    builder.Services.AddShopSync(builder.Configuration);                 // the same registration as Program.cs
+    builder.Services.AddSingleton<IShopClient>(new FakeShopClient(ordersPerPage: 100, pages: 3));
+    using var host = builder.Build();
+    await host.StartAsync();
+
+    var syncLane = host.Services.GetRequiredService<ISyncLane>();
+    await WaitUntilAsync(async () =>
+    {
+        var all = await syncLane.GetJobsAsync(new JobQuery { Queue = "shops", IncludeTotal = true });
+        var done = await syncLane.GetJobsAsync(new JobQuery { Queue = "shops", Status = JobStatus.Completed, IncludeTotal = true });
+        return all.Total > 0 && done.Total == all.Total;
+    }, timeout: TimeSpan.FromMinutes(1));
+
+    Assert.Equal(300, await CountOrdersAsync(shopId: TestShops.First));
+    await host.StopAsync();
+    await DropSchemaAsync(schema);
+}
+```
+
+- **SyncLane's own tests** (the lease, planning, rate budgets, crash recovery, on PostgreSQL 14 to 18 and through PgBouncer) run in SyncLane's repository for every release. The project does not copy them; it tests its use of SyncLane.
+
+### The same data as before
+
+Run the new path beside the old one, as the [production trial](production-trial.md) describes: the old jobs write where they always did, the new handlers into a copy of the tables (or a staging database) for the same accounts. Then compare per account and day, both ways:
+
+```sql
+SELECT shop_id, date_trunc('day', ordered_at) AS day, count(*) AS orders,
+       md5(string_agg(external_id || ':' || net_total::text || ':' || status, ',' ORDER BY external_id)) AS fingerprint
+FROM orders GROUP BY 1, 2
+EXCEPT
+SELECT shop_id, date_trunc('day', ordered_at), count(*),
+       md5(string_agg(external_id || ':' || net_total::text || ':' || status, ',' ORDER BY external_id))
+FROM orders_new GROUP BY 1, 2;
+```
+
+Run it again with the two tables swapped. Every row returned is a difference to explain before the cut-over. Count the side effects the same way: events published and emails sent per day, old and new.
+
+### The first run
 
 ```sql
 SELECT type, status, count(*) FROM synclane.jobs GROUP BY type, status ORDER BY type, status;
@@ -337,7 +451,19 @@ SELECT type, status, count(*) FROM synclane.jobs GROUP BY type, status ORDER BY 
 - The project's tables fill, and running the same window again changes no row count.
 - `GetBudgetsAsync(new BudgetQuery())` shows each budget's rate; frequent `429`s mean the declared limit is too high.
 
-## 5. Before production
+### Done, and the cut-over
+
+The integration is done when all of these hold:
+
+- [ ] The build passes with no new warnings.
+- [ ] The existing tests pass, unchanged; the new unit tests and the end-to-end test pass.
+- [ ] The comparison returns no unexplained difference for 7 days in a row, side effects included.
+- [ ] `/health` is `Healthy`; no job is `abandoned` without a known cause.
+- [ ] The drills of the production trial behaved as expected.
+
+Then turn the old jobs off, keep their code for one more release in case you must turn them back on, and delete it in a later change.
+
+## 6. Before production
 
 Run the [production trial](production-trial.md): one integration that is allowed to fail, slow settings, the old path beside it for two weeks, and the drills (graceful stop, `kill -9`, rolling deploy, two instances, provider outage, revoked access).
 
@@ -354,11 +480,16 @@ Run the [production trial](production-trial.md): one integration that is allowed
 | `RunPlanner` off in every process | No jobs are created. | At least one process plans. |
 | Listening through PgBouncer in transaction mode | Live changes never arrive, and other clients see timeouts. | `ListenConnectionString` around the pooler, or `ListenForChanges = false`. |
 | Deleting job rows by hand | A returning owner never loads its history again. | `ForgetOwnerAsync`. |
+| Copying a business rule into the handler | Two copies drift apart; the old and new data stop matching. | Call the service that holds the rule today. |
+| Editing an existing test so it passes | A change in behaviour goes unnoticed. | Find what the integration changed, and fix that. |
 | A token in a recipe, a test or `appsettings.json` | A secret in the repository. | `ICredentialStore`, or an environment variable while testing. |
 
 ## Checklist
 
-- [ ] The questions in section 1 are answered, or their defaults written down.
+- [ ] Today's behaviour is written down, one row per job, with the decision for each.
+- [ ] The questions in section 2 are answered, or their defaults written down.
+- [ ] SyncLane's code lives in one place, registered by one method.
+- [ ] Every business rule is called from where it lived before, not copied.
 - [ ] Owner keys are stable; owners that share a limit share a lane and a budget key.
 - [ ] Every write is an upsert; a page run twice changes nothing.
 - [ ] Each handler returns after one page, uses the job's window and cursor, and throws the right exception for `429` and revoked access.
@@ -368,4 +499,6 @@ Run the [production trial](production-trial.md): one integration that is allowed
 - [ ] Health check, telemetry and alerts are wired.
 - [ ] The monitor requires authorization.
 - [ ] Disconnect and removal call `CancelAsync` and `ForgetOwnerAsync`.
+- [ ] The existing tests pass unchanged; the handler tests and the end-to-end test pass.
+- [ ] The old and new data match for 7 days, side effects included.
 - [ ] The production trial has started.
