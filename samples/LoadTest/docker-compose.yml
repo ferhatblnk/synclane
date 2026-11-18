@@ -1,0 +1,63 @@
+# The load test: PostgreSQL, a pretend API, N SyncLane instances and a report. Start it with run.sh.
+# The database accepts connections without a password. It is a test bench; do not deploy it.
+
+x-loadtest: &loadtest
+  build:
+    context: ../..
+    dockerfile: samples/LoadTest/Dockerfile
+  image: synclane-loadtest
+  environment: &environment
+    POSTGRES: Host=postgres;Username=postgres;Database=loadtest;Maximum Pool Size=60
+    API_URL: http://api:8080
+    OWNERS: ${OWNERS:-1000}
+    PAGES: ${PAGES:-10}
+    LATENCY_MS: ${LATENCY_MS:-50}
+    FAILURE_RATE: ${FAILURE_RATE:-0.01}
+    HIDDEN_LIMIT: ${HIDDEN_LIMIT:-30}
+    HOT_SHARE: ${HOT_SHARE:-0.05}
+    HOT_LIMIT: ${HOT_LIMIT:-8}
+    HIDDEN_BURST: ${HIDDEN_BURST:-2}
+    BUDGET_LIMIT: ${BUDGET_LIMIT:-15}
+    SLOTS: ${SLOTS:-16}
+    WORKERS: ${WORKERS:-4}
+    HORIZON_DAYS: ${HORIZON_DAYS:-730}
+    SLICE_DAYS: ${SLICE_DAYS:-30}
+
+services:
+  postgres:
+    image: postgres:17
+    command: ["postgres", "-c", "max_connections=400", "-c", "shared_buffers=512MB"]
+    environment:
+      POSTGRES_DB: loadtest
+      POSTGRES_HOST_AUTH_METHOD: trust
+    volumes:
+      - ./init.sql:/docker-entrypoint-initdb.d/init.sql:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d loadtest"]
+      interval: 2s
+      timeout: 2s
+      retries: 30
+
+  api:
+    <<: *loadtest
+    command: ["api"]
+
+  worker:
+    <<: *loadtest
+    command: ["worker"]
+    stop_grace_period: 30s
+    depends_on:
+      postgres:
+        condition: service_healthy
+      api:
+        condition: service_started
+
+  report:
+    <<: *loadtest
+    command: ["report"]
+    profiles: ["report"]
+    volumes:
+      - ./results:/results
+    depends_on:
+      postgres:
+        condition: service_healthy

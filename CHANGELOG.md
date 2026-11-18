@@ -4,6 +4,10 @@ All notable changes to this project are recorded here. The format follows [Keep 
 
 ## [Unreleased]
 
+### Added
+
+- A load test you can run yourself: [samples/LoadTest](samples/LoadTest/README.md) starts PostgreSQL, a pretend API with a hidden limit and SyncLane instances, loads the history of 1,000 accounts, and reports how fast it drained and whether any page was lost, written twice, or sent above an account's budget, with the pretend API as an independent witness.
+
 ### Changed
 
 - Two pictures: the architecture opens the README (the schema and the indexes behind the guarantees, the engine's parts inside your application, the recipe pipeline, and what it promises), and how a job runs opens [how-it-works.md](docs/how-it-works.md) (its path, its failures, a worker going away, a `429`). Three diagrams join the docs: a page from lease to saved cursor ([how-it-works.md](docs/how-it-works.md#running-a-job)), a `429` pausing a budget on every instance, and a curl becoming a recipe ([recipes.md](docs/recipes.md)).
