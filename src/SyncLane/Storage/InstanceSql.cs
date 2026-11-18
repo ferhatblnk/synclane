@@ -13,7 +13,8 @@ internal sealed class InstanceSql
         Lock = "SELECT pg_advisory_xact_lock(hashtext(@lock))";
         LockKey = $"synclane.instances:{schema}";
 
-        const string columns = "id, application, host, version, queues, budgets::text, started_at, heartbeat_at, stopped_at";
+        const string columns =
+            "id, application, host, version, queues, budgets::text, started_at, heartbeat_at, stopped_at, role, runs_workers, runs_planner, listens";
 
         // A stopped instance keeps its row so people can see when it stopped, but holds no queue.
         Live =
@@ -27,10 +28,14 @@ internal sealed class InstanceSql
         // process that restarts under the same id is live again.
         Upsert =
             $"""
-            INSERT INTO {table} (id, application, host, version, queues, budgets, started_at, heartbeat_at)
-            VALUES (@id, @application, @host, @version, @queues, @budgets::jsonb, @started_at, @now)
+            INSERT INTO {table} (id, application, host, version, queues, budgets, started_at, heartbeat_at, role, runs_workers, runs_planner, listens)
+            VALUES (@id, @application, @host, @version, @queues, @budgets::jsonb, @started_at, @now, @role, @runs_workers, @runs_planner, @listens)
             ON CONFLICT (id) DO UPDATE
             SET application = excluded.application,
+                role = excluded.role,
+                runs_workers = excluded.runs_workers,
+                runs_planner = excluded.runs_planner,
+                listens = excluded.listens,
                 host = excluded.host,
                 version = excluded.version,
                 queues = excluded.queues,

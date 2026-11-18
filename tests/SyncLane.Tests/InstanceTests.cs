@@ -134,6 +134,31 @@ public class InstanceTests : PostgresTest
     }
 
     [PostgresFact]
+    public async Task Each_instance_records_its_role_and_what_it_runs_and_the_monitor_shows_them()
+    {
+        await Registry("shop", "web-1:1:aaaaaa", ["orders"], runs: false).StartAsync(CancellationToken.None);
+        await Registry("shop", "worker-1:1:bbbbbb", ["orders"], role: "worker").StartAsync(CancellationToken.None);
+
+        var instances = (await MonitorTests.MonitorFor(Store, Schema, _clock).GetInstancesAsync()).GetValueOrThrow();
+
+        Assert.Equal(
+            [("web-1:1:aaaaaa", "", false, false, false), ("worker-1:1:bbbbbb", "worker", true, true, true)],
+            instances.Select(i => (i.Id, i.Role, i.RunsWorkers, i.RunsPlanner, i.ListensForChanges)).ToList());
+    }
+
+    [PostgresFact]
+    public async Task An_instance_of_an_older_version_is_listed_without_a_role_and_without_saying_what_it_runs()
+    {
+        await ExecuteAsync(
+            $"INSERT INTO {Schema}.instances (id, application, host, version, queues, budgets, started_at, heartbeat_at) " +
+            $"VALUES ('old:1', 'shop', 'old', '0.6.3', ARRAY['orders'], '[]', now(), now())");
+
+        var old = Assert.Single((await MonitorTests.MonitorFor(Store, Schema, _clock).GetInstancesAsync()).GetValueOrThrow());
+
+        Assert.Equal(("", (bool?)null, (bool?)null, (bool?)null), (old.Role, old.RunsWorkers, old.RunsPlanner, old.ListensForChanges));
+    }
+
+    [PostgresFact]
     public async Task A_budget_declared_differently_elsewhere_does_not_stop_the_start_and_both_declarations_are_stored()
     {
         await Registry("shipping", "host-a:1", ["orders"], budget: 10).StartAsync(CancellationToken.None);
@@ -144,9 +169,9 @@ public class InstanceTests : PostgresTest
         Assert.Contains("\"limit\": 5", stored);
     }
 
-    private InstanceRegistry Registry(string application, string id, string[] queues, bool runs = true, int? budget = null)
+    private InstanceRegistry Registry(string application, string id, string[] queues, bool runs = true, int? budget = null, string role = "")
     {
-        var options = new SyncLaneOptions { RunPlanner = runs, RunWorkers = runs };
+        var options = new SyncLaneOptions { RunPlanner = runs, RunWorkers = runs, ListenForChanges = runs };
         foreach (var queue in queues)
             options.AddQueue(queue, declared => declared.Handle<ProductHandler>("products"));
         if (budget is { } limit)
@@ -155,7 +180,7 @@ public class InstanceTests : PostgresTest
         return new InstanceRegistry(
             options,
             new InstanceStore(Store.DataSource, new InstanceSql(Schema)),
-            new InstanceIdentity(id, id.Split(':')[0], application, "1.0.0"),
+            new InstanceIdentity(id, id.Split(':')[0], application, role, "1.0.0"),
             _clock,
             new Monitoring.HealthSignals(),
             NullLogger<InstanceRegistry>.Instance);

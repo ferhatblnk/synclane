@@ -46,6 +46,9 @@ public static class SyncErrorCodes
     /// <summary>A configuration value cannot be read as the kind of value its setting takes.</summary>
     public const string SettingValueInvalid = "SL1013";
 
+    /// <summary>The role name is not usable.</summary>
+    public const string RoleNameInvalid = "SL1014";
+
     /// <summary>The database lacks a migration and <c>CreateSchema</c> is off.</summary>
     public const string MigrationMissing = "SL2001";
 

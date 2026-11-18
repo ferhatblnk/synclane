@@ -322,11 +322,13 @@ Versions before 0.4.1 listened on the schema's channel through the pooler. PgBou
 Applications can share one database and one SyncLane schema. Each declares its own queues, so jobs, planning and clean-up stay separate, and a budget declared by several applications is shared by all of them. One table then shows every sync of every application.
 
 Each process registers in `instances` at start-up and every half minute after. Its row holds:
-- its application;
+- its application, and its role when it sets one (`options.Role`);
 - its host;
 - the SyncLane version;
-- the queues it runs with its planner or workers;
+- the queues it runs with its planner or workers, and whether it runs workers, the planner and listening;
 - its budgets.
+
+Its id is the host, the process id and a random part, so two containers that share a hostname and both run as process 1 are still two rows.
 
 The application is `options.Application`. It defaults to the host's application name, which is the entry assembly's unless the host sets another. Copies of one application share their queues.
 

@@ -50,6 +50,11 @@ internal static class SyncLaneErrors
         $"Application '{application}' is not usable as a name. Set options.Application in AddSyncLane to 1 to 100 letters, " +
         "digits, dots, underscores, colons, slashes or hyphens.");
 
+    public static SyncError RoleNameInvalid(string role) => new(
+        SyncErrorCodes.RoleNameInvalid, SyncErrorKind.Configuration,
+        $"Role '{role}' is not usable as a name. Set options.Role (SyncLane:Role in configuration) to 1 to 100 letters, " +
+        "digits, dots, underscores, colons, slashes or hyphens, or leave it out.");
+
     public static SyncError SettingNotDeclared(string path, IEnumerable<string> known) => new(
         SyncErrorCodes.SettingNotDeclared, SyncErrorKind.Configuration,
         $"'{path}' is not something SyncLane can set. Configuration changes what the code declares and cannot add to it: " +

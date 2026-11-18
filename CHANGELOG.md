@@ -4,6 +4,14 @@ All notable changes to this project are recorded here. The format follows [Keep 
 
 ## [Unreleased]
 
+### Added
+
+- `options.Role` (`SyncLane:Role`): what this copy of the application does, for one build deployed as web instances and a worker. Each instance records its role and whether it runs workers, the planner and listening, and `GetInstancesAsync` and `GET /instances` show them (`InstanceInfo.Role`, `RunsWorkers`, `RunsPlanner`, `ListensForChanges`). Migration 15 adds those columns and the `switches` table that the next change uses to turn them on and off from the monitor.
+
+### Changed
+
+- An instance's id is now its host, its process id and a random part. Two containers that share a hostname and both run as process 1 had the same id, so the monitor showed them as one instance; job writes were already safe through the lease generation. Worker names in `leased_by` start with the new id.
+
 ## [0.6.3] - 2026-11-18
 
 Taking a job stays fast when many jobs wait: a new index and fresh statistics after a large planning round, found by a load test that ships with the repository. Migration 14 adds one index; nothing else changes for your code.

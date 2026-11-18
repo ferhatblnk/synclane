@@ -23,7 +23,9 @@ internal sealed partial class InstanceRegistry(
     {
         var now = time.GetUtcNow();
         var queues = InstanceRules.Runs(options);
-        var me = new InstanceRow(identity.Id, identity.Application, identity.Host, identity.Version, queues, options.DescribeBudgets(), now, now);
+        var me = new InstanceRow(
+            identity.Id, identity.Application, identity.Host, identity.Version, queues, options.DescribeBudgets(), now, now,
+            Role: identity.Role, RunsWorkers: options.RunWorkers, RunsPlanner: options.RunPlanner, Listens: options.ListenForChanges);
 
         var (live, refused) = await store.RegisterAsync(
             me, now - InstanceRules.GoneAfter, others => InstanceRules.Conflicts(identity, queues, others, now), cancellationToken);

@@ -21,6 +21,7 @@ internal static class Migrations
         new(12, "ordered lanes", OrderedLanes),
         new(13, "lease generation", LeaseGeneration),
         new(14, "lease order", LeaseOrder),
+        new(15, "switches", Switches),
     ];
 
     public static int Latest => All[^1].Version;
@@ -374,6 +375,33 @@ internal static class Migrations
 
         CREATE INDEX IF NOT EXISTS jobs_lane_order
             ON {schema}.{JobSql.TableName} (queue, lane, id) WHERE status <> 'completed';
+        """;
+
+    /// <summary>
+    /// Switches an operator sets per application and role to turn the workers, the planner and listening on or off
+    /// without a deploy; a value left null keeps what the application's own settings say. Each instance also records
+    /// its role and what it runs, so the monitor can show the effect. Older instances neither read the switches nor
+    /// write the new columns, which stay null for them.
+    /// </summary>
+    private static string Switches(string schema) =>
+        $"""
+        CREATE TABLE IF NOT EXISTS {schema}.switches (
+            application text NOT NULL,
+            role text NOT NULL DEFAULT '',
+            run_workers boolean,
+            run_planner boolean,
+            listen boolean,
+            changed_by text,
+            reason text,
+            changed_at timestamptz NOT NULL,
+            PRIMARY KEY (application, role)
+        );
+
+        ALTER TABLE {schema}.{InstanceSql.TableName}
+            ADD COLUMN IF NOT EXISTS role text NOT NULL DEFAULT '',
+            ADD COLUMN IF NOT EXISTS runs_workers boolean,
+            ADD COLUMN IF NOT EXISTS runs_planner boolean,
+            ADD COLUMN IF NOT EXISTS listens boolean;
         """;
 
     /// <summary>

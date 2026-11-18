@@ -107,7 +107,14 @@ internal sealed class InstanceStore(NpgsqlDataSource dataSource, InstanceSql sql
         parameters.AddWithValue("budgets", WriteBudgets(me.Budgets));
         parameters.AddWithValue("started_at", me.StartedAt.ToUniversalTime());
         parameters.AddWithValue("now", now.ToUniversalTime());
+        parameters.AddWithValue("role", me.Role);
+        parameters.Add(Flag("runs_workers", me.RunsWorkers));
+        parameters.Add(Flag("runs_planner", me.RunsPlanner));
+        parameters.Add(Flag("listens", me.Listens));
     }
+
+    private static NpgsqlParameter Flag(string name, bool? value) =>
+        new(name, NpgsqlDbType.Boolean) { Value = value is { } flag ? flag : DBNull.Value };
 
     private static InstanceRow Read(NpgsqlDataReader reader) => new(
         reader.GetString(0),
@@ -118,7 +125,11 @@ internal sealed class InstanceStore(NpgsqlDataSource dataSource, InstanceSql sql
         ReadBudgets(reader.GetString(5)),
         reader.GetFieldValue<DateTimeOffset>(6),
         reader.GetFieldValue<DateTimeOffset>(7),
-        reader.IsDBNull(8) ? null : reader.GetFieldValue<DateTimeOffset>(8));
+        reader.IsDBNull(8) ? null : reader.GetFieldValue<DateTimeOffset>(8),
+        reader.GetString(9),
+        reader.IsDBNull(10) ? null : reader.GetBoolean(10),
+        reader.IsDBNull(11) ? null : reader.GetBoolean(11),
+        reader.IsDBNull(12) ? null : reader.GetBoolean(12));
 
     // Written and read by hand: a few fields at start-up and every half minute, and no serializer to keep in step.
     internal static string WriteBudgets(IReadOnlyList<BudgetDescription> budgets)

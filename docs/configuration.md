@@ -14,6 +14,7 @@ Every setting has a default that is right for most installations; set one only f
 | `PollInterval` | 5 seconds | How long an idle worker slot waits before it looks again. A job created or put back in line wakes it at once, from any instance. |
 | `AddBudget(name, limit, per, burst, start)` | none | A rate budget: at most `limit` requests per `per`, at most `burst` at once (default 1, evenly spaced). It starts at `start` times the limit (default 1) and learns below it. |
 | `Application` | the host's application name | The name instances register under. Copies of one application share its queues; another application that runs one of them is refused at start-up. See [Several applications on one schema](operations.md#several-applications-on-one-schema). |
+| `Role` | none | What this copy of the application does, when one build runs as several kinds of process, such as web instances and a worker: set `SyncLane__Role=worker` in the worker's environment. The monitor shows it per instance. |
 | `KeepCompletedJobs` | 7 days | How long completed recurring and manual jobs stay before instances that run the planner delete them. Initial jobs and unfinished jobs stay. `null` keeps everything. |
 | `MaxBudgetWait` | 30 seconds | The longest a request waits for a budget's token inside a job; a longer wait postpones the job. |
 | `queue.Concurrency` | `1` | Jobs of the queue one process runs at once. `1` makes the queue strictly sequential. |
