@@ -9,13 +9,14 @@ namespace SyncLane.Storage;
 internal sealed class InstanceStore(NpgsqlDataSource dataSource, InstanceSql sql)
 {
     /// <summary>
-    /// Registers <paramref name="me"/> unless <paramref name="refuse"/>, given the live instances of the moment, returns
-    /// errors. Reading and writing happen in one transaction behind a lock, so the decision cannot go stale.
+    /// Writes the row <paramref name="decide"/> makes from the live instances of the moment and this application's
+    /// switch, and returns it with the errors it gave. When it gives no row, nothing is written. Reading and writing
+    /// happen in one transaction behind a lock, so the decision cannot go stale.
     /// </summary>
-    public async Task<(IReadOnlyList<InstanceRow> Live, IReadOnlyList<SyncError> Refused)> RegisterAsync(
-        InstanceRow me,
+    public async Task<(IReadOnlyList<InstanceRow> Live, InstanceRow? Written, IReadOnlyList<SyncError> Refused)> RegisterAsync(
+        InstanceIdentity me,
         DateTimeOffset aliveSince,
-        Func<IReadOnlyList<InstanceRow>, IReadOnlyList<SyncError>> refuse,
+        Func<IReadOnlyList<InstanceRow>, SwitchRow?, (InstanceRow? Row, IReadOnlyList<SyncError> Refused)> decide,
         CancellationToken cancellationToken)
     {
         await using var connection = await dataSource.OpenConnectionAsync(cancellationToken);
@@ -29,8 +30,10 @@ internal sealed class InstanceStore(NpgsqlDataSource dataSource, InstanceSql sql
         liveCommand.Parameters.AddWithValue("alive_since", aliveSince.ToUniversalTime());
         batch.BatchCommands.Add(lockCommand);
         batch.BatchCommands.Add(liveCommand);
+        batch.BatchCommands.Add(SwitchCommand(me));
 
         var live = new List<InstanceRow>();
+        SwitchRow? set;
         await using (var reader = await batch.ExecuteReaderAsync(cancellationToken))
         {
             await reader.NextResultAsync(cancellationToken);
@@ -38,21 +41,28 @@ internal sealed class InstanceStore(NpgsqlDataSource dataSource, InstanceSql sql
             // Sequential: reading rows of one data reader.
             while (await reader.ReadAsync(cancellationToken))
                 live.Add(Read(reader));
+
+            await reader.NextResultAsync(cancellationToken);
+            set = await ReadSwitchAsync(reader, cancellationToken);
         }
 
-        var refused = refuse(live);
-        if (refused.Count > 0)
-            return (live, refused);
+        var (row, refused) = decide(live, set);
+        if (row is null)
+            return (live, null, refused);
 
-        await using (var upsert = Upsert(connection, transaction, me, me.HeartbeatAt))
+        await using (var upsert = Upsert(connection, transaction, row, row.HeartbeatAt))
             await upsert.ExecuteNonQueryAsync(cancellationToken);
 
         await transaction.CommitAsync(cancellationToken);
-        return (live, []);
+        return (live, row, refused);
     }
 
-    /// <summary>Says this instance is alive and forgets instances silent since <paramref name="forgetBefore"/>, in one round trip.</summary>
-    public async Task HeartbeatAsync(InstanceRow me, DateTimeOffset now, DateTimeOffset forgetBefore, CancellationToken cancellationToken)
+    /// <summary>
+    /// Says this instance is alive, forgets instances silent since <paramref name="forgetBefore"/> and reads this
+    /// application's switch, in one round trip.
+    /// </summary>
+    public async Task<SwitchRow?> HeartbeatAsync(
+        InstanceIdentity identity, InstanceRow me, DateTimeOffset now, DateTimeOffset forgetBefore, CancellationToken cancellationToken)
     {
         await using var connection = await dataSource.OpenConnectionAsync(cancellationToken);
         await using var batch = new NpgsqlBatch(connection);
@@ -61,11 +71,35 @@ internal sealed class InstanceStore(NpgsqlDataSource dataSource, InstanceSql sql
         AddValues(upsert.Parameters, me, now);
         var forget = new NpgsqlBatchCommand(sql.Forget);
         forget.Parameters.AddWithValue("forget_before", forgetBefore.ToUniversalTime());
+        batch.BatchCommands.Add(SwitchCommand(identity));
         batch.BatchCommands.Add(upsert);
         batch.BatchCommands.Add(forget);
 
-        await batch.ExecuteNonQueryAsync(cancellationToken);
+        await using var reader = await batch.ExecuteReaderAsync(cancellationToken);
+        var set = await ReadSwitchAsync(reader, cancellationToken);
+
+        // Sequential: the remaining results of one batch, so an error in the upsert or the clean-up is not lost.
+        while (await reader.NextResultAsync(cancellationToken))
+        {
+        }
+
+        return set;
     }
+
+    private NpgsqlBatchCommand SwitchCommand(InstanceIdentity me)
+    {
+        var command = new NpgsqlBatchCommand(sql.Switch);
+        command.Parameters.AddWithValue("application", me.Application);
+        command.Parameters.AddWithValue("role", me.Role);
+        return command;
+    }
+
+    private static async Task<SwitchRow?> ReadSwitchAsync(NpgsqlDataReader reader, CancellationToken cancellationToken) =>
+        await reader.ReadAsync(cancellationToken)
+            ? new SwitchRow(Flag(reader, 0), Flag(reader, 1), Flag(reader, 2))
+            : null;
+
+    private static bool? Flag(NpgsqlDataReader reader, int ordinal) => reader.IsDBNull(ordinal) ? null : reader.GetBoolean(ordinal);
 
     /// <summary>Every registered instance, live or gone, by application.</summary>
     public async Task<List<InstanceRow>> AllAsync(CancellationToken cancellationToken)

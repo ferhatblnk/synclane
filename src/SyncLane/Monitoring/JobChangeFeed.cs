@@ -50,6 +50,7 @@ internal sealed partial class JobChangeFeed(
     private readonly string _channel = ChangeChannel.For(schema);
     private readonly ConcurrentDictionary<Channel<JobChange>, (string? Queue, string? Owner)> _readers = new();
     private readonly ConcurrentDictionary<Channel<PauseSignal>, byte> _pauseReaders = new();
+    private readonly ConcurrentDictionary<Channel<SwitchSignal>, byte> _switchReaders = new();
     private readonly CancellationTokenSource _stopping = new();
     private readonly Lock _gate = new();
     private Task? _listening;
@@ -96,6 +97,26 @@ internal sealed partial class JobChangeFeed(
         }
     }
 
+    /// <summary>Switches as operators change them, on any instance, until <paramref name="cancellationToken"/> ends the reading.</summary>
+    public async IAsyncEnumerable<SwitchSignal> ReadSwitchesAsync([EnumeratorCancellation] CancellationToken cancellationToken)
+    {
+        var reader = Channel.CreateBounded<SwitchSignal>(
+            new BoundedChannelOptions(ReaderCapacity) { FullMode = BoundedChannelFullMode.DropOldest, SingleReader = true });
+        _switchReaders[reader] = 0;
+        EnsureListening();
+
+        try
+        {
+            // Sequential: reading one channel in order.
+            await foreach (var signal in reader.Reader.ReadAllAsync(cancellationToken))
+                yield return signal;
+        }
+        finally
+        {
+            _switchReaders.TryRemove(reader, out _);
+        }
+    }
+
     /// <summary>Completes once the connection listens, so a caller can make changes knowing they will be seen.</summary>
     internal Task ListeningAsync(CancellationToken cancellationToken)
     {
@@ -112,6 +133,8 @@ internal sealed partial class JobChangeFeed(
         foreach (var reader in _readers.Keys)
             reader.Writer.TryComplete();
         foreach (var reader in _pauseReaders.Keys)
+            reader.Writer.TryComplete();
+        foreach (var reader in _switchReaders.Keys)
             reader.Writer.TryComplete();
 
         await _listenSource.DisposeAsync();
@@ -257,6 +280,13 @@ internal sealed partial class JobChangeFeed(
             return;
         }
 
+        if (ReadSwitch(notification.Payload) is { } changed)
+        {
+            foreach (var reader in _switchReaders.Keys)
+                reader.Writer.TryWrite(changed);
+            return;
+        }
+
         if (Read(notification.Payload) is not { } change)
             return;
 
@@ -309,6 +339,23 @@ internal sealed partial class JobChangeFeed(
 
             return resumed is { } isResume
                 ? new PauseSignal(root.GetProperty("queue").GetString()!, root.GetProperty("owner").GetString()!, isResume)
+                : null;
+        }
+        catch (Exception exception) when (exception is JsonException or KeyNotFoundException or InvalidOperationException)
+        {
+            return null;
+        }
+    }
+
+    /// <summary>A switch announcement, or <c>null</c> for anything else.</summary>
+    internal static SwitchSignal? ReadSwitch(string payload)
+    {
+        try
+        {
+            using var document = JsonDocument.Parse(payload);
+            var root = document.RootElement;
+            return root.TryGetProperty("control", out var control) && control.GetString() == "switch"
+                ? new SwitchSignal(root.GetProperty("application").GetString()!, root.GetProperty("role").GetString()!)
                 : null;
         }
         catch (Exception exception) when (exception is JsonException or KeyNotFoundException or InvalidOperationException)

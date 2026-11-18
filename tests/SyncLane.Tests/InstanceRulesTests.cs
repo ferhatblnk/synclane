@@ -33,8 +33,9 @@ public class InstanceRulesTests
         var options = new SyncLaneOptions { RunPlanner = false, RunWorkers = false }
             .AddQueue("orders", queue => queue.Handle<Support.ProductHandler>("products"));
 
-        Assert.Empty(InstanceRules.Runs(options));
-        Assert.Equal(["orders"], InstanceRules.Runs(new SyncLaneOptions().AddQueue("orders", queue => queue.Handle<Support.ProductHandler>("products"))));
+        Assert.Empty(InstanceRules.Runs(options, workers: false, planner: false));
+        Assert.Equal(["orders"], InstanceRules.Runs(options, workers: true, planner: false));
+        Assert.Equal(["orders"], InstanceRules.Runs(options, workers: false, planner: true));
     }
 
     [Fact]

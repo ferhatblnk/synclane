@@ -159,6 +159,72 @@ public class InstanceTests : PostgresTest
     }
 
     [PostgresFact]
+    public async Task A_switch_in_the_database_overrides_the_options_from_the_start()
+    {
+        await SwitchAsync("shop", "", workers: false, planner: false);
+        var roles = new RoleSwitch();
+
+        await Registry("shop", "web-1:1:aaaaaa", ["orders"], roles: roles).StartAsync(CancellationToken.None);
+
+        Assert.Equal((false, false), (roles.Workers, roles.Planner));
+        Assert.Equal(0, await ScalarAsync<int>($"SELECT cardinality(queues) FROM {Schema}.instances"));
+    }
+
+    [PostgresFact]
+    public async Task A_switch_set_while_running_takes_effect_with_the_next_heartbeat_and_claims_the_queues()
+    {
+        var roles = new RoleSwitch();
+        var registry = Registry("shop", "worker-1:1:aaaaaa", ["orders"], runs: false, roles: roles);
+        await registry.StartAsync(CancellationToken.None);
+        var before = (roles.Workers, roles.Planner);
+
+        await SwitchAsync("shop", "", workers: true, planner: true);
+        await registry.HeartbeatAsync(CancellationToken.None);
+
+        Assert.Equal((false, false), before);
+        Assert.Equal((true, true), (roles.Workers, roles.Planner));
+        Assert.Equal(["orders"], (await ScalarAsync<string[]>($"SELECT queues FROM {Schema}.instances"))!);
+    }
+
+    [PostgresFact]
+    public async Task A_switch_covers_one_role_and_a_value_left_empty_keeps_the_options()
+    {
+        await ExecuteAsync(
+            $"INSERT INTO {Schema}.switches (application, role, run_workers, run_planner, changed_at) VALUES ('shop', 'worker', NULL, false, now())");
+        var web = new RoleSwitch();
+        var worker = new RoleSwitch();
+
+        await Registry("shop", "web-1:1:aaaaaa", ["orders"], runs: false, roles: web).StartAsync(CancellationToken.None);
+        await Registry("shop", "worker-1:1:bbbbbb", ["orders"], role: "worker", roles: worker).StartAsync(CancellationToken.None);
+
+        Assert.Equal((false, false), (web.Workers, web.Planner));
+        Assert.Equal((true, false), (worker.Workers, worker.Planner));
+    }
+
+    [PostgresFact]
+    public async Task A_switch_that_would_run_a_queue_another_application_runs_leaves_it_off_and_the_health_check_says_why()
+    {
+        await Registry("billing", "billing-1:1:aaaaaa", ["orders"]).StartAsync(CancellationToken.None);
+        var roles = new RoleSwitch();
+        var health = new Monitoring.HealthSignals();
+        var shop = Registry("shop", "shop-1:1:bbbbbb", ["orders"], runs: false, roles: roles, health: health);
+        await shop.StartAsync(CancellationToken.None);
+
+        await SwitchAsync("shop", "", workers: true, planner: true);
+        await shop.HeartbeatAsync(CancellationToken.None);
+
+        Assert.Equal((false, false), (roles.Workers, roles.Planner));
+        Assert.Contains("billing", health.SwitchRefused);
+        Assert.Equal(0, await ScalarAsync<int>($"SELECT cardinality(queues) FROM {Schema}.instances WHERE application = 'shop'"));
+    }
+
+    private Task<int> SwitchAsync(string application, string role, bool workers, bool planner) =>
+        ExecuteAsync(
+            $"INSERT INTO {Schema}.switches (application, role, run_workers, run_planner, changed_at) " +
+            $"VALUES ('{application}', '{role}', {workers}, {planner}, now()) " +
+            "ON CONFLICT (application, role) DO UPDATE SET run_workers = excluded.run_workers, run_planner = excluded.run_planner");
+
+    [PostgresFact]
     public async Task A_budget_declared_differently_elsewhere_does_not_stop_the_start_and_both_declarations_are_stored()
     {
         await Registry("shipping", "host-a:1", ["orders"], budget: 10).StartAsync(CancellationToken.None);
@@ -169,7 +235,9 @@ public class InstanceTests : PostgresTest
         Assert.Contains("\"limit\": 5", stored);
     }
 
-    private InstanceRegistry Registry(string application, string id, string[] queues, bool runs = true, int? budget = null, string role = "")
+    private InstanceRegistry Registry(
+        string application, string id, string[] queues, bool runs = true, int? budget = null, string role = "",
+        RoleSwitch? roles = null, Monitoring.HealthSignals? health = null)
     {
         var options = new SyncLaneOptions { RunPlanner = runs, RunWorkers = runs, ListenForChanges = runs };
         foreach (var queue in queues)
@@ -181,8 +249,10 @@ public class InstanceTests : PostgresTest
             options,
             new InstanceStore(Store.DataSource, new InstanceSql(Schema)),
             new InstanceIdentity(id, id.Split(':')[0], application, role, "1.0.0"),
+            roles ?? new RoleSwitch(),
+            new Monitoring.JobChangeFeed(ConnectionString!, Store.DataSource, Schema, _clock, NullLogger<Monitoring.JobChangeFeed>.Instance, listens: false),
             _clock,
-            new Monitoring.HealthSignals(),
+            health ?? new Monitoring.HealthSignals(),
             NullLogger<InstanceRegistry>.Instance);
     }
 

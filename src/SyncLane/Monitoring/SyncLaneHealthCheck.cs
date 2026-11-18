@@ -14,8 +14,9 @@ namespace SyncLane;
 /// renewed its registration for as long as other instances wait before they count it as gone.
 /// </para>
 /// <para>
-/// Degraded: it has not registered yet, the latest planning round of a queue failed, or it does not hear job changes
-/// (behind a pooler in transaction mode, or while it reconnects); workers still find jobs by polling.
+/// Degraded: it has not registered yet, the latest planning round of a queue failed, the switch in the database turns
+/// its workers or planner on but another application runs one of its queues, or it does not hear job changes (behind a
+/// pooler in transaction mode, or while it reconnects); workers still find jobs by polling.
 /// </para>
 /// <para>
 /// Each check costs one small query. Descriptions name what is wrong and how to fix it, and never hold a connection
@@ -71,6 +72,9 @@ public sealed class SyncLaneHealthCheck : IHealthCheck
         var problems = new List<string>();
         foreach (var (queue, since) in _signals.PlanFailures.OrderBy(failure => failure.Key, StringComparer.Ordinal))
             problems.Add($"Planning queue {queue} has failed since {since:O}; no new jobs are planned for it. The log says why.");
+
+        if (_signals.SwitchRefused is { } refused)
+            problems.Add($"The switch in the database turns this instance's workers or planner on, but they stay off: {refused}");
 
         switch (_feed.State)
         {

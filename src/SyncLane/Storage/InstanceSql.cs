@@ -47,6 +47,8 @@ internal sealed class InstanceSql
 
         Forget = $"DELETE FROM {table} WHERE heartbeat_at < @forget_before";
 
+        Switch = $"SELECT run_workers, run_planner, listen FROM {schema}.switches WHERE application = @application AND role = @role";
+
         Stop = $"UPDATE {table} SET stopped_at = @now WHERE id = @id";
 
         All = $"SELECT {columns} FROM {table} ORDER BY application, id";
@@ -63,6 +65,9 @@ internal sealed class InstanceSql
     public string Upsert { get; }
 
     public string Forget { get; }
+
+    /// <summary>The switch an operator set for one application and role, if any.</summary>
+    public string Switch { get; }
 
     public string Stop { get; }
 }

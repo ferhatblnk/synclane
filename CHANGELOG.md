@@ -6,7 +6,8 @@ All notable changes to this project are recorded here. The format follows [Keep 
 
 ### Added
 
-- `options.Role` (`SyncLane:Role`): what this copy of the application does, for one build deployed as web instances and a worker. Each instance records its role and whether it runs workers, the planner and listening, and `GetInstancesAsync` and `GET /instances` show them (`InstanceInfo.Role`, `RunsWorkers`, `RunsPlanner`, `ListensForChanges`). Migration 15 adds those columns and the `switches` table that the next change uses to turn them on and off from the monitor.
+- `options.Role` (`SyncLane:Role`): what this copy of the application does, for one build deployed as web instances and a worker. Each instance records its role and whether it runs workers, the planner and listening, and `GetInstancesAsync` and `GET /instances` show them (`InstanceInfo.Role`, `RunsWorkers`, `RunsPlanner`, `ListensForChanges`). Migration 15 adds those columns and the `switches` table.
+- Workers and the planner can be switched on and off without a deploy: a row in `switches` for an application and role overrides `RunWorkers` and `RunPlanner` where it holds a value. Instances read it at start-up and with every heartbeat; one whose workers run hears a change at once. Switched-off workers hand their running jobs back with their cursors, without using an attempt. A switch that would run a queue another application runs leaves the instance off, and its health check says why. Until the monitor can set switches, write the row with SQL ([D68](ARCHITECTURE.md)).
 
 ### Changed
 

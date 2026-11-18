@@ -9,46 +9,47 @@ namespace SyncLane.Instances;
 /// a live instance of another application runs one of its queues: their workers would take each other's jobs and give
 /// up the types they do not know. Then it says it is alive every half minute, and marks itself stopped when it stops.
 /// </summary>
+/// <remarks>
+/// It also decides whether the workers and the planner run: the options say so, unless an operator set a switch for this
+/// application and role in the database. The switch is read at registration and with every heartbeat; while the
+/// workers run, a switch announced for this application is read at once, so turning them off takes effect immediately
+/// and turning them on within half a minute. A switch that would turn them on while another application runs one of the
+/// queues leaves them off, and the health check says why.
+/// </remarks>
 internal sealed partial class InstanceRegistry(
     SyncLaneOptions options,
     InstanceStore store,
     InstanceIdentity identity,
+    RoleSwitch roles,
+    Monitoring.JobChangeFeed changes,
     TimeProvider time,
     Monitoring.HealthSignals health,
     ILogger<InstanceRegistry> logger) : BackgroundService
 {
+    private readonly SemaphoreSlim _settling = new(1, 1);
     private InstanceRow? _me;
+    private string? _refused;
 
     public override async Task StartAsync(CancellationToken cancellationToken)
     {
         var now = time.GetUtcNow();
-        var queues = InstanceRules.Runs(options);
-        var me = new InstanceRow(
-            identity.Id, identity.Application, identity.Host, identity.Version, queues, options.DescribeBudgets(), now, now,
-            Role: identity.Role, RunsWorkers: options.RunWorkers, RunsPlanner: options.RunPlanner, Listens: options.ListenForChanges);
-
-        var (live, refused) = await store.RegisterAsync(
-            me, now - InstanceRules.GoneAfter, others => InstanceRules.Conflicts(identity, queues, others, now), cancellationToken);
-        if (refused.Count > 0)
+        var (live, me, refused) = await store.RegisterAsync(
+            identity, now - InstanceRules.GoneAfter, (others, set) => Decide(others, set, now, now, refuseConflicts: true), cancellationToken);
+        if (me is null)
             throw new SyncLaneException(refused);
 
         foreach (var (mine, theirs, other) in InstanceRules.Disagreements(me.Budgets, live))
             LogBudgetDisagrees(mine.Name, mine.Limit, mine.Per, mine.Burst, other.Id, other.Application, theirs.Limit, theirs.Per, theirs.Burst);
 
         _me = me;
+        roles.Set(me.RunsWorkers == true, me.RunsPlanner == true);
         health.Heartbeat(now);
-        LogRegistered(identity.Id, identity.Application, queues.Count);
+        LogRegistered(identity.Id, identity.Application, me.Queues.Count);
         await base.StartAsync(cancellationToken);
     }
 
-    protected override async Task ExecuteAsync(CancellationToken stoppingToken)
-    {
-        using var timer = new PeriodicTimer(InstanceRules.HeartbeatInterval, time);
-
-        // Sequential: a timer loop; one heartbeat per interval.
-        while (await timer.WaitForNextTickAsync(stoppingToken))
-            await HeartbeatAsync(stoppingToken);
-    }
+    protected override Task ExecuteAsync(CancellationToken stoppingToken) =>
+        Task.WhenAll(BeatAsync(stoppingToken), HearSwitchesAsync(stoppingToken));
 
     public override async Task StopAsync(CancellationToken cancellationToken)
     {
@@ -71,16 +72,131 @@ internal sealed partial class InstanceRegistry(
         if (_me is null)
             return;
 
+        var settle = false;
+        await _settling.WaitAsync(cancellationToken);
         try
         {
             var now = time.GetUtcNow();
-            await store.HeartbeatAsync(_me, now, now - InstanceRules.ForgetAfter, cancellationToken);
+            var set = await store.HeartbeatAsync(identity, _me, now, now - InstanceRules.ForgetAfter, cancellationToken);
             health.Heartbeat(now);
+            settle = Wanted(set) != (roles.Workers, roles.Planner);
         }
         catch (Exception exception) when (!cancellationToken.IsCancellationRequested)
         {
             LogHeartbeatFailed(exception, identity.Id);
         }
+        finally
+        {
+            _settling.Release();
+        }
+
+        if (settle)
+            await SettleAsync(cancellationToken);
+    }
+
+    /// <summary>
+    /// Reads this application's switch and the live instances behind the registration lock, and turns the workers and
+    /// the planner on or off to match.
+    /// </summary>
+    internal async Task SettleAsync(CancellationToken cancellationToken)
+    {
+        if (_me is not { } before)
+            return;
+
+        await _settling.WaitAsync(cancellationToken);
+        try
+        {
+            var now = time.GetUtcNow();
+            var (_, me, refused) = await store.RegisterAsync(
+                identity, now - InstanceRules.GoneAfter, (others, set) => Decide(others, set, before.StartedAt, now, refuseConflicts: false), cancellationToken);
+            _me = me!;
+            roles.Set(_me.RunsWorkers == true, _me.RunsPlanner == true);
+            if ((_me.RunsWorkers, _me.RunsPlanner) != (before.RunsWorkers, before.RunsPlanner))
+                LogSwitched(identity.Id, _me.RunsWorkers == true, _me.RunsPlanner == true);
+
+            var why = refused.Count == 0 ? null : string.Join(' ', refused.Select(error => error.Message));
+            if (why is not null && why != _refused)
+                LogSwitchRefused(identity.Id, why);
+
+            _refused = why;
+            health.Refused(why);
+        }
+        catch (Exception exception) when (!cancellationToken.IsCancellationRequested)
+        {
+            LogSettleFailed(exception, identity.Id);
+        }
+        finally
+        {
+            _settling.Release();
+        }
+    }
+
+    private async Task BeatAsync(CancellationToken stoppingToken)
+    {
+        using var timer = new PeriodicTimer(InstanceRules.HeartbeatInterval, time);
+
+        // Sequential: a timer loop; one heartbeat per interval.
+        while (await timer.WaitForNextTickAsync(stoppingToken))
+            await HeartbeatAsync(stoppingToken);
+    }
+
+    /// <summary>
+    /// While the workers run, reads a switch announced for this application and role at once. An instance whose workers
+    /// are off opens no listening connection for it and reads the switch with its next heartbeat.
+    /// </summary>
+    private async Task HearSwitchesAsync(CancellationToken stopping)
+    {
+        try
+        {
+            // Sequential: a switch loop; announcements are heard while the workers run.
+            while (!stopping.IsCancellationRequested)
+            {
+                var on = await roles.WorkersOnAsync(stopping);
+                using var hearing = CancellationTokenSource.CreateLinkedTokenSource(stopping, on);
+                try
+                {
+                    // Sequential: reading the announcements in order.
+                    await foreach (var signal in changes.ReadSwitchesAsync(hearing.Token))
+                    {
+                        if (signal.Application == identity.Application && signal.Role == identity.Role)
+                            await SettleAsync(stopping);
+                    }
+                }
+                catch (OperationCanceledException) when (!stopping.IsCancellationRequested)
+                {
+                }
+            }
+        }
+        catch (OperationCanceledException) when (stopping.IsCancellationRequested)
+        {
+        }
+    }
+
+    private (bool Workers, bool Planner) Wanted(SwitchRow? set) =>
+        (set?.RunWorkers ?? options.RunWorkers, set?.RunPlanner ?? options.RunPlanner);
+
+    /// <summary>
+    /// The row this instance writes: what it runs, given the switch and the live instances. A queue another application
+    /// runs stops the start when <paramref name="refuseConflicts"/>; later it only keeps the workers and the planner off.
+    /// </summary>
+    private (InstanceRow? Row, IReadOnlyList<SyncError> Refused) Decide(
+        IReadOnlyList<InstanceRow> live, SwitchRow? set, DateTimeOffset startedAt, DateTimeOffset now, bool refuseConflicts)
+    {
+        var (workers, planner) = Wanted(set);
+        var queues = InstanceRules.Runs(options, workers, planner);
+        var conflicts = InstanceRules.Conflicts(identity, queues, live, now);
+        if (conflicts.Count > 0)
+        {
+            if (refuseConflicts)
+                return (null, conflicts);
+
+            (workers, planner, queues) = (false, false, []);
+        }
+
+        var row = new InstanceRow(
+            identity.Id, identity.Application, identity.Host, identity.Version, queues, options.DescribeBudgets(), startedAt, now,
+            Role: identity.Role, RunsWorkers: workers, RunsPlanner: planner, Listens: options.ListenForChanges);
+        return (row, conflicts);
     }
 
     [LoggerMessage(Level = LogLevel.Information, Message = "SyncLane instance {Instance} of {Application} registered, running {Queues} queues.")]
@@ -95,6 +211,16 @@ internal sealed partial class InstanceRegistry(
 
     [LoggerMessage(Level = LogLevel.Warning, Message = "SyncLane instance {Instance} could not say it is alive and tries again in half a minute.")]
     private partial void LogHeartbeatFailed(Exception exception, string instance);
+
+    [LoggerMessage(Level = LogLevel.Information, Message = "SyncLane instance {Instance} switched: workers {Workers}, planner {Planner}.")]
+    private partial void LogSwitched(string instance, bool workers, bool planner);
+
+    [LoggerMessage(Level = LogLevel.Warning, Message =
+        "The switch in the database turns the workers or the planner of SyncLane instance {Instance} on, but they stay off: {Why}")]
+    private partial void LogSwitchRefused(string instance, string why);
+
+    [LoggerMessage(Level = LogLevel.Warning, Message = "SyncLane instance {Instance} could not read its switch and tries again with its next heartbeat.")]
+    private partial void LogSettleFailed(Exception exception, string instance);
 
     [LoggerMessage(Level = LogLevel.Warning, Message = "SyncLane instance {Instance} could not mark itself stopped; it counts as gone {GoneAfter} after its last heartbeat.")]
     private partial void LogStopFailed(Exception exception, string instance, TimeSpan goneAfter);
