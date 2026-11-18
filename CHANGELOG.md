@@ -4,15 +4,19 @@ All notable changes to this project are recorded here. The format follows [Keep 
 
 ## [Unreleased]
 
+## [0.6.3] - 2026-11-18
+
+Taking a job stays fast when many jobs wait: a new index and fresh statistics after a large planning round, found by a load test that ships with the repository. Migration 14 adds one index; nothing else changes for your code.
+
 ### Added
 
-- A load test you can run yourself: [samples/LoadTest](samples/LoadTest/README.md) starts PostgreSQL, a pretend API with a hidden limit and SyncLane instances, loads the history of 1,000 accounts, and reports how fast it drained and whether any page was lost, written twice, or sent above an account's budget, with the pretend API as an independent witness.
+- A load test you can run yourself: [samples/LoadTest](samples/LoadTest/README.md) starts PostgreSQL, a pretend API with a hidden limit and SyncLane instances, loads the history of 1,000 accounts, and reports how fast it drained and whether any page was lost, written twice, or sent above an account's budget, with the pretend API as an independent witness (#52).
 
 ### Changed
 
-- Taking a job no longer slows down as jobs pile up. The lease read and sorted every waiting job to find the next one; with 25,000 jobs waiting and 64 slots asking at once that took 219 ms on average and up to 15.6 s, and the queue drained at half its speed. It now walks a new index in its own order (`jobs_lease_order`, migration 14) and stops at the first job it may take, and a planning round that adds at least 1,000 jobs, more than a tenth of the table, refreshes the table's statistics at once instead of waiting up to a minute for autovacuum. In the load test with a fast API the same history drained in 47 s instead of 143 s, 5,331 pages a second instead of 1,749; with a realistic API it reached 97% of what the rate budgets allow, up from 88%. Migration 14 builds an index on the jobs that have not completed; on a large table see [Upgrading the schema](docs/operations.md#upgrading-the-schema) for building it without blocking writes.
-- Two pictures: the architecture opens the README (the schema and the indexes behind the guarantees, the engine's parts inside your application, the recipe pipeline, and what it promises), and how a job runs opens [how-it-works.md](docs/how-it-works.md) (its path, its failures, a worker going away, a `429`). Three diagrams join the docs: a page from lease to saved cursor ([how-it-works.md](docs/how-it-works.md#running-a-job)), a `429` pausing a budget on every instance, and a curl becoming a recipe ([recipes.md](docs/recipes.md)).
-- The README says what SyncLane aims to be: quick to connect, compact, taking the hard parts on itself, safe by default, and open; and that support for other databases than PostgreSQL is planned.
+- Taking a job no longer slows down as jobs pile up. The lease read and sorted every waiting job to find the next one; with 25,000 jobs waiting and 64 slots asking at once that took 219 ms on average and up to 15.6 s, and the queue drained at half its speed. It now walks a new index in its own order (`jobs_lease_order`, migration 14) and stops at the first job it may take, and a planning round that adds at least 1,000 jobs, more than a tenth of the table, refreshes the table's statistics at once instead of waiting up to a minute for autovacuum. In the load test with a fast API the same history drained in 47 s instead of 143 s, 5,331 pages a second instead of 1,749; with a realistic API it reached 97% of what the rate budgets allow, up from 88%. Migration 14 builds an index on the jobs that have not completed; on a large table see [Upgrading the schema](docs/operations.md#upgrading-the-schema) for building it without blocking writes (#53).
+- Two pictures: the architecture opens the README (the schema and the indexes behind the guarantees, the engine's parts inside your application, the recipe pipeline, and what it promises), and how a job runs opens [how-it-works.md](docs/how-it-works.md) (its path, its failures, a worker going away, a `429`). Three diagrams join the docs: a page from lease to saved cursor ([how-it-works.md](docs/how-it-works.md#running-a-job)), a `429` pausing a budget on every instance, and a curl becoming a recipe ([recipes.md](docs/recipes.md)) (#51).
+- The README says what SyncLane aims to be: quick to connect, compact, taking the hard parts on itself, safe by default, and open; and that support for other databases than PostgreSQL is planned (#51).
 
 ## [0.6.2] - 2026-11-17
 
