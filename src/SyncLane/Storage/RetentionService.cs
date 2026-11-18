@@ -4,12 +4,12 @@ using Microsoft.Extensions.Logging;
 namespace SyncLane.Storage;
 
 /// <summary>
-/// Deletes completed recurring and manual jobs older than <see cref="SyncLaneOptions.KeepCompletedJobs"/>, at start-up
-/// and then every hour. Only the declared queues are cleaned, so instances of other applications sharing the table keep
+/// Deletes completed recurring and manual jobs older than <see cref="SyncLaneOptions.KeepCompletedJobs"/> while the
+/// planner is on: when it comes on, and then every hour. Only the declared queues are cleaned, so instances of other applications sharing the table keep
 /// their own rules. Batches are small and skip locked rows, so several instances can clean at once without waiting.
 /// </summary>
 internal sealed partial class RetentionService(
-    SyncLaneOptions options, JobStore store, TimeProvider time, ILogger<RetentionService> logger) : BackgroundService
+    SyncLaneOptions options, JobStore store, Instances.RoleSwitch roles, TimeProvider time, ILogger<RetentionService> logger) : BackgroundService
 {
     internal static readonly TimeSpan Interval = TimeSpan.FromHours(1);
 
@@ -27,14 +27,37 @@ internal sealed partial class RetentionService(
             return;
 
         var queues = options.Queues.Select(queue => queue.Name).ToArray();
+        try
+        {
+            // Sequential: a switch loop; clean-up runs while the planner is on and waits while it is off.
+            while (!stoppingToken.IsCancellationRequested)
+            {
+                var on = await roles.PlannerOnAsync(stoppingToken);
+                using var cleaning = CancellationTokenSource.CreateLinkedTokenSource(stoppingToken, on);
+                try
+                {
+                    await CleanWhileOnAsync(queues, keep, cleaning.Token);
+                }
+                catch (OperationCanceledException) when (!stoppingToken.IsCancellationRequested)
+                {
+                }
+            }
+        }
+        catch (OperationCanceledException) when (stoppingToken.IsCancellationRequested)
+        {
+        }
+    }
+
+    private async Task CleanWhileOnAsync(string[] queues, TimeSpan keep, CancellationToken cleaning)
+    {
         using var timer = new PeriodicTimer(Interval, time);
 
         // Sequential: a timer loop; one clean-up per interval.
         do
         {
-            await CleanAsync(queues, keep, stoppingToken);
+            await CleanAsync(queues, keep, cleaning);
         }
-        while (await timer.WaitForNextTickAsync(stoppingToken));
+        while (await timer.WaitForNextTickAsync(cleaning));
     }
 
     /// <summary>Deletes everything that is due, one batch after the other. Returns how many jobs were deleted.</summary>

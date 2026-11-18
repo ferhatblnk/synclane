@@ -82,6 +82,10 @@ internal sealed partial class SyncLaneMonitor(
         {
             Id = row.Id,
             Application = row.Application,
+            Role = row.Role,
+            RunsWorkers = row.RunsWorkers,
+            RunsPlanner = row.RunsPlanner,
+            ListensForChanges = row.Listens,
             Host = row.Host,
             Version = row.Version,
             Queues = row.Queues,
@@ -224,6 +228,30 @@ internal sealed partial class SyncLaneMonitor(
     public async Task<SyncResult<IReadOnlyList<BudgetLimitInfo>>> GetBudgetLimitsAsync(CancellationToken cancellationToken = default) =>
         SyncResult<IReadOnlyList<BudgetLimitInfo>>.Success(await monitor.BudgetLimitsAsync(time.GetUtcNow(), cancellationToken));
 
+    public async Task<SyncResult<int>> SetSwitchAsync(
+        string application, string? role, bool? runWorkers, bool? runPlanner, string reason, string? by = null,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(application);
+        ArgumentException.ThrowIfNullOrWhiteSpace(reason);
+
+        role ??= "";
+        if (!SyncLaneOptions.IsValidName(application))
+            return SyncResult<int>.Failure(SyncLaneErrors.SwitchNameInvalid("application", application));
+        if (role.Length > 0 && !SyncLaneOptions.IsValidName(role))
+            return SyncResult<int>.Failure(SyncLaneErrors.SwitchNameInvalid("role", role));
+
+        var target = $"{application}{(role.Length > 0 ? "/" + role : "")}: workers {State(runWorkers)}, planner {State(runPlanner)}";
+        var set = await monitor.SetSwitchAsync(application, role, runWorkers, runPlanner, target, Who(by), reason, time.GetUtcNow(), cancellationToken);
+        LogSwitchSet(target, Who(by));
+        return SyncResult<int>.Success(set);
+
+        static string State(bool? on) => on switch { true => "on", false => "off", null => "as set" };
+    }
+
+    public async Task<SyncResult<IReadOnlyList<SwitchInfo>>> GetSwitchesAsync(CancellationToken cancellationToken = default) =>
+        SyncResult<IReadOnlyList<SwitchInfo>>.Success(await monitor.SwitchesAsync(time.GetUtcNow() - InstanceRules.GoneAfter, cancellationToken));
+
     public async Task<SyncResult<IReadOnlyList<PauseInfo>>> GetPausesAsync(CancellationToken cancellationToken = default) =>
         SyncResult<IReadOnlyList<PauseInfo>>.Success(await monitor.PausesAsync(time.GetUtcNow(), cancellationToken));
 
@@ -286,6 +314,9 @@ internal sealed partial class SyncLaneMonitor(
 
     [LoggerMessage(Level = LogLevel.Warning, Message = "{By} limited budget {Budget} ({Key}) to {Limit} requests per {Per} until cleared or expired.")]
     private partial void LogBudgetLimited(string budget, string key, int limit, TimeSpan per, string by);
+
+    [LoggerMessage(Level = LogLevel.Information, Message = "{By} set the switch of {Switch}.")]
+    private partial void LogSwitchSet(string @switch, string by);
 
     [LoggerMessage(Level = LogLevel.Information, Message = "{By} lifted the limit on budget {Budget} ({Key}).")]
     private partial void LogBudgetLimitCleared(string budget, string key, string by);

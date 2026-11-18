@@ -46,5 +46,5 @@ public class RetentionTests : PostgresTest
     }
 
     private RetentionService Retention() =>
-        new(new SyncLaneOptions(), Store, new ManualClock(Now), NullLogger<RetentionService>.Instance);
+        new(new SyncLaneOptions(), Store, new Instances.RoleSwitch(), new ManualClock(Now), NullLogger<RetentionService>.Instance);
 }

@@ -68,6 +68,14 @@ public sealed partial class SyncLaneOptions
     public string? Application { get; set; }
 
     /// <summary>
+    /// What this copy of the application does, for one build deployed as several kinds of process, such as web
+    /// instances and a worker: <c>worker</c> in the worker's environment (<c>SyncLane__Role=worker</c>). The monitor shows
+    /// it, and the switches kept in the database are set per application and role. Leave it out when every copy does
+    /// the same work.
+    /// </summary>
+    public string? Role { get; set; }
+
+    /// <summary>
     /// How long completed recurring and manual jobs stay in the table before instances that run the planner delete them.
     /// Initial jobs, and jobs that have not completed, are never deleted. Default 7 days; <c>null</c> keeps every job.
     /// </summary>
@@ -161,6 +169,9 @@ public sealed partial class SyncLaneOptions
 
         if (Application is not null && !IsValidName(Application))
             throw new SyncLaneException(SyncLaneErrors.ApplicationNameInvalid(Application));
+
+        if (Role is not null && !IsValidName(Role))
+            throw new SyncLaneException(SyncLaneErrors.RoleNameInvalid(Role));
 
         if (KeepCompletedJobs <= TimeSpan.Zero)
             throw new SyncLaneException(SyncLaneErrors.IntervalNotPositive(nameof(KeepCompletedJobs)));

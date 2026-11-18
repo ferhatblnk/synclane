@@ -46,6 +46,9 @@ public static class SyncErrorCodes
     /// <summary>A configuration value cannot be read as the kind of value its setting takes.</summary>
     public const string SettingValueInvalid = "SL1013";
 
+    /// <summary>The role name is not usable.</summary>
+    public const string RoleNameInvalid = "SL1014";
+
     /// <summary>The database lacks a migration and <c>CreateSchema</c> is off.</summary>
     public const string MigrationMissing = "SL2001";
 
@@ -99,6 +102,9 @@ public static class SyncErrorCodes
 
     /// <summary>A job's RequestedBy is too long or has a control character.</summary>
     public const string RequestedByInvalid = "SL3014";
+
+    /// <summary>A switch names an application or role that is not usable as a name.</summary>
+    public const string SwitchNameInvalid = "SL3015";
 
     /// <summary>A job with the same owner, type and dedup key already exists.</summary>
     public const string JobAlreadyExists = "SL3101";

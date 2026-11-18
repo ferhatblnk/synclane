@@ -175,6 +175,31 @@ public interface ISyncLaneMonitor
     /// <summary>The pauses in force: who paused what, why, and until when.</summary>
     Task<SyncResult<IReadOnlyList<PauseInfo>>> GetPausesAsync(CancellationToken cancellationToken = default);
 
+    /// <summary>
+    /// Turns an application's workers and planner on or off without a deploy, for every instance of it that runs under
+    /// <paramref name="role"/>. A value overrides the application's <c>RunWorkers</c> or <c>RunPlanner</c>; <c>null</c>
+    /// gives the choice back to them. Instances whose workers run hear it at once, and switched-off workers hand their
+    /// running jobs back with their cursors; the others read it with their next heartbeat, within half a minute. An
+    /// application that has not started yet can be given a switch, and starts with it. Setting a switch replaces it.
+    /// </summary>
+    /// <param name="application">The application, as its instances register (see <see cref="GetInstancesAsync"/>).</param>
+    /// <param name="role">The role, from <see cref="SyncLaneOptions.Role"/>; <c>null</c> or empty for instances that set none.</param>
+    /// <param name="runWorkers">Whether the workers run, or <c>null</c> to follow <c>RunWorkers</c>.</param>
+    /// <param name="runPlanner">Whether the planner runs, or <c>null</c> to follow <c>RunPlanner</c>.</param>
+    /// <param name="reason">Why, for whoever sees the switch. Required.</param>
+    /// <param name="by">Who asks, for the switch and the actions log.</param>
+    /// <param name="cancellationToken">Cancels the call.</param>
+    /// <returns>1. Fails with <see cref="SyncErrorCodes.SwitchNameInvalid"/> when the application or role is not a usable name.</returns>
+    Task<SyncResult<int>> SetSwitchAsync(
+        string application, string? role, bool? runWorkers, bool? runPlanner, string reason, string? by = null,
+        CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Every switch that was set, and every application and role a live instance runs under, with what those instances
+    /// run now: the list to turn applications on and off from.
+    /// </summary>
+    Task<SyncResult<IReadOnlyList<SwitchInfo>>> GetSwitchesAsync(CancellationToken cancellationToken = default);
+
     /// <summary>What operators did through the monitor, newest first, with who did it and why. Kept for 400 days.</summary>
     /// <returns>One page. Fails with <see cref="SyncErrorCodes.LimitOutOfRange"/> or <see cref="SyncErrorCodes.CursorInvalid"/>.</returns>
     Task<SyncListResult<OperatorAction>> GetActionsAsync(ActionQuery query, CancellationToken cancellationToken = default);

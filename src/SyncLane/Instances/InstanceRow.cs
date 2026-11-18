@@ -1,6 +1,9 @@
 namespace SyncLane.Instances;
 
-/// <summary>One registered instance, as the table holds it.</summary>
+/// <summary>
+/// One registered instance, as the table holds it. What it runs is <c>null</c> for instances of versions before the
+/// switches, which do not write it.
+/// </summary>
 internal sealed record InstanceRow(
     string Id,
     string Application,
@@ -10,4 +13,8 @@ internal sealed record InstanceRow(
     IReadOnlyList<BudgetDescription> Budgets,
     DateTimeOffset StartedAt,
     DateTimeOffset HeartbeatAt,
-    DateTimeOffset? StoppedAt = null);
+    DateTimeOffset? StoppedAt = null,
+    string Role = "",
+    bool? RunsWorkers = null,
+    bool? RunsPlanner = null,
+    bool? Listens = null);

@@ -39,6 +39,7 @@ internal static class SettingsFromConfiguration
             [nameof(SyncLaneOptions.PollInterval)] = section => Read<TimeSpan>(section, Span, Spans, value => options.PollInterval = value, errors),
             [nameof(SyncLaneOptions.MaxBudgetWait)] = section => Read<TimeSpan>(section, Span, Spans, value => options.MaxBudgetWait = value, errors),
             [nameof(SyncLaneOptions.Application)] = section => Read<string>(section, Text, Words, value => options.Application = value, errors),
+            [nameof(SyncLaneOptions.Role)] = section => Read<string>(section, Text, Words, value => options.Role = value, errors),
             [nameof(SyncLaneOptions.KeepCompletedJobs)] = section => Read<TimeSpan>(section, Span, Spans, value => options.KeepCompletedJobs = value, errors),
             ["Queues"] = section => Each(section, errors, options.Queues.Select(queue => queue.Name), name => options.Find(name), (queue, entry) => Queue(queue, entry, errors)),
             ["Budgets"] = section => Each(section, errors, options.DescribeBudgets().Select(budget => budget.Name), name => options.FindBudget(name), (budget, entry) => Budget(options, budget, entry, errors))

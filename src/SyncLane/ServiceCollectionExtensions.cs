@@ -94,6 +94,7 @@ public static class ServiceCollectionExtensions
             provider.GetRequiredService<TimeProvider>()));
         services.AddSingleton<QueuePlanner>();
         services.AddSingleton<RunningJobs>();
+        services.AddSingleton<RoleSwitch>();
         services.AddSingleton<JobRunner>();
         services.AddSingleton<ISyncLane, SyncLaneClient>();
 
@@ -114,14 +115,10 @@ public static class ServiceCollectionExtensions
         // After the schema, before the planner and the workers: a refused start must happen before any job is taken.
         services.AddHostedService<InstanceRegistry>();
 
-        if (options.RunPlanner)
-        {
-            services.AddHostedService<PlannerService>();
-            services.AddHostedService<RetentionService>();
-        }
-
-        if (options.RunWorkers)
-            services.AddHostedService<JobWorker>();
+        // Always registered: each waits until the registry turns it on, from the options or the switch in the database.
+        services.AddHostedService<PlannerService>();
+        services.AddHostedService<RetentionService>();
+        services.AddHostedService<JobWorker>();
 
         return services;
     }

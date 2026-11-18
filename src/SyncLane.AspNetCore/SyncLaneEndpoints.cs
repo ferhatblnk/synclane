@@ -65,6 +65,9 @@ public static partial class SyncLaneEndpoints
             .Produces<IReadOnlyList<PauseInfo>>().WithName("SyncLane_Pauses").WithSummary("The pauses in force: who paused what, why, and until when.");
         group.MapGet("/budget-limits", GetBudgetLimitsAsync)
             .Produces<IReadOnlyList<BudgetLimitInfo>>().WithName("SyncLane_BudgetLimits").WithSummary("Temporary limits on rate budgets: who set what, why, and until when.");
+        group.MapGet("/switches", GetSwitchesAsync)
+            .Produces<IReadOnlyList<SwitchInfo>>().WithName("SyncLane_Switches")
+            .WithSummary("Each application and role: its switch, and how many of its live instances run workers and the planner.");
         group.MapGet("/actions", GetActionsAsync)
             .Produces<PageOf<OperatorAction>>().ProducesProblem(StatusCodes.Status400BadRequest)
             .WithName("SyncLane_Actions").WithSummary("What operators did, newest first, with who did it and why.");
@@ -94,6 +97,9 @@ public static partial class SyncLaneEndpoints
                 .Produces<int>().WithName("SyncLane_ClearBudgetLimit").WithSummary("Lifts a temporary limit on a rate budget.");
             repairs.MapPost("/prioritize", PrioritizeOwnerAsync)
                 .Produces<int>().WithName("SyncLane_PrioritizeOwner").WithSummary("Moves an owner's waiting jobs ahead of every other owner's.");
+            repairs.MapPost("/switch", SetSwitchAsync)
+                .Produces<int>().ProducesProblem(StatusCodes.Status400BadRequest).WithName("SyncLane_SetSwitch")
+                .WithSummary("Turns an application's workers and planner on or off, per role, without a deploy; leave one out to follow its settings.");
             repairs.MapPost("/sync-now", SyncNowAsync)
                 .Produces<long>().WithName("SyncLane_SyncNow")
                 .WithSummary("Fetches an owner's new data now, for example on a webhook; a burst of calls is one fetch.");
@@ -223,6 +229,17 @@ public static partial class SyncLaneEndpoints
     {
         var result = await monitor.ResumeAsync(queue, owner, Who(http), http.RequestAborted);
         LogRepair(loggers.CreateLogger(Producer), Who(http), "resumed", $"{queue} {owner}", result.Succeeded);
+        return Answer(result);
+    }
+
+    private static async Task<IResult> GetSwitchesAsync(ISyncLaneMonitor monitor, CancellationToken cancellationToken) =>
+        Answer(await monitor.GetSwitchesAsync(cancellationToken));
+
+    private static async Task<IResult> SetSwitchAsync(
+        string application, string? role, bool? workers, bool? planner, string reason, ISyncLaneMonitor monitor, HttpContext http, ILoggerFactory loggers)
+    {
+        var result = await monitor.SetSwitchAsync(application, role, workers, planner, reason, Who(http), http.RequestAborted);
+        LogRepair(loggers.CreateLogger(Producer), Who(http), "set the switch", $"{application} {role}", result.Succeeded);
         return Answer(result);
     }
 

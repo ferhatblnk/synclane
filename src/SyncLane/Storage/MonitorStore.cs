@@ -32,6 +32,8 @@ internal sealed class MonitorStore(NpgsqlDataSource dataSource, MonitorSql sql)
                 CompletedLastDay = reader.GetInt32(9),
                 RecordsLastDay = reader.GetInt64(10),
                 FailuresLastDay = reader.GetInt32(11),
+                Planners = reader.GetInt32(16),
+                Workers = reader.GetInt32(17),
                 Pause = reader.IsDBNull(12) ? null : new PauseInfo
                 {
                     Queue = reader.GetString(0),
@@ -271,6 +273,52 @@ internal sealed class MonitorStore(NpgsqlDataSource dataSource, MonitorSql sql)
         command.Parameters.AddWithValue("now", now.ToUniversalTime());
         AddWho(command.Parameters, by, null);
         return await command.ExecuteScalarAsync(cancellationToken) is int cleared ? cleared : 0;
+    }
+
+    /// <summary>Sets the switch of an application and role, logs it and announces it. Returns 1.</summary>
+    public async Task<int> SetSwitchAsync(
+        string application, string role, bool? runWorkers, bool? runPlanner, string target, string by, string reason, DateTimeOffset now,
+        CancellationToken cancellationToken)
+    {
+        await using var command = dataSource.CreateCommand(sql.SetSwitch);
+        command.Parameters.AddWithValue("application", application);
+        command.Parameters.AddWithValue("role", role);
+        command.Parameters.Add(new NpgsqlParameter("run_workers", NpgsqlDbType.Boolean) { Value = (object?)runWorkers ?? DBNull.Value });
+        command.Parameters.Add(new NpgsqlParameter("run_planner", NpgsqlDbType.Boolean) { Value = (object?)runPlanner ?? DBNull.Value });
+        command.Parameters.AddWithValue("target", target);
+        command.Parameters.AddWithValue("now", now.ToUniversalTime());
+        command.Parameters.AddWithValue("channel", sql.Channel);
+        AddWho(command.Parameters, by, reason);
+        return await command.ExecuteScalarAsync(cancellationToken) is int set ? set : 0;
+    }
+
+    /// <summary>The switches, and the applications and roles of instances alive since <paramref name="aliveSince"/>.</summary>
+    public async Task<List<SwitchInfo>> SwitchesAsync(DateTimeOffset aliveSince, CancellationToken cancellationToken)
+    {
+        await using var command = dataSource.CreateCommand(sql.Switches);
+        command.Parameters.AddWithValue("alive_since", aliveSince.ToUniversalTime());
+
+        await using var reader = await command.ExecuteReaderAsync(cancellationToken);
+        var switches = new List<SwitchInfo>();
+        // Sequential: reading rows of one data reader.
+        while (await reader.ReadAsync(cancellationToken))
+        {
+            switches.Add(new SwitchInfo
+            {
+                Application = reader.GetString(0),
+                Role = reader.GetString(1),
+                RunWorkers = reader.IsDBNull(2) ? null : reader.GetBoolean(2),
+                RunPlanner = reader.IsDBNull(3) ? null : reader.GetBoolean(3),
+                By = reader.IsDBNull(4) ? null : reader.GetString(4),
+                Reason = reader.IsDBNull(5) ? null : reader.GetString(5),
+                ChangedAt = Moment(reader, 6),
+                LiveInstances = reader.GetInt32(7),
+                RunningWorkers = reader.GetInt32(8),
+                RunningPlanner = reader.GetInt32(9)
+            });
+        }
+
+        return switches;
     }
 
     public async Task<List<BudgetLimitInfo>> BudgetLimitsAsync(DateTimeOffset now, CancellationToken cancellationToken)

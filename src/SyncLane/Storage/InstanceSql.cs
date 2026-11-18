@@ -5,6 +5,8 @@ internal sealed class InstanceSql
 {
     public const string TableName = "instances";
 
+    public const string SwitchesTableName = "switches";
+
     public InstanceSql(string schema)
     {
         var table = $"{schema}.{TableName}";
@@ -13,7 +15,8 @@ internal sealed class InstanceSql
         Lock = "SELECT pg_advisory_xact_lock(hashtext(@lock))";
         LockKey = $"synclane.instances:{schema}";
 
-        const string columns = "id, application, host, version, queues, budgets::text, started_at, heartbeat_at, stopped_at";
+        const string columns =
+            "id, application, host, version, queues, budgets::text, started_at, heartbeat_at, stopped_at, role, runs_workers, runs_planner, listens";
 
         // A stopped instance keeps its row so people can see when it stopped, but holds no queue.
         Live =
@@ -27,10 +30,14 @@ internal sealed class InstanceSql
         // process that restarts under the same id is live again.
         Upsert =
             $"""
-            INSERT INTO {table} (id, application, host, version, queues, budgets, started_at, heartbeat_at)
-            VALUES (@id, @application, @host, @version, @queues, @budgets::jsonb, @started_at, @now)
+            INSERT INTO {table} (id, application, host, version, queues, budgets, started_at, heartbeat_at, role, runs_workers, runs_planner, listens)
+            VALUES (@id, @application, @host, @version, @queues, @budgets::jsonb, @started_at, @now, @role, @runs_workers, @runs_planner, @listens)
             ON CONFLICT (id) DO UPDATE
             SET application = excluded.application,
+                role = excluded.role,
+                runs_workers = excluded.runs_workers,
+                runs_planner = excluded.runs_planner,
+                listens = excluded.listens,
                 host = excluded.host,
                 version = excluded.version,
                 queues = excluded.queues,
@@ -41,6 +48,8 @@ internal sealed class InstanceSql
             """;
 
         Forget = $"DELETE FROM {table} WHERE heartbeat_at < @forget_before";
+
+        Switch = $"SELECT run_workers, run_planner, listen FROM {schema}.{SwitchesTableName} WHERE application = @application AND role = @role";
 
         Stop = $"UPDATE {table} SET stopped_at = @now WHERE id = @id";
 
@@ -58,6 +67,9 @@ internal sealed class InstanceSql
     public string Upsert { get; }
 
     public string Forget { get; }
+
+    /// <summary>The switch an operator set for one application and role, if any.</summary>
+    public string Switch { get; }
 
     public string Stop { get; }
 }

@@ -37,7 +37,7 @@ public class HeaderGateTests : PostgresTest
     [MemberData(nameof(Patterns))]
     public async Task A_window_api_is_never_throttled_once_its_headers_are_declared(string pattern, bool declared)
     {
-        var api = new WindowApi(pattern);
+        var api = new WindowApi(pattern, declared ? Neighbour : Quota - 1);
         using var host = Host(api, declared ? Headers(pattern) : "");
 
         if (declared)
@@ -54,9 +54,12 @@ public class HeaderGateTests : PostgresTest
         }
         else
         {
-            // The budget alone allows the whole quota, but the other app has spent part of it.
-            await RunAsync(host, until: _ => api.Spent > 0);
-            Assert.True(api.Spent > 0);
+            // The budget alone allows the whole quota, but the other app has spent all of it but one request a second. On
+            // a slow runner the twelve requests could spread so thinly over the seconds that a smaller share left over
+            // was never used up (seen on PostgreSQL 15 in CI); with one left, any two requests in one second meet a spent
+            // window, and four jobs start at once.
+            await RunAsync(host, until: jobs => api.Spent > 0 || jobs.Count == Owners && jobs.All(job => job.Status is JobStatus.Completed or JobStatus.Abandoned));
+            Assert.True(api.Spent > 0, "Every request found room in its window, so nothing showed what the declared budget cannot know.");
         }
     }
 
@@ -130,7 +133,7 @@ public class HeaderGateTests : PostgresTest
 
     /// <summary>
     /// An API that allows <see cref="Quota"/> requests in each second of the clock, of which another app spends
-    /// <see cref="Neighbour"/> at the start. It says what is left in the way <paramref name="pattern"/> names:
+    /// <paramref name="neighbour"/> at the start. It says what is left in the way <paramref name="pattern"/> names:
     /// <list type="bullet">
     /// <item><c>seconds</c>: remaining, and whole seconds to the next window, rounded up; a spent window answers 429 without <c>Retry-After</c>.</item>
     /// <item><c>unix-403</c>: remaining, and the next window as a Unix time, with a <c>Date</c>; a spent window answers 403.</item>
@@ -138,7 +141,7 @@ public class HeaderGateTests : PostgresTest
     /// </list>
     /// Every request takes <see cref="Latency"/> to arrive. Every owner has three pages: two full ones and a short last one.
     /// </summary>
-    private sealed class WindowApi(string pattern) : HttpMessageHandler
+    private sealed class WindowApi(string pattern, int neighbour) : HttpMessageHandler
     {
         private readonly Lock _lock = new();
         private readonly ConcurrentQueue<TimeSpan> _spentAt = new();
@@ -164,7 +167,7 @@ public class HeaderGateTests : PostgresTest
                 if (window != _window)
                 {
                     _window = window;
-                    _left = Quota - Neighbour;
+                    _left = Quota - neighbour;
                 }
 
                 spent = _left <= 0;

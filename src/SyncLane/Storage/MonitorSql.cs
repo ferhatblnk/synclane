@@ -44,7 +44,9 @@ internal sealed class MonitorSql
                 GROUP BY queue
             ),
             live AS (
-                SELECT q AS queue, count(*) AS instances
+                SELECT q AS queue, count(*) AS instances,
+                       count(*) FILTER (WHERE runs_planner IS NOT FALSE) AS planners,
+                       count(*) FILTER (WHERE runs_workers IS NOT FALSE) AS workers
                 FROM {instances}, unnest(queues) AS q
                 WHERE heartbeat_at > @alive_since AND stopped_at IS NULL
                 GROUP BY q
@@ -59,7 +61,8 @@ internal sealed class MonitorSql
                    coalesce(due, 0)::int, coalesce(postponed, 0)::int, coalesce(running, 0)::int,
                    coalesce(retrying, 0)::int, coalesce(deferred, 0)::int, coalesce(abandoned, 0)::int,
                    coalesce(completed, 0)::int, coalesce(records, 0)::bigint, coalesce(failures, 0)::int,
-                   paused_by, reason, paused_at, until
+                   paused_by, reason, paused_at, until,
+                   coalesce(planners, 0)::int, coalesce(workers, 0)::int
             FROM open
             FULL JOIN owners USING (queue)
             FULL JOIN day USING (queue)
@@ -330,6 +333,42 @@ internal sealed class MonitorSql
             ORDER BY budget, key
             """;
 
+        var switches = $"{schema}.{InstanceSql.SwitchesTableName}";
+
+        // A switch is announced to every instance in the same statement; those whose workers run read it at once.
+        SetSwitch =
+            $"""
+            WITH switched AS (
+                INSERT INTO {switches} AS s (application, role, run_workers, run_planner, changed_by, reason, changed_at)
+                VALUES (@application, @role, @run_workers, @run_planner, @by, @reason, @now)
+                ON CONFLICT (application, role) DO UPDATE
+                SET run_workers = excluded.run_workers, run_planner = excluded.run_planner, changed_by = excluded.changed_by,
+                    reason = excluded.reason, changed_at = excluded.changed_at
+                RETURNING s.application
+            ),
+            {Logged("switch", "NULL", "NULL", "@target", "(SELECT count(*) FROM switched)")}
+            SELECT count(*)::int
+            FROM (SELECT pg_notify(@channel, json_build_object('control', 'switch', 'application', @application, 'role', @role)::text) FROM switched) AS announced
+            """;
+
+        // Every switch, and every application and role a live instance runs under, with what those instances run.
+        Switches =
+            $"""
+            WITH live AS (
+                SELECT application, role, count(*)::int AS instances,
+                       count(*) FILTER (WHERE runs_workers)::int AS workers,
+                       count(*) FILTER (WHERE runs_planner)::int AS planners
+                FROM {instances}
+                WHERE heartbeat_at > @alive_since AND stopped_at IS NULL
+                GROUP BY application, role
+            )
+            SELECT coalesce(s.application, l.application), coalesce(s.role, l.role), s.run_workers, s.run_planner,
+                   s.changed_by, s.reason, s.changed_at, coalesce(l.instances, 0), coalesce(l.workers, 0), coalesce(l.planners, 0)
+            FROM {switches} AS s
+            FULL JOIN live AS l ON l.application = s.application AND l.role = s.role
+            ORDER BY 1, 2
+            """;
+
         Pauses =
             $"""
             SELECT queue, owner, paused_by, reason, paused_at, until
@@ -396,6 +435,12 @@ internal sealed class MonitorSql
     public string Resume { get; }
 
     public string Pauses { get; }
+
+    /// <summary>Sets the switch of an application and role, logs it and announces it.</summary>
+    public string SetSwitch { get; }
+
+    /// <summary>The switches, and the applications and roles of live instances, with what those instances run.</summary>
+    public string Switches { get; }
 
     public string Actions { get; }
 

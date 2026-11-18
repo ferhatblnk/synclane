@@ -16,8 +16,8 @@ internal static class InstanceRules
     /// The queues this instance runs, with its planner or its workers. An instance with neither only calls
     /// <see cref="ISyncLane"/>, takes no job and claims no queue.
     /// </summary>
-    public static IReadOnlyList<string> Runs(SyncLaneOptions options) =>
-        options.RunPlanner || options.RunWorkers ? options.Queues.Select(queue => queue.Name).ToList() : [];
+    public static IReadOnlyList<string> Runs(SyncLaneOptions options, bool workers, bool planner) =>
+        planner || workers ? options.Queues.Select(queue => queue.Name).ToList() : [];
 
     /// <summary>
     /// One error per queue this instance runs that a live instance of another application runs too. Instances of one

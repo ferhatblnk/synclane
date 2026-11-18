@@ -7,8 +7,10 @@ using SyncLane.Storage;
 namespace SyncLane.Running;
 
 /// <summary>
-/// Runs the worker slots of every queue. A slot takes one job, runs it to an end and takes the next; when nothing is due
-/// it waits for the poll interval, or less when a job is created or put back in line on its queue, from any instance.
+/// Runs the worker slots of every queue while the workers are on. A slot takes one job, runs it to an end and takes the
+/// next; when nothing is due it waits for the poll interval, or less when a job is created or put back in line on its
+/// queue, from any instance. When the workers are switched off, the slots stop as they do at shutdown: each running job
+/// is handed back with its cursor, without using an attempt.
 /// </summary>
 internal sealed partial class JobWorker(
     SyncLaneOptions options,
@@ -17,6 +19,7 @@ internal sealed partial class JobWorker(
     InstanceIdentity identity,
     JobChangeFeed changes,
     RunningJobs running,
+    RoleSwitch roles,
     TimeProvider time,
     ILogger<JobWorker> logger)
     : BackgroundService
@@ -29,13 +32,32 @@ internal sealed partial class JobWorker(
 
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
+        try
+        {
+            // Sequential: a switch loop; the slots run while the workers are on and wait while they are off.
+            while (!stoppingToken.IsCancellationRequested)
+            {
+                var on = await roles.WorkersOnAsync(stoppingToken);
+                using var working = CancellationTokenSource.CreateLinkedTokenSource(stoppingToken, on);
+                await RunSlotsAsync(working.Token);
+                if (!stoppingToken.IsCancellationRequested)
+                    LogSwitchedOff(_host);
+            }
+        }
+        catch (OperationCanceledException) when (stoppingToken.IsCancellationRequested)
+        {
+        }
+    }
+
+    private async Task RunSlotsAsync(CancellationToken working)
+    {
         var slots = options.Queues
             .SelectMany(queue => Enumerable.Range(1, queue.Concurrency)
-                .Select(slot => RunSlotAsync(queue, $"{_host}/{queue.Name}#{slot}", stoppingToken)))
+                .Select(slot => RunSlotAsync(queue, $"{_host}/{queue.Name}#{slot}", working)))
             .ToArray();
 
         LogStarted(_host, slots.Length, options.Queues.Count);
-        await Task.WhenAll([.. slots, WakeOnNewWorkAsync(stoppingToken), ObeyPausesAsync(stoppingToken)]);
+        await Task.WhenAll([.. slots, WakeOnNewWorkAsync(working), ObeyPausesAsync(working)]);
     }
 
     /// <summary>
@@ -128,6 +150,9 @@ internal sealed partial class JobWorker(
 
     [LoggerMessage(Level = LogLevel.Information, Message = "A pause on queue {Queue} stopped {Cut} running jobs here.")]
     private partial void LogCut(int cut, string queue);
+
+    [LoggerMessage(Level = LogLevel.Information, Message = "SyncLane worker {Host} was switched off; its running jobs were handed back.")]
+    private partial void LogSwitchedOff(string host);
 
     [LoggerMessage(Level = LogLevel.Information, Message = "SyncLane worker {Host} started with {Slots} slots over {Queues} queues.")]
     private partial void LogStarted(string host, int slots, int queues);

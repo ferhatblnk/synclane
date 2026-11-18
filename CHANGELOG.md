@@ -4,6 +4,15 @@ All notable changes to this project are recorded here. The format follows [Keep 
 
 ## [Unreleased]
 
+### Added
+
+- `options.Role` (`SyncLane:Role`): what this copy of the application does, for one build deployed as web instances and a worker. Each instance records its role and whether it runs workers, the planner and listening, and `GetInstancesAsync` and `GET /instances` show them (`InstanceInfo.Role`, `RunsWorkers`, `RunsPlanner`, `ListensForChanges`). Migration 15 adds those columns and the `switches` table.
+- Workers and the planner can be switched on and off without a deploy: a row in `switches` for an application and role overrides `RunWorkers` and `RunPlanner` where it holds a value. Instances read it at start-up and with every heartbeat; one whose workers run hears a change at once. Switched-off workers hand their running jobs back with their cursors, without using an attempt. A switch that would run a queue another application runs leaves the instance off, and its health check says why. Set them from the monitor: `SetSwitchAsync` and `GetSwitchesAsync`, `POST /switch` and `GET /switches` over HTTP; every change is in the actions log with who and why. `SL3015` refuses a name no instance could have. `QueueOverview.Planners` and `Workers` count the live instances that plan a queue and run its workers. See [Switching an application on and off](docs/operations.md#switching-an-application-on-and-off) and D68.
+
+### Changed
+
+- An instance's id is now its host, its process id and a random part. Two containers that share a hostname and both run as process 1 had the same id, so the monitor showed them as one instance; job writes were already safe through the lease generation. Worker names in `leased_by` start with the new id.
+
 ## [0.6.3] - 2026-11-18
 
 Taking a job stays fast when many jobs wait: a new index and fresh statistics after a large planning round, found by a load test that ships with the repository. Migration 14 adds one index; nothing else changes for your code.

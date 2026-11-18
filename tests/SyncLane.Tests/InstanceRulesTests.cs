@@ -7,7 +7,7 @@ namespace SyncLane.Tests;
 public class InstanceRulesTests
 {
     private static readonly DateTimeOffset Now = new(2026, 3, 10, 12, 0, 0, TimeSpan.Zero);
-    private static readonly InstanceIdentity Me = new("me:1", "me", "shipping", "1.0.0");
+    private static readonly InstanceIdentity Me = new("me:1", "me", "shipping", "", "1.0.0");
 
     [Fact]
     public void Only_queues_another_application_runs_conflict_and_each_is_reported_once()
@@ -33,8 +33,9 @@ public class InstanceRulesTests
         var options = new SyncLaneOptions { RunPlanner = false, RunWorkers = false }
             .AddQueue("orders", queue => queue.Handle<Support.ProductHandler>("products"));
 
-        Assert.Empty(InstanceRules.Runs(options));
-        Assert.Equal(["orders"], InstanceRules.Runs(new SyncLaneOptions().AddQueue("orders", queue => queue.Handle<Support.ProductHandler>("products"))));
+        Assert.Empty(InstanceRules.Runs(options, workers: false, planner: false));
+        Assert.Equal(["orders"], InstanceRules.Runs(options, workers: true, planner: false));
+        Assert.Equal(["orders"], InstanceRules.Runs(options, workers: false, planner: true));
     }
 
     [Fact]
@@ -74,9 +75,32 @@ public class InstanceRulesTests
         var unusable = Assert.Throws<SyncLaneException>(() => InstanceIdentity.Create(new SyncLaneOptions(), new HostingEnvironment { ApplicationName = "My Shipping App" }));
 
         Assert.Equal(("Shipping.Api", "shipping"), (fromHost.Application, fromOptions.Application));
-        Assert.Equal($"{Environment.MachineName}:{Environment.ProcessId}", fromHost.Id);
+        Assert.Matches($"^{System.Text.RegularExpressions.Regex.Escape($"{Environment.MachineName}:{Environment.ProcessId}:")}[0-9a-f]{{6}}$", fromHost.Id);
         Assert.DoesNotContain('+', fromHost.Version);
         Assert.Equal(SyncErrorCodes.ApplicationNameInvalid, unusable.Error.Code);
+    }
+
+    [Fact]
+    public void Two_processes_on_one_host_with_one_process_id_get_different_ids()
+    {
+        var first = InstanceIdentity.Create(new SyncLaneOptions { Application = "shipping" }, null);
+        var second = InstanceIdentity.Create(new SyncLaneOptions { Application = "shipping" }, null);
+
+        Assert.NotEqual(first.Id, second.Id);
+        Assert.Equal(first.Host, second.Host);
+    }
+
+    [Fact]
+    public void The_role_comes_from_the_options_is_empty_without_them_and_must_be_usable()
+    {
+        var worker = InstanceIdentity.Create(new SyncLaneOptions { Application = "shipping", Role = "worker" }, null);
+        var plain = InstanceIdentity.Create(new SyncLaneOptions { Application = "shipping" }, null);
+        var options = new SyncLaneOptions { ConnectionString = "Host=localhost", Role = "the worker" };
+
+        var unusable = Assert.Throws<SyncLaneException>(options.Validate);
+
+        Assert.Equal(("worker", ""), (worker.Role, plain.Role));
+        Assert.Equal(SyncErrorCodes.RoleNameInvalid, unusable.Error.Code);
     }
 
     private static InstanceRow Row(string id, string application, string[] queues, params BudgetDescription[] budgets) =>

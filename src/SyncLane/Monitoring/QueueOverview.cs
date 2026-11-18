@@ -12,6 +12,19 @@ public sealed record QueueOverview
     /// <summary>Live instances that run the queue with a planner or workers.</summary>
     public int Instances { get; init; }
 
+    /// <summary>
+    /// Live instances that plan the queue. Zero means no new job is planned for it: look at the switches
+    /// (<see cref="ISyncLaneMonitor.GetSwitchesAsync"/>) and the applications' <c>RunPlanner</c>. Instances of versions
+    /// before 0.7 count when they run the queue at all.
+    /// </summary>
+    public int Planners { get; init; }
+
+    /// <summary>
+    /// Live instances whose workers take the queue's jobs. Zero means due jobs wait: look at the switches and the
+    /// applications' <c>RunWorkers</c>. Instances of versions before 0.7 count when they run the queue at all.
+    /// </summary>
+    public int Workers { get; init; }
+
     /// <summary>Jobs due now, waiting for a free slot or lane.</summary>
     public int Due { get; init; }
 

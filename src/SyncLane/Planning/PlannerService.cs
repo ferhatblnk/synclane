@@ -5,10 +5,13 @@ using SyncLane.Telemetry;
 
 namespace SyncLane.Planning;
 
-/// <summary>Plans every queue that has an owner source, at start-up and then on every interval.</summary>
+/// <summary>
+/// Plans every queue that has an owner source while the planner is on: when it comes on, and then on every interval.
+/// </summary>
 internal sealed partial class PlannerService(
     SyncLaneOptions options,
     QueuePlanner planner,
+    Instances.RoleSwitch roles,
     IServiceScopeFactory scopes,
     TimeProvider time,
     SyncLaneMetrics metrics,
@@ -17,14 +20,37 @@ internal sealed partial class PlannerService(
 {
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
+        try
+        {
+            // Sequential: a switch loop; planning runs while the planner is on and waits while it is off.
+            while (!stoppingToken.IsCancellationRequested)
+            {
+                var on = await roles.PlannerOnAsync(stoppingToken);
+                using var planning = CancellationTokenSource.CreateLinkedTokenSource(stoppingToken, on);
+                try
+                {
+                    await PlanWhileOnAsync(planning.Token);
+                }
+                catch (OperationCanceledException) when (!stoppingToken.IsCancellationRequested)
+                {
+                }
+            }
+        }
+        catch (OperationCanceledException) when (stoppingToken.IsCancellationRequested)
+        {
+        }
+    }
+
+    private async Task PlanWhileOnAsync(CancellationToken planning)
+    {
         using var timer = new PeriodicTimer(options.PlanInterval, time);
 
         // Sequential: a timer loop; one planning round per interval. Queues are planned side by side within a round.
         do
         {
-            await Task.WhenAll(options.Queues.Select(queue => PlanAsync(queue, stoppingToken)));
+            await Task.WhenAll(options.Queues.Select(queue => PlanAsync(queue, planning)));
         }
-        while (await timer.WaitForNextTickAsync(stoppingToken));
+        while (await timer.WaitForNextTickAsync(planning));
     }
 
     private async Task PlanAsync(QueueOptions queue, CancellationToken stoppingToken)

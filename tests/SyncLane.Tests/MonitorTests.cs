@@ -36,7 +36,7 @@ public class MonitorTests : PostgresTest
         Assert.Equal(
             new QueueOverview
             {
-                Queue = Queue, Owners = 2, Instances = 1,
+                Queue = Queue, Owners = 2, Instances = 1, Planners = 1, Workers = 1,
                 Due = 1, Postponed = 1, Running = 1, Retrying = 1, Deferred = 1, Abandoned = 1,
                 CompletedLastDay = 1, RecordsLastDay = 7, FailuresLastDay = 1
             },
