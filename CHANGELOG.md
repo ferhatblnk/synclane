@@ -4,15 +4,18 @@ All notable changes to this project are recorded here. The format follows [Keep 
 
 ## [Unreleased]
 
+## [0.7.1] - 2026-11-18
+
+Applications that share a schema are told apart and the monitor shows what a switch cannot reach. Migration 16 adds a column and an index to `instances`; nothing changes for an application that sets no switch. The documentation keeps settings to naming a process and leaves whether it works to the switches.
+
 ### Added
 
-- Two applications that took the same name are told of each other. Each instance records what it declares, every job type with its queue and handler (migration 16 adds `instances.declares` and an index on `instances.application`), and with each heartbeat compares it with the live instances of its name. One that declares nothing in common is a warning in the log, a Degraded health check and `InstanceInfo.SharesNameWith` in `GetInstancesAsync` and `GET /instances`. Copies, web instances and a deploy that adds or removes a queue are not reported. The default name is the entry assembly's, which projects built from one template often share. See [Several applications on one schema](docs/operations.md#several-applications-on-one-schema) and D69.
-
-- The monitor shows the instances a switch cannot reach: `SwitchInfo.IgnoringSwitch` counts the live instances of an application and role that run a version before 0.7, which do not read switches and run as their own settings say, and `InstanceInfo.FollowsSwitches` marks each instance. A switch that seems to have no effect on part of an application is explained before anyone looks at a server.
+- Two applications that took the same name are told of each other. Each instance records what it declares, every job type with its queue and handler (migration 16 adds `instances.declares` and an index on `instances.application`), and with each heartbeat compares it with the live instances of its name. One that declares nothing in common is a warning in the log, a Degraded health check and `InstanceInfo.SharesNameWith` in `GetInstancesAsync` and `GET /instances`. Copies, web instances and a deploy that adds or removes a queue are not reported. The default name is the entry assembly's, which projects built from one template often share. See [Several applications on one schema](docs/operations.md#several-applications-on-one-schema) and D69 (#61).
+- The monitor shows the instances a switch cannot reach: `SwitchInfo.IgnoringSwitch` counts the live instances of an application and role that run a version before 0.7, which do not read switches and run as their own settings say, and `InstanceInfo.FollowsSwitches` marks each instance. A switch that seems to have no effect on part of an application is explained before anyone looks at a server (#62).
 
 ### Changed
 
-- The documentation no longer turns workers and the planner off in settings. What a process is comes from its settings (`SyncLane:Application`, and `SyncLane__Role` where one build runs as web and worker); whether it works is a switch in the database, set from the monitor, which survives restarts and new replicas because every instance reads it when it starts. [Integrating](docs/integrating.md) now sets a name of its own and queue names that start with it, sets the web and worker switches before the first deploy, and asks for authorization on the monitor before anything else. `RunWorkers` and `RunPlanner` keep their default and behaviour. See [Identity and control](ARCHITECTURE.md#identity-and-control) and D70.
+- The documentation no longer turns workers and the planner off in settings. What a process is comes from its settings (`SyncLane:Application`, and `SyncLane__Role` where one build runs as web and worker); whether it works is a switch in the database, set from the monitor, which survives restarts and new replicas because every instance reads it when it starts. [Integrating](docs/integrating.md) now sets a name of its own and queue names that start with it, sets the web and worker switches before the first deploy, and asks for authorization on the monitor before anything else. `RunWorkers` and `RunPlanner` keep their default and behaviour. See [Identity and control](ARCHITECTURE.md#identity-and-control) and D70 (#61).
 
 ## [0.7.0] - 2026-11-18
 
