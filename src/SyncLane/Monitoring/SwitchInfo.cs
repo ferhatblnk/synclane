@@ -35,4 +35,11 @@ public sealed record SwitchInfo
 
     /// <summary>How many of them run the planner now.</summary>
     public int RunningPlanner { get; init; }
+
+    /// <summary>
+    /// How many of them run a SyncLane version before 0.7, which does not read switches: they run as their own settings
+    /// say, whatever this switch says, and are not counted in <see cref="RunningWorkers"/> or <see cref="RunningPlanner"/>.
+    /// Upgrade them before relying on the switch. They register without a role, so they appear under the empty role.
+    /// </summary>
+    public int IgnoringSwitch { get; init; }
 }

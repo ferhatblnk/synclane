@@ -357,13 +357,15 @@ internal sealed class MonitorSql
             WITH live AS (
                 SELECT application, role, count(*)::int AS instances,
                        count(*) FILTER (WHERE runs_workers)::int AS workers,
-                       count(*) FILTER (WHERE runs_planner)::int AS planners
+                       count(*) FILTER (WHERE runs_planner)::int AS planners,
+                       count(*) FILTER (WHERE runs_workers IS NULL)::int AS older
                 FROM {instances}
                 WHERE heartbeat_at > @alive_since AND stopped_at IS NULL
                 GROUP BY application, role
             )
             SELECT coalesce(s.application, l.application), coalesce(s.role, l.role), s.run_workers, s.run_planner,
-                   s.changed_by, s.reason, s.changed_at, coalesce(l.instances, 0), coalesce(l.workers, 0), coalesce(l.planners, 0)
+                   s.changed_by, s.reason, s.changed_at, coalesce(l.instances, 0), coalesce(l.workers, 0), coalesce(l.planners, 0),
+                   coalesce(l.older, 0)
             FROM {switches} AS s
             FULL JOIN live AS l ON l.application = s.application AND l.role = s.role
             ORDER BY 1, 2
