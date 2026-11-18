@@ -11,6 +11,7 @@ How to see what SyncLane does: the monitor's questions, live changes, the HTTP e
 | `GetProblemsAsync(queue?)` | Failing, deferred and abandoned jobs grouped by error code: "SL5106: 37 jobs, 12 owners" instead of 37 rows. |
 | `GetBudgetsAsync(query)` | Each rate budget and key: the rate it learned, the limit the API reports and any operator's limit, whether it is paused, when it was last refused. |
 | `GetInstancesAsync()` | Every process of every application: host, role, version, queues, whether it runs workers, the planner and listening, and whether it is alive, stopped (and when) or gone without stopping. Stopped and gone ones stay listed for a day. |
+| `GetSwitchesAsync()` | Each application and role: the switch an operator set, if any, and how many of its live instances run workers and the planner. |
 | `GetVolumeAsync(query)` | Completed jobs, records, failed attempts and abandoned jobs per hour or day, kept for 400 days. |
 
 ```csharp
@@ -34,7 +35,7 @@ app.MapSyncLane("/synclane").RequireAuthorization("ops");
 
 See [the package's readme](../src/SyncLane.AspNetCore/README.md) for the routes.
 
-It also has an emergency stop, `PauseAsync(queue, owner?, reason)`, which cuts what runs on every instance and takes nothing more until `ResumeAsync`, and the repairs the answers call for: `RequeueJobAsync(id)`, `RestartJobAsync(id)` to fetch a window again, `RequeueByCodeAsync(queue, code)` after fixing what a problem group shows, `PrioritizeOwnerAsync(queue, owner)` for an account that should load first, and `SyncNowAsync(queue, owner, type)` when the other side announces a change, for example with a webhook: it fetches from where the owner's data reaches to now, at high priority, and a burst of calls is one fetch. `LimitBudgetAsync` lowers a rate budget for a while. Every action is logged with who did it and why (`GetActionsAsync`). See [docs/operations.md](operations.md#changing).
+`SetSwitchAsync(application, role, runWorkers, runPlanner, reason)` turns an application's workers and planner on or off without a deploy ([Switching an application on and off](operations.md#switching-an-application-on-and-off)). It also has an emergency stop, `PauseAsync(queue, owner?, reason)`, which cuts what runs on every instance and takes nothing more until `ResumeAsync`, and the repairs the answers call for: `RequeueJobAsync(id)`, `RestartJobAsync(id)` to fetch a window again, `RequeueByCodeAsync(queue, code)` after fixing what a problem group shows, `PrioritizeOwnerAsync(queue, owner)` for an account that should load first, and `SyncNowAsync(queue, owner, type)` when the other side announces a change, for example with a webhook: it fetches from where the owner's data reaches to now, at high priority, and a burst of calls is one fetch. `LimitBudgetAsync` lowers a rate budget for a while. Every action is logged with who did it and why (`GetActionsAsync`). See [docs/operations.md](operations.md#changing).
 
 Each read is one round trip that reads small summary tables and the open jobs, never the history: on a table of a million jobs each one takes about a millisecond, and a year of daily volume about 45. Lists page with a cursor.
 

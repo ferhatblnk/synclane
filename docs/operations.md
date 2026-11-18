@@ -288,6 +288,24 @@ Run as many instances as you like against the same table. Planning is safe to do
 
 If your web instances should not do background work, set `RunWorkers = false` and `RunPlanner = false` there. `ISyncLane` works the same either way.
 
+## Switching an application on and off
+
+`RunWorkers` and `RunPlanner` are read from the application's settings. A switch set from the monitor overrides them, without a deploy, a configuration change or a visit to the server:
+
+```csharp
+await monitor.SetSwitchAsync("shop", role: "worker", runWorkers: true, runPlanner: true, reason: "launch", by: user);
+```
+
+Over HTTP: `POST /synclane/switch?application=shop&role=worker&workers=true&planner=true&reason=launch`, and `GET /synclane/switches` lists every application and role with its switch and what its live instances run.
+
+- **Per application and role.** One build often runs as web instances and a worker under one application name. Give the worker a role in its environment (`SyncLane__Role=worker`) and switch that role; the web instances, with no role, are left as they are.
+- **A value overrides, `null` gives the choice back.** `runWorkers: false` stops the workers whatever the settings say; `runWorkers: null` returns to `RunWorkers`.
+- **Off is immediate, on takes up to half a minute.** Instances whose workers run hear the switch at once, and their running jobs are handed back with their cursors, without using an attempt, as at shutdown. Instances that run nothing read it with their next heartbeat; they open no listening connection for it.
+- **An application can be switched before it starts.** A new application deployed with `RunWorkers` and `RunPlanner` off in its settings stays idle until someone switches it on.
+- **On is checked like a start.** If another application runs one of the queues, the instance stays off, logs a warning and its health check says why (`SL1011`).
+- **Every change is in the actions log** with who and why. `GetOverviewAsync` shows per queue how many live instances plan it and run its workers: zero planners means no new jobs.
+- Instances of versions before 0.7 do not read switches; switch an application once all its instances run 0.7 or later.
+
 Rate budgets are shared through `rate_buckets`: every instance takes its tokens from the same row, and a `429` heard by one instance pauses the key on all of them. Declare the same budgets on every instance that runs workers. Taking a token is one statement that locks the bucket's row for a moment; measured against a local PostgreSQL 18, one key served about 12,000 tokens a second to eight callers, far more than any API we know allows.
 
 Keep the clocks of your instances in sync. Leases, due times and token refills are computed with the clock of the instance that asks. For leases a skew of seconds does not matter; for a budget, an instance whose clock runs one second ahead can let one second's worth of extra tokens through.

@@ -80,6 +80,54 @@ public class SwitchTests : PostgresTest
         Assert.True(workers);
     }
 
+    [PostgresFact]
+    public async Task The_monitor_switches_running_workers_off_at_once_logs_who_and_why_and_gives_the_choice_back_to_the_settings()
+    {
+        using var host = Host(runWorkers: true);
+        await host.StartAsync();
+        await host.Services.GetRequiredService<JobChangeFeed>().ListeningAsync(CancellationToken.None);
+        var monitor = host.Services.GetRequiredService<ISyncLaneMonitor>();
+        var gate = host.Services.GetRequiredService<SlowPages>();
+        await host.Services.GetRequiredService<ISyncLane>().EnqueueAsync(new NewJob { Queue = Queue, Owner = new JobOwner("a"), Type = "orders" });
+        await gate.SecondPageStarted.Task.WaitAsync(Patience);
+
+        var set = await monitor.SetSwitchAsync(Application, null, runWorkers: false, runPlanner: null, "the API is down", by: "ops");
+        var handedBack = await WaitForAsync(job => job.Status == JobStatus.Pending && job.LeasedBy is null);
+        await Registry(host).HeartbeatAsync(CancellationToken.None);
+        var off = Assert.Single((await monitor.GetSwitchesAsync()).GetValueOrThrow());
+        var overview = Assert.Single((await monitor.GetOverviewAsync()).GetValueOrThrow());
+
+        gate.Release();
+        await monitor.SetSwitchAsync(Application, "", runWorkers: null, runPlanner: null, "the API is back", by: "ops");
+        await Registry(host).HeartbeatAsync(CancellationToken.None);
+        var completed = await WaitForAsync(job => job.Status == JobStatus.Completed);
+        var actions = (await monitor.GetActionsAsync(new ActionQuery())).Items;
+        await host.StopAsync();
+
+        Assert.Equal(1, set.GetValueOrThrow());
+        Assert.Equal(("page-2", 0), (handedBack.Cursor, handedBack.AttemptCount));
+        Assert.Equal((false, (bool?)null, "ops", "the API is down", 1, 0), (off.RunWorkers, off.RunPlanner, off.By, off.Reason, off.LiveInstances, off.RunningWorkers));
+        Assert.Equal((0, 0, 0), (overview.Instances, overview.Workers, overview.Planners));
+        Assert.Equal(3, completed.ProcessedCount);
+        Assert.Equal(
+            [("switch", "shop: workers as set, planner as set", "the API is back"), ("switch", "shop: workers off, planner as set", "the API is down")],
+            actions.Select(action => (action.Action, action.Target, action.Reason)).ToList());
+    }
+
+    [PostgresFact]
+    public async Task A_switch_with_a_name_no_instance_could_have_is_refused_and_changes_nothing()
+    {
+        using var host = Host(runWorkers: true);
+        var monitor = host.Services.GetRequiredService<ISyncLaneMonitor>();
+
+        var application = await monitor.SetSwitchAsync("my shop", null, runWorkers: false, runPlanner: null, "typo");
+        var role = await monitor.SetSwitchAsync(Application, "the worker", runWorkers: false, runPlanner: null, "typo");
+
+        Assert.Equal(SyncErrorCodes.SwitchNameInvalid, application.Error!.Code);
+        Assert.Equal(SyncErrorCodes.SwitchNameInvalid, role.Error!.Code);
+        Assert.Equal(0, await ScalarAsync<long>($"SELECT count(*) FROM {Schema}.switches"));
+    }
+
     private static InstanceRegistry Registry(IHost host) =>
         host.Services.GetServices<IHostedService>().OfType<InstanceRegistry>().Single();
 

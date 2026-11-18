@@ -5,6 +5,8 @@ internal sealed class InstanceSql
 {
     public const string TableName = "instances";
 
+    public const string SwitchesTableName = "switches";
+
     public InstanceSql(string schema)
     {
         var table = $"{schema}.{TableName}";
@@ -47,7 +49,7 @@ internal sealed class InstanceSql
 
         Forget = $"DELETE FROM {table} WHERE heartbeat_at < @forget_before";
 
-        Switch = $"SELECT run_workers, run_planner, listen FROM {schema}.switches WHERE application = @application AND role = @role";
+        Switch = $"SELECT run_workers, run_planner, listen FROM {schema}.{SwitchesTableName} WHERE application = @application AND role = @role";
 
         Stop = $"UPDATE {table} SET stopped_at = @now WHERE id = @id";
 

@@ -9,12 +9,12 @@ Every setting has a default that is right for most installations; set one only f
 | `ListenForChanges` | `true` | Turn it off where no connection can listen: workers then look for jobs every `PollInterval`, and nothing is opened or sent to hear changes. |
 | `Schema` | `synclane` | The schema of the `jobs` table. |
 | `CreateSchema` | `true` | Create the schema and apply missing migrations at start-up. Turn it off if you manage migrations: put `SyncLaneSchema.Script()` into one of yours, and SyncLane only checks at start-up that it has been applied. See [docs/operations.md](operations.md#running-the-schema-yourself). |
-| `RunPlanner`, `RunWorkers` | `true` | Turn them off in instances that should only enqueue and read. |
+| `RunPlanner`, `RunWorkers` | `true` | Turn them off in instances that should only enqueue and read. A switch set from the monitor overrides them without a deploy; see [Switching an application on and off](operations.md#switching-an-application-on-and-off). |
 | `PlanInterval` | 1 minute | How often the planner looks for missing jobs. |
 | `PollInterval` | 5 seconds | How long an idle worker slot waits before it looks again. A job created or put back in line wakes it at once, from any instance. |
 | `AddBudget(name, limit, per, burst, start)` | none | A rate budget: at most `limit` requests per `per`, at most `burst` at once (default 1, evenly spaced). It starts at `start` times the limit (default 1) and learns below it. |
 | `Application` | the host's application name | The name instances register under. Copies of one application share its queues; another application that runs one of them is refused at start-up. See [Several applications on one schema](operations.md#several-applications-on-one-schema). |
-| `Role` | none | What this copy of the application does, when one build runs as several kinds of process, such as web instances and a worker: set `SyncLane__Role=worker` in the worker's environment. The monitor shows it per instance. |
+| `Role` | none | What this copy of the application does, when one build runs as several kinds of process, such as web instances and a worker: set `SyncLane__Role=worker` in the worker's environment. The monitor shows it per instance, and switches are set per application and role. |
 | `KeepCompletedJobs` | 7 days | How long completed recurring and manual jobs stay before instances that run the planner delete them. Initial jobs and unfinished jobs stay. `null` keeps everything. |
 | `MaxBudgetWait` | 30 seconds | The longest a request waits for a budget's token inside a job; a longer wait postpones the job. |
 | `queue.Concurrency` | `1` | Jobs of the queue one process runs at once. `1` makes the queue strictly sequential. |

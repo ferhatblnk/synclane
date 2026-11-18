@@ -149,6 +149,24 @@ public class EndpointTests : PostgresTest
     }
 
     [PostgresFact]
+    public async Task A_switch_is_set_and_listed_over_http_and_a_bad_name_is_a_400()
+    {
+        await using var app = await StartAsync();
+        (string, string) action = (SyncLaneEndpointOptions.ActionHeader, "1");
+
+        var withoutHeader = await SendAsync(app, "POST", "/synclane/switch?application=shop&workers=false&reason=quiet", IPAddress.Loopback);
+        var set = await SendAsync(app, "POST", "/synclane/switch?application=shop&role=worker&workers=true&reason=launch", IPAddress.Loopback, action);
+        var listed = await SendAsync(app, "GET", "/synclane/switches", IPAddress.Loopback);
+        var bad = await SendAsync(app, "POST", "/synclane/switch?application=my%20shop&workers=true&reason=launch", IPAddress.Loopback, action);
+
+        Assert.Equal(400, withoutHeader.Status);
+        Assert.Equal((200, "1"), (set.Status, set.Body));
+        Assert.Contains("\"application\":\"shop\",\"role\":\"worker\",\"runWorkers\":true,\"runPlanner\":null", listed.Body);
+        Assert.Equal(400, bad.Status);
+        Assert.Contains("\"code\":\"SL3015\"", bad.Body);
+    }
+
+    [PostgresFact]
     public async Task A_sync_now_over_http_needs_the_action_header_and_answers_the_job_id_or_a_404()
     {
         await using var app = await StartAsync();
@@ -190,7 +208,7 @@ public class EndpointTests : PostgresTest
             .Where(description => description.RelativePath!.StartsWith("synclane/", StringComparison.Ordinal))
             .ToList();
 
-        Assert.Equal(21, descriptions.Count);
+        Assert.Equal(23, descriptions.Count);
         Assert.All(descriptions, description => Assert.Contains(
             description.ActionDescriptor.EndpointMetadata.OfType<ITagsMetadata>(), tags => tags.Tags.Contains("SyncLane")));
         var overview = Assert.Single(descriptions, description => description.RelativePath == "synclane/overview");

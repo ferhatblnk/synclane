@@ -103,6 +103,9 @@ public static class SyncErrorCodes
     /// <summary>A job's RequestedBy is too long or has a control character.</summary>
     public const string RequestedByInvalid = "SL3014";
 
+    /// <summary>A switch names an application or role that is not usable as a name.</summary>
+    public const string SwitchNameInvalid = "SL3015";
+
     /// <summary>A job with the same owner, type and dedup key already exists.</summary>
     public const string JobAlreadyExists = "SL3101";
 

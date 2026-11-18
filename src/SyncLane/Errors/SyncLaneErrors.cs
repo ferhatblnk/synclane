@@ -140,6 +140,11 @@ internal static class SyncLaneErrors
         $"Owner '{owner}' has a value '{name}' that cannot be used: {rule}. Fix it where the owner's values are made (the owner " +
         "source or the NewJob).");
 
+    public static SyncError SwitchNameInvalid(string what, string name) => new(
+        SyncErrorCodes.SwitchNameInvalid, SyncErrorKind.Validation,
+        $"The switch was not set: the {what} '{name}' is not usable as a name. Give the name instances register under, as the " +
+        "monitor's instances list shows it: 1 to 100 letters, digits, dots, underscores, colons, slashes or hyphens, or an empty role.");
+
     public static SyncError RequestedByInvalid(int length) => new(
         SyncErrorCodes.RequestedByInvalid, SyncErrorKind.Validation,
         $"NewJob.RequestedBy of {length} characters cannot be used: it is up to {NewJobLimits.RequestedBy} characters on one line, " +
