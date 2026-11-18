@@ -10,8 +10,8 @@ How to see what SyncLane does: the monitor's questions, live changes, the HTTP e
 | `GetFreshnessAsync(query)` | Owners ranked by how old their newest completed data is, each with the job that explains it (its status, error code and next run) and how much of its history has loaded. `Search` finds owners by name or key. |
 | `GetProblemsAsync(queue?)` | Failing, deferred and abandoned jobs grouped by error code: "SL5106: 37 jobs, 12 owners" instead of 37 rows. |
 | `GetBudgetsAsync(query)` | Each rate budget and key: the rate it learned, the limit the API reports and any operator's limit, whether it is paused, when it was last refused. |
-| `GetInstancesAsync()` | Every process of every application: host, role, version, queues, whether it runs workers, the planner and listening, and whether it is alive, stopped (and when) or gone without stopping. Stopped and gone ones stay listed for a day. `SharesNameWith` names live instances under the same application that declare none of its queues and job types: most likely another application that took the same name. |
-| `GetSwitchesAsync()` | Each application and role: the switch an operator set, if any, and how many of its live instances run workers and the planner. |
+| `GetInstancesAsync()` | Every process of every application: host, role, version, queues, whether it runs workers, the planner and listening, and whether it is alive, stopped (and when) or gone without stopping. Stopped and gone ones stay listed for a day. `SharesNameWith` names live instances under the same application that declare none of its queues and job types: most likely another application that took the same name. `FollowsSwitches` is false for an instance of a version that does not read switches. |
+| `GetSwitchesAsync()` | Each application and role: the switch an operator set, if any, how many of its live instances run workers and the planner, and how many run a version that ignores switches (`IgnoringSwitch`). |
 | `GetVolumeAsync(query)` | Completed jobs, records, failed attempts and abandoned jobs per hour or day, kept for 400 days. |
 
 ```csharp

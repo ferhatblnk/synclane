@@ -156,6 +156,24 @@ public class InstanceTests : PostgresTest
         var old = Assert.Single((await MonitorTests.MonitorFor(Store, Schema, _clock).GetInstancesAsync()).GetValueOrThrow());
 
         Assert.Equal(("", (bool?)null, (bool?)null, (bool?)null), (old.Role, old.RunsWorkers, old.RunsPlanner, old.ListensForChanges));
+        Assert.False(old.FollowsSwitches);
+    }
+
+    [PostgresFact]
+    public async Task The_switches_count_the_live_instances_of_an_older_version_that_ignore_them()
+    {
+        await ExecuteAsync(
+            $"INSERT INTO {Schema}.instances (id, application, host, version, queues, budgets, started_at, heartbeat_at) " +
+            $"VALUES ('old:1', 'shop', 'old', '0.6.3', ARRAY['orders'], '[]', '{Noon:O}', '{Noon:O}')");
+        await SwitchAsync("shop", "", workers: false, planner: false);
+        await Registry("shop", "new-1:1:aaaaaa", ["orders"]).StartAsync(CancellationToken.None);
+        var monitor = MonitorTests.MonitorFor(Store, Schema, _clock);
+
+        var shop = Assert.Single((await monitor.GetSwitchesAsync()).GetValueOrThrow());
+        var instances = (await monitor.GetInstancesAsync()).GetValueOrThrow();
+
+        Assert.Equal((2, 0, 0, 1), (shop.LiveInstances, shop.RunningWorkers, shop.RunningPlanner, shop.IgnoringSwitch));
+        Assert.Equal([("new-1:1:aaaaaa", true), ("old:1", false)], instances.Select(i => (i.Id, i.FollowsSwitches)).ToList());
     }
 
     [PostgresFact]

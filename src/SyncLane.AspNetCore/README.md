@@ -20,7 +20,7 @@ app.MapSyncLane("/synclane").RequireAuthorization("ops");
 | GET | `/stream?queue=&owner=` | Server-sent events, one `job` event per created job or status change |
 | GET | `/pauses` | The pauses in force: who, why, until when |
 | GET | `/budget-limits` | The budget limits in force: who, why, until when |
-| GET | `/switches` | Each application and role: its switch, and how many live instances run workers and the planner |
+| GET | `/switches` | Each application and role: its switch, how many live instances run workers and the planner, and how many ignore switches because they run an older version |
 | GET | `/actions?queue=&owner=&limit=&cursor=` | What operators did, newest first, with who and why |
 | POST | `/pause?queue=&owner=&reason=&until=` | Emergency stop of a queue or one owner: running jobs are cut and handed back |
 | POST | `/resume?queue=&owner=` | Lift a pause |

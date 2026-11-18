@@ -314,7 +314,8 @@ internal sealed class MonitorStore(NpgsqlDataSource dataSource, MonitorSql sql)
                 ChangedAt = Moment(reader, 6),
                 LiveInstances = reader.GetInt32(7),
                 RunningWorkers = reader.GetInt32(8),
-                RunningPlanner = reader.GetInt32(9)
+                RunningPlanner = reader.GetInt32(9),
+                IgnoringSwitch = reader.GetInt32(10)
             });
         }
 

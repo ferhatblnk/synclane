@@ -316,7 +316,7 @@ Over HTTP: `POST /synclane/switch?application=shop&role=worker&workers=true&plan
 - **Switches are per database.** Set them once in each environment (test, staging, production). Where none is set, every instance runs workers and the planner, as without switches.
 - **On is checked like a start.** If another application runs one of the queues, the instance stays off, logs a warning and its health check says why (`SL1011`).
 - **Every change is in the actions log** with who and why. `GetOverviewAsync` shows per queue how many live instances plan it and run its workers: zero planners means no new jobs.
-- Instances of versions before 0.7 do not read switches; switch an application once all its instances run 0.7 or later.
+- Instances of versions before 0.7 do not read switches and run as their own settings say. `GetSwitchesAsync` counts them per application and role (`IgnoringSwitch`, under the empty role, since they have none) and `GetInstancesAsync` marks each (`FollowsSwitches` false). Switch an application once that count is zero.
 
 Rate budgets are shared through `rate_buckets`: every instance takes its tokens from the same row, and a `429` heard by one instance pauses the key on all of them. Declare the same budgets on every instance that runs workers. Taking a token is one statement that locks the bucket's row for a moment; measured against a local PostgreSQL 18, one key served about 12,000 tokens a second to eight callers, far more than any API we know allows.
 

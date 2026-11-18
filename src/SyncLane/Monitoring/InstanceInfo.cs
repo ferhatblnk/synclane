@@ -36,6 +36,12 @@ public sealed record InstanceInfo
     /// </summary>
     public IReadOnlyList<string> SharesNameWith { get; init; } = [];
 
+    /// <summary>
+    /// Whether it reads the switches in the database. <c>false</c> for an instance of a version before 0.7, which runs
+    /// as its own settings say whatever a switch says; upgrade it before relying on a switch.
+    /// </summary>
+    public bool FollowsSwitches { get; init; }
+
     /// <summary>The machine it runs on.</summary>
     public required string Host { get; init; }
 

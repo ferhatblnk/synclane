@@ -87,6 +87,7 @@ internal sealed partial class SyncLaneMonitor(
             RunsWorkers = row.RunsWorkers,
             RunsPlanner = row.RunsPlanner,
             ListensForChanges = row.Listens,
+            FollowsSwitches = row.RunsWorkers is not null,
             Host = row.Host,
             Version = row.Version,
             Queues = row.Queues,
