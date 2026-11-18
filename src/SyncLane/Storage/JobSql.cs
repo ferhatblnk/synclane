@@ -135,7 +135,10 @@ internal sealed class JobSql
             """;
 
         RememberOwners = Remember("@owner_keys", "@owner_names", "@owner_values");
-        Enqueue = Insert("SELECT count(*)::int FROM inserted");
+        // With the count comes how many rows the planner believes the table has, so a large insert can be followed by
+        // an ANALYZE (see JobStore.EnqueueAsync). Never analysed reads as -1, which counts as empty.
+        Enqueue = Insert($"SELECT count(*)::int, (SELECT greatest(reltuples, 0)::bigint FROM pg_class WHERE oid = '{table}'::regclass) FROM inserted");
+        Analyze = $"ANALYZE (SKIP_LOCKED) {table}";
         EnqueueOne = Insert("SELECT id FROM inserted", Remember("ARRAY[@owner_key]", "ARRAY[@owner_name]", "ARRAY[@owner_values]"));
 
         MarkLoaded =
@@ -510,8 +513,17 @@ internal sealed class JobSql
     /// <summary>Adds the owners of a planning round and the names they were given. Runs with the coverage read.</summary>
     public string RememberOwners { get; }
 
-    /// <summary>Inserts planned jobs, replaces abandoned recurring ones and updates the summary. Returns how many were created.</summary>
+    /// <summary>
+    /// Inserts planned jobs, replaces abandoned recurring ones and updates the summary. Returns how many were created
+    /// and how many rows the planner's statistics say the table had.
+    /// </summary>
     public string Enqueue { get; }
+
+    /// <summary>
+    /// Refreshes the statistics of the jobs table. Skips it, instead of waiting, when autovacuum is busy with it; a
+    /// user that does not own the table gets a warning and nothing else.
+    /// </summary>
+    public string Analyze { get; }
 
     /// <summary>The same as <see cref="Enqueue"/> for one job. Returns its id, or nothing when it exists.</summary>
     public string EnqueueOne { get; }

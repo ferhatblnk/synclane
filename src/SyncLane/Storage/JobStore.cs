@@ -74,15 +74,49 @@ internal sealed class JobStore(NpgsqlDataSource dataSource, JobSql sql) : IAsync
         return versions;
     }
 
-    /// <summary>Inserts the jobs that do not exist yet, in one statement. Returns how many were created.</summary>
+    /// <summary>
+    /// Inserts the jobs that do not exist yet, in one statement. Returns how many were created.
+    /// When the insert is large next to what PostgreSQL believes the table holds, the table is analysed straight away.
+    /// </summary>
+    /// <remarks>
+    /// Without it, the first planning of a fresh installation (thousands of jobs into an empty table) leaves the
+    /// statistics saying the table is empty until autovacuum comes round, up to a minute later. In that minute the
+    /// planner reads and sorts every waiting job for each lease instead of walking <c>jobs_lease_order</c>; under load
+    /// the leases queued behind each other and the queue drained at half its speed (D67).
+    /// </remarks>
     public async Task<int> EnqueueAsync(string queue, IReadOnlyList<PlannedJob> jobs, DateTimeOffset now, CancellationToken cancellationToken)
     {
         if (jobs.Count == 0)
             return 0;
 
-        await using var command = EnqueueCommand(sql.Enqueue, queue, jobs, now);
-        return await command.ExecuteScalarAsync(cancellationToken) is int created ? created : 0;
+        int created;
+        long believed;
+        await using (var command = EnqueueCommand(sql.Enqueue, queue, jobs, now))
+        await using (var reader = await command.ExecuteReaderAsync(cancellationToken))
+        {
+            await reader.ReadAsync(cancellationToken);
+            created = reader.GetInt32(0);
+            believed = reader.GetInt64(1);
+        }
+
+        if (StatisticsAreStale(created, believed))
+        {
+            await using var analyze = dataSource.CreateCommand(sql.Analyze);
+            await analyze.ExecuteNonQueryAsync(cancellationToken);
+        }
+
+        return created;
     }
+
+    /// <summary>
+    /// Whether an insert of <paramref name="created"/> jobs leaves the statistics too far behind to wait for autovacuum:
+    /// at least <see cref="AnalyzeAfter"/> rows and more than a tenth of what the statistics say the table holds, the
+    /// share at which autovacuum would analyse it too.
+    /// </summary>
+    internal static bool StatisticsAreStale(int created, long believed) =>
+        created >= AnalyzeAfter && created * 10L > believed;
+
+    internal const int AnalyzeAfter = 1_000;
 
     /// <summary>
     /// Inserts one job and remembers its owner, with <paramref name="ownerName"/> when given. Returns its id, or

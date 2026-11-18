@@ -2,6 +2,7 @@
   <Folder Name="/samples/">
     <Project Path="samples/Demo/Demo.csproj" />
     <Project Path="samples/LiveCheck/LiveCheck.csproj" />
+    <Project Path="samples/LoadTest/LoadTest.csproj" />
   </Folder>
   <Folder Name="/src/">
     <Project Path="src/SyncLane/SyncLane.csproj" />

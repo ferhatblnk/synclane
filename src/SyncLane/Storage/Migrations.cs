@@ -20,6 +20,7 @@ internal static class Migrations
         new(11, "owner values", OwnerValues),
         new(12, "ordered lanes", OrderedLanes),
         new(13, "lease generation", LeaseGeneration),
+        new(14, "lease order", LeaseOrder),
     ];
 
     public static int Latest => All[^1].Version;
@@ -373,6 +374,17 @@ internal static class Migrations
 
         CREATE INDEX IF NOT EXISTS jobs_lane_order
             ON {schema}.{JobSql.TableName} (queue, lane, id) WHERE status <> 'completed';
+        """;
+
+    /// <summary>
+    /// The order the lease takes jobs in, as an index: the lease walks it and stops at the first job it may take,
+    /// instead of reading and sorting every due job. Its key is the lease statement's ORDER BY, column for column.
+    /// </summary>
+    private static string LeaseOrder(string schema) =>
+        $"""
+        CREATE INDEX IF NOT EXISTS jobs_lease_order
+            ON {schema}.{JobSql.TableName} (queue, (status = 'deferred'), priority, window_start DESC NULLS LAST, next_run_at, id)
+            WHERE status <> 'completed';
         """;
 
     /// <summary>

@@ -351,14 +351,19 @@ Migrations are only ever added, and each one only adds. An instance still runnin
 
 A table created by SyncLane 0.1, before the migrations table existed, is adopted as it is: migration 1 finds the table and indexes in place and only records itself.
 
-Migration 5 builds two indexes on `jobs`, and a plain `CREATE INDEX` blocks writes to the table while it runs. On a large table, create them first without blocking. The migration then finds them and skips them:
+Migrations 5 and 14 build indexes on `jobs`, and a plain `CREATE INDEX` blocks writes to the table while it runs. On a large table, create them first without blocking. The migration then finds them and skips them:
 
 ```sql
 CREATE INDEX CONCURRENTLY IF NOT EXISTS jobs_open
     ON synclane.jobs (queue, owner, type) WHERE status <> 'completed';
 CREATE INDEX CONCURRENTLY IF NOT EXISTS jobs_finished
     ON synclane.jobs (queue, completed_at) WHERE status = 'completed' AND mode <> 'initial';
+CREATE INDEX CONCURRENTLY IF NOT EXISTS jobs_lease_order
+    ON synclane.jobs (queue, (status = 'deferred'), priority, window_start DESC NULLS LAST, next_run_at, id)
+    WHERE status <> 'completed';
 ```
+
+`jobs_lease_order` covers only jobs that have not completed, so even on a table with a long history it is usually built in a moment.
 
 ## Running the schema yourself
 
