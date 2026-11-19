@@ -28,6 +28,27 @@ public partial class ConventionTests
         .Where(constant => constant.IsLiteral);
 
     [Fact]
+    public void Every_example_of_the_integration_guide_is_compiled_with_the_solution()
+    {
+        var guide = File.ReadAllText(Path.Combine(Root, "docs", "integrating.md"));
+        var examples = Normalized(string.Join('\n', Directory
+            .EnumerateFiles(Path.Combine(Root, "tests", "SyncLane.Guide"), "*.cs", SearchOption.AllDirectories)
+            .Where(path => !path.Contains($"{Path.DirectorySeparatorChar}obj{Path.DirectorySeparatorChar}"))
+            .Select(File.ReadAllText)));
+
+        var blocks = CSharpBlock().Matches(guide).Select(block => block.Groups[1].Value).ToList();
+        var missing = blocks.Where(block => !examples.Contains(Normalized(block), StringComparison.Ordinal)).ToList();
+
+        Assert.NotEmpty(blocks);
+        Assert.True(missing.Count == 0,
+            "These examples of docs/integrating.md are not in tests/SyncLane.Guide, so nothing compiles them. Copy each " +
+            "into Examples.cs as it is written:\n\n" + string.Join("\n---\n", missing));
+
+        static string Normalized(string code) =>
+            string.Join('\n', code.Split('\n').Select(line => line.Trim()).Where(line => line.Length > 0));
+    }
+
+    [Fact]
     public void Error_codes_are_unique_and_follow_the_numbering()
     {
         var values = Codes.Select(code => (string)code.GetRawConstantValue()!).ToList();
@@ -177,6 +198,9 @@ public partial class ConventionTests
 
         throw new DirectoryNotFoundException(AppContext.BaseDirectory);
     }
+
+    [GeneratedRegex(@"```csharp\r?\n(.*?)```", RegexOptions.Singleline)]
+    private static partial Regex CSharpBlock();
 
     [GeneratedRegex(@"`(SL[0-9]{4})`")]
     private static partial Regex DocumentedCode();
