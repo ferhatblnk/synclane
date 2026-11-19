@@ -285,6 +285,51 @@ public class LiveChangeTests : PostgresTest
         return host;
     }
 
+    [PostgresFact]
+    public async Task Listening_turned_off_closes_its_connection_and_hears_nothing_until_it_is_turned_on_again()
+    {
+        await using var feed = Feed();
+        var seen = CollectAsync(feed.ReadAllAsync(null, null, CancellationToken.None), 1);
+        await feed.ListeningAsync(CancellationToken.None);
+        var listeningBefore = await ListenersAsync();
+
+        feed.SetListening(false);
+        await UntilAsync(async () => await ListenersAsync() == 0);
+        var stateWhileOff = feed.State;
+        var waiting = feed.ListeningAsync(CancellationToken.None);
+        await EnqueueAsync(Noon, Planned("a", key: "1"));
+        await Task.Delay(TimeSpan.FromMilliseconds(300));
+        var heardWhileOff = seen.IsCompleted || waiting.IsCompleted;
+
+        feed.SetListening(true);
+        await waiting.WaitAsync(Patience);
+        await EnqueueAsync(Noon, Planned("b", key: "2"));
+        var change = Assert.Single(await seen);
+
+        Assert.Equal(1, listeningBefore);
+        Assert.Equal(FeedState.Off, stateWhileOff);
+        Assert.False(heardWhileOff);
+        Assert.Equal(("b", FeedState.Listening), (change.Owner, feed.State));
+    }
+
+    /// <summary>Connections of the listening server that listen on this test's channel.</summary>
+    private async Task<long> ListenersAsync()
+    {
+        await using var connection = new NpgsqlConnection(ListenConnectionString);
+        await connection.OpenAsync();
+        await using var command = new NpgsqlCommand("SELECT count(*) FROM pg_stat_activity WHERE query = @listen", connection);
+        command.Parameters.AddWithValue("listen", $"LISTEN {Storage.ChangeChannel.For(Schema)}");
+        return (long)(await command.ExecuteScalarAsync())!;
+    }
+
+    private static async Task UntilAsync(Func<Task<bool>> done)
+    {
+        using var timeout = new CancellationTokenSource(Patience);
+        // Sequential: polling until the condition holds.
+        while (!await done())
+            await Task.Delay(50, timeout.Token);
+    }
+
     private async Task CompletedAsync()
     {
         using var timeout = new CancellationTokenSource(Patience);

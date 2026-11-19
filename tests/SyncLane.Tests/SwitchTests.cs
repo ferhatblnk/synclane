@@ -115,6 +115,59 @@ public class SwitchTests : PostgresTest
     }
 
     [PostgresFact]
+    public async Task Listening_switched_off_stops_the_listening_connection_while_the_workers_go_on_by_polling()
+    {
+        using var host = Host(runWorkers: true);
+        await host.StartAsync();
+        var feed = host.Services.GetRequiredService<JobChangeFeed>();
+        await feed.ListeningAsync(CancellationToken.None);
+        var monitor = host.Services.GetRequiredService<ISyncLaneMonitor>();
+        host.Services.GetRequiredService<SlowPages>().Release();
+
+        await monitor.SetListeningAsync(Application, null, listen: false, "save connections", by: "ops");
+        await UntilAsync(() => feed.State == FeedState.Off);
+        await host.Services.GetRequiredService<ISyncLane>().EnqueueAsync(new NewJob { Queue = Queue, Owner = new JobOwner("a"), Type = "orders" });
+        var completed = await WaitForAsync(job => job.Status == JobStatus.Completed);
+        var off = Assert.Single((await monitor.GetSwitchesAsync()).GetValueOrThrow());
+
+        await monitor.SetListeningAsync(Application, null, listen: null, "back to the settings", by: "ops");
+        await Registry(host).HeartbeatAsync(CancellationToken.None);
+        await feed.ListeningAsync(CancellationToken.None).WaitAsync(Patience);
+        var on = Assert.Single((await monitor.GetSwitchesAsync()).GetValueOrThrow());
+        var actions = (await monitor.GetActionsAsync(new ActionQuery())).Items;
+        await host.StopAsync();
+
+        Assert.Equal(3, completed.ProcessedCount);
+        Assert.Equal(((bool?)false, 0, 1, (bool?)null), (off.Listen, off.Listening, off.RunningWorkers, off.RunWorkers));
+        Assert.Equal(((bool?)null, 1), (on.Listen, on.Listening));
+        Assert.Equal(
+            ["shop: listening as set", "shop: listening off"],
+            actions.Select(action => action.Target).ToList());
+    }
+
+    [PostgresFact]
+    public async Task An_application_whose_switch_says_not_to_listen_starts_without_listening_and_still_finishes_its_jobs()
+    {
+        await ExecuteAsync($"INSERT INTO {Schema}.switches (application, role, listen, changed_at) VALUES ('{Application}', '', false, now())");
+        using var host = Host(runWorkers: true);
+        await host.StartAsync();
+        var feed = host.Services.GetRequiredService<JobChangeFeed>();
+        host.Services.GetRequiredService<SlowPages>().Release();
+
+        await host.Services.GetRequiredService<ISyncLane>().EnqueueAsync(new NewJob { Queue = Queue, Owner = new JobOwner("a"), Type = "orders" });
+        var completed = await WaitForAsync(job => job.Status == JobStatus.Completed);
+        var listening = feed.ListeningAsync(CancellationToken.None);
+        await Task.Delay(TimeSpan.FromMilliseconds(300));
+        var state = (feed.State, listening.IsCompleted);
+        var listens = await ScalarAsync<bool>($"SELECT listens FROM {Schema}.instances");
+        await host.StopAsync();
+
+        Assert.Equal(3, completed.ProcessedCount);
+        Assert.Equal((FeedState.Off, false), state);
+        Assert.False(listens);
+    }
+
+    [PostgresFact]
     public async Task A_switch_with_a_name_no_instance_could_have_is_refused_and_changes_nothing()
     {
         using var host = Host(runWorkers: true);
@@ -139,6 +192,14 @@ public class SwitchTests : PostgresTest
     private Task<int> AnnounceAsync(string application = Application, string role = "") =>
         ExecuteAsync(
             $"SELECT pg_notify('{ChangeChannel.For(Schema)}', json_build_object('control', 'switch', 'application', '{application}', 'role', '{role}')::text)");
+
+    private static async Task UntilAsync(Func<bool> done)
+    {
+        using var timeout = new CancellationTokenSource(Patience);
+        // Sequential: polling until the condition holds.
+        while (!done())
+            await Task.Delay(50, timeout.Token);
+    }
 
     private async Task<Job> WaitForAsync(Func<Job, bool> done)
     {

@@ -100,6 +100,9 @@ public static partial class SyncLaneEndpoints
             repairs.MapPost("/switch", SetSwitchAsync)
                 .Produces<int>().ProducesProblem(StatusCodes.Status400BadRequest).WithName("SyncLane_SetSwitch")
                 .WithSummary("Turns an application's workers and planner on or off, per role, without a deploy; leave one out to follow its settings.");
+            repairs.MapPost("/switch/listen", SetListeningAsync)
+                .Produces<int>().ProducesProblem(StatusCodes.Status400BadRequest).WithName("SyncLane_SetListening")
+                .WithSummary("Turns listening for job changes on or off for an application's instances of one role; leave it out to follow its settings.");
             repairs.MapPost("/sync-now", SyncNowAsync)
                 .Produces<long>().WithName("SyncLane_SyncNow")
                 .WithSummary("Fetches an owner's new data now, for example on a webhook; a burst of calls is one fetch.");
@@ -240,6 +243,14 @@ public static partial class SyncLaneEndpoints
     {
         var result = await monitor.SetSwitchAsync(application, role, workers, planner, reason, Who(http), http.RequestAborted);
         LogRepair(loggers.CreateLogger(Producer), Who(http), "set the switch", $"{application} {role}", result.Succeeded);
+        return Answer(result);
+    }
+
+    private static async Task<IResult> SetListeningAsync(
+        string application, string? role, bool? listen, string reason, ISyncLaneMonitor monitor, HttpContext http, ILoggerFactory loggers)
+    {
+        var result = await monitor.SetListeningAsync(application, role, listen, reason, Who(http), http.RequestAborted);
+        LogRepair(loggers.CreateLogger(Producer), Who(http), "set listening", $"{application} {role}", result.Succeeded);
         return Answer(result);
     }
 

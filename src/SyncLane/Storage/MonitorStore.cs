@@ -292,6 +292,22 @@ internal sealed class MonitorStore(NpgsqlDataSource dataSource, MonitorSql sql)
         return await command.ExecuteScalarAsync(cancellationToken) is int set ? set : 0;
     }
 
+    /// <summary>Sets whether an application and role listens, logs it and announces it. Returns 1.</summary>
+    public async Task<int> SetListeningAsync(
+        string application, string role, bool? listen, string target, string by, string reason, DateTimeOffset now,
+        CancellationToken cancellationToken)
+    {
+        await using var command = dataSource.CreateCommand(sql.SetListening);
+        command.Parameters.AddWithValue("application", application);
+        command.Parameters.AddWithValue("role", role);
+        command.Parameters.Add(new NpgsqlParameter("listen", NpgsqlDbType.Boolean) { Value = (object?)listen ?? DBNull.Value });
+        command.Parameters.AddWithValue("target", target);
+        command.Parameters.AddWithValue("now", now.ToUniversalTime());
+        command.Parameters.AddWithValue("channel", sql.Channel);
+        AddWho(command.Parameters, by, reason);
+        return await command.ExecuteScalarAsync(cancellationToken) is int set ? set : 0;
+    }
+
     /// <summary>The switches, and the applications and roles of instances alive since <paramref name="aliveSince"/>.</summary>
     public async Task<List<SwitchInfo>> SwitchesAsync(DateTimeOffset aliveSince, CancellationToken cancellationToken)
     {
@@ -315,7 +331,9 @@ internal sealed class MonitorStore(NpgsqlDataSource dataSource, MonitorSql sql)
                 LiveInstances = reader.GetInt32(7),
                 RunningWorkers = reader.GetInt32(8),
                 RunningPlanner = reader.GetInt32(9),
-                IgnoringSwitch = reader.GetInt32(10)
+                IgnoringSwitch = reader.GetInt32(10),
+                Listen = reader.IsDBNull(11) ? null : reader.GetBoolean(11),
+                Listening = reader.GetInt32(12)
             });
         }
 

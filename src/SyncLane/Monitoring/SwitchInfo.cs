@@ -18,6 +18,12 @@ public sealed record SwitchInfo
     /// <summary>Whether the switch runs the planner; <c>null</c> leaves it to the application's <c>RunPlanner</c>.</summary>
     public bool? RunPlanner { get; init; }
 
+    /// <summary>
+    /// Whether the switch has the instances listen for job changes; <c>null</c> leaves it to the application's
+    /// <c>ListenForChanges</c>. Set with <see cref="ISyncLaneMonitor.SetListeningAsync"/>.
+    /// </summary>
+    public bool? Listen { get; init; }
+
     /// <summary>Who set the switch; <c>null</c> when none was set.</summary>
     public string? By { get; init; }
 
@@ -42,4 +48,7 @@ public sealed record SwitchInfo
     /// Upgrade them before relying on the switch. They register without a role, so they appear under the empty role.
     /// </summary>
     public int IgnoringSwitch { get; init; }
+
+    /// <summary>How many of the live instances listen for job changes now, each with one connection of its own.</summary>
+    public int Listening { get; init; }
 }
