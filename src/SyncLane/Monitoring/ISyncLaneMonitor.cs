@@ -201,6 +201,9 @@ public interface ISyncLaneMonitor
     /// listening connection at once: its workers find jobs every <c>PollInterval</c> instead, and live views of it stay
     /// quiet. Use it to save connections when many applications share one database, or behind a pooler that cannot
     /// listen. Instances that listen hear it at once; the others read it with their next heartbeat, within half a minute.
+    /// Switch it on only for instances that have a connection able to listen: behind a pooler in transaction mode, that
+    /// is <c>ListenConnectionString</c> around the pooler. Without one, the instance finds it cannot hear, says so in its
+    /// health check and polls.
     /// </summary>
     /// <param name="application">The application, as its instances register (see <see cref="GetInstancesAsync"/>).</param>
     /// <param name="role">The role, from <see cref="SyncLaneOptions.Role"/>; <c>null</c> or empty for instances that set none.</param>
