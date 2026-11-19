@@ -195,6 +195,27 @@ public interface ISyncLaneMonitor
         CancellationToken cancellationToken = default);
 
     /// <summary>
+    /// Turns listening for job changes on or off for an application's instances of one role, without a deploy, and logs
+    /// who did it and why. A value overrides the application's <c>ListenForChanges</c>; <c>null</c> gives the choice back
+    /// to it. The workers and the planner keep what their switch says. An instance that stops listening closes its
+    /// listening connection at once: its workers find jobs every <c>PollInterval</c> instead, and live views of it stay
+    /// quiet. Use it to save connections when many applications share one database, or behind a pooler that cannot
+    /// listen. Instances that listen hear it at once; the others read it with their next heartbeat, within half a minute.
+    /// Switch it on only for instances that have a connection able to listen: behind a pooler in transaction mode, that
+    /// is <c>ListenConnectionString</c> around the pooler. Without one, the instance finds it cannot hear, says so in its
+    /// health check and polls.
+    /// </summary>
+    /// <param name="application">The application, as its instances register (see <see cref="GetInstancesAsync"/>).</param>
+    /// <param name="role">The role, from <see cref="SyncLaneOptions.Role"/>; <c>null</c> or empty for instances that set none.</param>
+    /// <param name="listen">Whether the instances listen, or <c>null</c> to follow <c>ListenForChanges</c>.</param>
+    /// <param name="reason">Why, for whoever sees the switch. Required.</param>
+    /// <param name="by">Who asks, for the switch and the actions log.</param>
+    /// <param name="cancellationToken">Cancels the call.</param>
+    /// <returns>1. Fails with <see cref="SyncErrorCodes.SwitchNameInvalid"/> when the application or role is not a usable name.</returns>
+    Task<SyncResult<int>> SetListeningAsync(
+        string application, string? role, bool? listen, string reason, string? by = null, CancellationToken cancellationToken = default);
+
+    /// <summary>
     /// Every switch that was set, and every application and role a live instance runs under, with what those instances
     /// run now: the list to turn applications on and off from.
     /// </summary>

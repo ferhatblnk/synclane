@@ -11,8 +11,8 @@ namespace SyncLane.Instances;
 /// </summary>
 /// <remarks>
 /// <para>
-/// It also decides whether the workers and the planner run: the options say so, unless an operator set a switch for this
-/// application and role in the database. The switch is read at registration and with every heartbeat; while the
+/// It also decides whether the workers, the planner and listening run: the options say so, unless an operator set a
+/// switch for this application and role in the database. The switch is read at registration and with every heartbeat; while the
 /// workers run, a switch announced for this application is read at once, so turning them off takes effect immediately
 /// and turning them on within half a minute. A switch that would turn them on while another application runs one of the
 /// queues leaves them off, and the health check says why.
@@ -52,6 +52,7 @@ internal sealed partial class InstanceRegistry(
 
         _me = me;
         roles.Set(me.RunsWorkers == true, me.RunsPlanner == true);
+        changes.SetListening(me.Listens == true);
         health.Heartbeat(now);
         Notice(InstanceRules.Strangers(me, live));
         LogRegistered(identity.Id, identity.Application, me.Queues.Count);
@@ -91,7 +92,7 @@ internal sealed partial class InstanceRegistry(
                 identity, _me, now, now - InstanceRules.GoneAfter, now - InstanceRules.ForgetAfter, cancellationToken);
             health.Heartbeat(now);
             Notice(InstanceRules.Strangers(_me, namesakes));
-            settle = Wanted(set) != (roles.Workers, roles.Planner);
+            settle = Wanted(set) != (roles.Workers, roles.Planner, changes.Listens);
         }
         catch (Exception exception) when (!cancellationToken.IsCancellationRequested)
         {
@@ -123,8 +124,9 @@ internal sealed partial class InstanceRegistry(
                 identity, now - InstanceRules.GoneAfter, (others, set) => Decide(others, set, before.StartedAt, now, refuseConflicts: false), cancellationToken);
             _me = me!;
             roles.Set(_me.RunsWorkers == true, _me.RunsPlanner == true);
-            if ((_me.RunsWorkers, _me.RunsPlanner) != (before.RunsWorkers, before.RunsPlanner))
-                LogSwitched(identity.Id, _me.RunsWorkers == true, _me.RunsPlanner == true);
+            changes.SetListening(_me.Listens == true);
+            if ((_me.RunsWorkers, _me.RunsPlanner, _me.Listens) != (before.RunsWorkers, before.RunsPlanner, before.Listens))
+                LogSwitched(identity.Id, _me.RunsWorkers == true, _me.RunsPlanner == true, _me.Listens == true);
 
             var why = refused.Count == 0 ? null : string.Join(' ', refused.Select(error => error.Message));
             if (why is not null && why != _refused)
@@ -195,8 +197,8 @@ internal sealed partial class InstanceRegistry(
         }
     }
 
-    private (bool Workers, bool Planner) Wanted(SwitchRow? set) =>
-        (set?.RunWorkers ?? options.RunWorkers, set?.RunPlanner ?? options.RunPlanner);
+    private (bool Workers, bool Planner, bool Listen) Wanted(SwitchRow? set) =>
+        (set?.RunWorkers ?? options.RunWorkers, set?.RunPlanner ?? options.RunPlanner, set?.Listen ?? options.ListenForChanges);
 
     /// <summary>
     /// The row this instance writes: what it runs, given the switch and the live instances. A queue another application
@@ -205,7 +207,7 @@ internal sealed partial class InstanceRegistry(
     private (InstanceRow? Row, IReadOnlyList<SyncError> Refused) Decide(
         IReadOnlyList<InstanceRow> live, SwitchRow? set, DateTimeOffset startedAt, DateTimeOffset now, bool refuseConflicts)
     {
-        var (workers, planner) = Wanted(set);
+        var (workers, planner, listen) = Wanted(set);
         var queues = InstanceRules.Runs(options, workers, planner);
         var conflicts = InstanceRules.Conflicts(identity, queues, live, now);
         if (conflicts.Count > 0)
@@ -218,7 +220,7 @@ internal sealed partial class InstanceRegistry(
 
         var row = new InstanceRow(
             identity.Id, identity.Application, identity.Host, identity.Version, queues, options.DescribeBudgets(), startedAt, now,
-            Role: identity.Role, RunsWorkers: workers, RunsPlanner: planner, Listens: options.ListenForChanges, Declares: _declares);
+            Role: identity.Role, RunsWorkers: workers, RunsPlanner: planner, Listens: listen, Declares: _declares);
         return (row, conflicts);
     }
 
@@ -242,8 +244,8 @@ internal sealed partial class InstanceRegistry(
     [LoggerMessage(Level = LogLevel.Warning, Message = "SyncLane instance {Instance} could not say it is alive and tries again in half a minute.")]
     private partial void LogHeartbeatFailed(Exception exception, string instance);
 
-    [LoggerMessage(Level = LogLevel.Information, Message = "SyncLane instance {Instance} switched: workers {Workers}, planner {Planner}.")]
-    private partial void LogSwitched(string instance, bool workers, bool planner);
+    [LoggerMessage(Level = LogLevel.Information, Message = "SyncLane instance {Instance} switched: workers {Workers}, planner {Planner}, listening {Listening}.")]
+    private partial void LogSwitched(string instance, bool workers, bool planner, bool listening);
 
     [LoggerMessage(Level = LogLevel.Warning, Message =
         "The switch in the database turns the workers or the planner of SyncLane instance {Instance} on, but they stay off: {Why}")]

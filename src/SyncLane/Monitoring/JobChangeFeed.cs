@@ -20,6 +20,10 @@ namespace SyncLane.Monitoring;
 /// which nothing else ever notifies, and waits to hear a probe sent there through <paramref name="sending"/>, the
 /// connection everything else writes on. Only a connection that hears it listens on the schema's channel. One that does
 /// not stops listening for good, and workers poll.
+/// <para>
+/// Listening can be turned off and on while the process runs (<see cref="SetListening"/>), as the switch in the
+/// database says. Off closes the connection; readers stay and hear nothing until it is on again.
+/// </para>
 /// </remarks>
 internal sealed partial class JobChangeFeed(
     string listenConnectionString, NpgsqlDataSource sending, string schema, TimeProvider time, ILogger<JobChangeFeed> logger, bool listens = true)
@@ -35,8 +39,20 @@ internal sealed partial class JobChangeFeed(
 
     private Probe? _probe;
 
+    private FeedState _state = FeedState.NotStarted;
+    private volatile bool _on = listens;
+    private CancellationTokenSource? _run;
+    private Task? _closing;
+
     /// <summary>Whether the feed hears changes now, for the health check.</summary>
-    internal FeedState State { get; private set; } = FeedState.NotStarted;
+    internal FeedState State
+    {
+        get => _on ? _state : FeedState.Off;
+        private set => _state = value;
+    }
+
+    /// <summary>Whether listening is on, whether or not the connection is open yet.</summary>
+    internal bool Listens => _on;
 
     /// <summary>Changes a reader may fall behind by before the oldest are dropped, so a slow reader never holds up the rest.</summary>
     internal const int ReaderCapacity = 1000;
@@ -124,11 +140,44 @@ internal sealed partial class JobChangeFeed(
         return _listeningNow.Task.WaitAsync(cancellationToken);
     }
 
+    /// <summary>
+    /// Turns listening on or off. Off closes the connection at once, and the next <see cref="ListeningAsync"/> waits for
+    /// it to be on again; workers poll meanwhile. On opens it again when something reads.
+    /// </summary>
+    internal void SetListening(bool on)
+    {
+        lock (_gate)
+        {
+            if (on == _on)
+                return;
+
+            _on = on;
+            if (!on)
+            {
+                _run?.Cancel();
+                _closing = _listening;
+                _listening = null;
+                _run = null;
+                if (_listeningNow.Task.IsCompleted)
+                    _listeningNow = NewSignal();
+                return;
+            }
+
+            if (!_readers.IsEmpty || !_pauseReaders.IsEmpty || !_switchReaders.IsEmpty)
+                StartListening();
+        }
+    }
+
     public async ValueTask DisposeAsync()
     {
         await _stopping.CancelAsync();
-        if (_listening is { } listening)
+        Task? listening, closing;
+        lock (_gate)
+            (listening, closing) = (_listening, _closing);
+        if (listening is not null)
             await listening.ConfigureAwait(ConfigureAwaitOptions.SuppressThrowing);
+        if (closing is not null)
+            await closing.ConfigureAwait(ConfigureAwaitOptions.SuppressThrowing);
 
         foreach (var reader in _readers.Keys)
             reader.Writer.TryComplete();
@@ -143,14 +192,20 @@ internal sealed partial class JobChangeFeed(
 
     private void EnsureListening()
     {
-        if (!listens)
-        {
-            State = FeedState.Off;
-            return;
-        }
-
         lock (_gate)
-            _listening ??= Task.Run(() => ListenAsync(_stopping.Token));
+        {
+            if (_on && _listening is null)
+                StartListening();
+        }
+    }
+
+    /// <summary>Starts a listening run of its own, so turning listening off ends this run and no other. Called under the gate.</summary>
+    private void StartListening()
+    {
+        _run = CancellationTokenSource.CreateLinkedTokenSource(_stopping.Token);
+        var run = _run.Token;
+        State = FeedState.NotStarted;
+        _listening = Task.Run(() => ListenAsync(run));
     }
 
     private async Task ListenAsync(CancellationToken stopping)
@@ -198,6 +253,10 @@ internal sealed partial class JobChangeFeed(
                 }
             }
             catch (OperationCanceledException) when (stopping.IsCancellationRequested)
+            {
+                return;
+            }
+            catch (Exception) when (stopping.IsCancellationRequested)
             {
                 return;
             }

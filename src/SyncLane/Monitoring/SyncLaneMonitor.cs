@@ -254,6 +254,24 @@ internal sealed partial class SyncLaneMonitor(
         static string State(bool? on) => on switch { true => "on", false => "off", null => "as set" };
     }
 
+    public async Task<SyncResult<int>> SetListeningAsync(
+        string application, string? role, bool? listen, string reason, string? by = null, CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(application);
+        ArgumentException.ThrowIfNullOrWhiteSpace(reason);
+
+        role ??= "";
+        if (!SyncLaneOptions.IsValidName(application))
+            return SyncResult<int>.Failure(SyncLaneErrors.SwitchNameInvalid("application", application));
+        if (role.Length > 0 && !SyncLaneOptions.IsValidName(role))
+            return SyncResult<int>.Failure(SyncLaneErrors.SwitchNameInvalid("role", role));
+
+        var target = $"{application}{(role.Length > 0 ? "/" + role : "")}: listening {(listen switch { true => "on", false => "off", null => "as set" })}";
+        var set = await monitor.SetListeningAsync(application, role, listen, target, Who(by), reason, time.GetUtcNow(), cancellationToken);
+        LogSwitchSet(target, Who(by));
+        return SyncResult<int>.Success(set);
+    }
+
     public async Task<SyncResult<IReadOnlyList<SwitchInfo>>> GetSwitchesAsync(CancellationToken cancellationToken = default) =>
         SyncResult<IReadOnlyList<SwitchInfo>>.Success(await monitor.SwitchesAsync(time.GetUtcNow() - InstanceRules.GoneAfter, cancellationToken));
 

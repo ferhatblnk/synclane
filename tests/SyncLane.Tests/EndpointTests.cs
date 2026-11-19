@@ -158,10 +158,14 @@ public class EndpointTests : PostgresTest
         var set = await SendAsync(app, "POST", "/synclane/switch?application=shop&role=worker&workers=true&reason=launch", IPAddress.Loopback, action);
         var listed = await SendAsync(app, "GET", "/synclane/switches", IPAddress.Loopback);
         var bad = await SendAsync(app, "POST", "/synclane/switch?application=my%20shop&workers=true&reason=launch", IPAddress.Loopback, action);
+        var quiet = await SendAsync(app, "POST", "/synclane/switch/listen?application=shop&role=worker&listen=false&reason=connections", IPAddress.Loopback, action);
+        var relisted = await SendAsync(app, "GET", "/synclane/switches", IPAddress.Loopback);
 
         Assert.Equal(400, withoutHeader.Status);
         Assert.Equal((200, "1"), (set.Status, set.Body));
         Assert.Contains("\"application\":\"shop\",\"role\":\"worker\",\"runWorkers\":true,\"runPlanner\":null", listed.Body);
+        Assert.Equal((200, "1"), (quiet.Status, quiet.Body));
+        Assert.Contains("\"application\":\"shop\",\"role\":\"worker\",\"runWorkers\":true,\"runPlanner\":null,\"listen\":false", relisted.Body);
         Assert.Equal(400, bad.Status);
         Assert.Contains("\"code\":\"SL3015\"", bad.Body);
     }
@@ -208,7 +212,7 @@ public class EndpointTests : PostgresTest
             .Where(description => description.RelativePath!.StartsWith("synclane/", StringComparison.Ordinal))
             .ToList();
 
-        Assert.Equal(23, descriptions.Count);
+        Assert.Equal(24, descriptions.Count);
         Assert.All(descriptions, description => Assert.Contains(
             description.ActionDescriptor.EndpointMetadata.OfType<ITagsMetadata>(), tags => tags.Tags.Contains("SyncLane")));
         var overview = Assert.Single(descriptions, description => description.RelativePath == "synclane/overview");

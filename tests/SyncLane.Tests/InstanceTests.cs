@@ -10,6 +10,23 @@ public class InstanceTests : PostgresTest
 {
     private readonly ManualClock _clock = new(Noon);
 
+    /// <summary>
+    /// Every registry a test started, stopped when it ends with its change feed. A registry whose switch or settings let
+    /// it listen opens a listening connection; left open, it would outlive the test.
+    /// </summary>
+    private readonly List<(InstanceRegistry Registry, Monitoring.JobChangeFeed Feed)> _started = [];
+
+    public override async Task DisposeAsync()
+    {
+        foreach (var (registry, feed) in _started)
+        {
+            await registry.StopAsync(CancellationToken.None);
+            await feed.DisposeAsync();
+        }
+
+        await base.DisposeAsync();
+    }
+
     [PostgresFact]
     public async Task A_second_application_cannot_run_a_queue_another_one_runs_and_is_told_which_one()
     {
@@ -330,15 +347,20 @@ public class InstanceTests : PostgresTest
         if (budget is { } limit)
             options.AddBudget("api", limit, TimeSpan.FromSeconds(1));
 
-        return new InstanceRegistry(
+        // The feed starts as the options say and listens around the pooler, as a host's does.
+        var feed = new Monitoring.JobChangeFeed(
+            ListenConnectionString!, Store.DataSource, Schema, _clock, NullLogger<Monitoring.JobChangeFeed>.Instance, options.ListenForChanges);
+        var registry = new InstanceRegistry(
             options,
             new InstanceStore(Store.DataSource, new InstanceSql(Schema)),
             new InstanceIdentity(id, id.Split(':')[0], application, role, "1.0.0"),
             roles ?? new RoleSwitch(),
-            new Monitoring.JobChangeFeed(ConnectionString!, Store.DataSource, Schema, _clock, NullLogger<Monitoring.JobChangeFeed>.Instance, listens: false),
+            feed,
             _clock,
             health ?? new Monitoring.HealthSignals(),
             NullLogger<InstanceRegistry>.Instance);
+        _started.Add((registry, feed));
+        return registry;
     }
 
     private async Task<List<string>> IdsAsync() =>

@@ -351,6 +351,22 @@ internal sealed class MonitorSql
             FROM (SELECT pg_notify(@channel, json_build_object('control', 'switch', 'application', @application, 'role', @role)::text) FROM switched) AS announced
             """;
 
+        // Listening has a statement of its own, so turning it off leaves what an operator set for the workers and the
+        // planner as it was.
+        SetListening =
+            $"""
+            WITH switched AS (
+                INSERT INTO {switches} AS s (application, role, listen, changed_by, reason, changed_at)
+                VALUES (@application, @role, @listen, @by, @reason, @now)
+                ON CONFLICT (application, role) DO UPDATE
+                SET listen = excluded.listen, changed_by = excluded.changed_by, reason = excluded.reason, changed_at = excluded.changed_at
+                RETURNING s.application
+            ),
+            {Logged("switch", "NULL", "NULL", "@target", "(SELECT count(*) FROM switched)")}
+            SELECT count(*)::int
+            FROM (SELECT pg_notify(@channel, json_build_object('control', 'switch', 'application', @application, 'role', @role)::text) FROM switched) AS announced
+            """;
+
         // Every switch, and every application and role a live instance runs under, with what those instances run.
         Switches =
             $"""
@@ -358,14 +374,15 @@ internal sealed class MonitorSql
                 SELECT application, role, count(*)::int AS instances,
                        count(*) FILTER (WHERE runs_workers)::int AS workers,
                        count(*) FILTER (WHERE runs_planner)::int AS planners,
-                       count(*) FILTER (WHERE runs_workers IS NULL)::int AS older
+                       count(*) FILTER (WHERE runs_workers IS NULL)::int AS older,
+                       count(*) FILTER (WHERE listens)::int AS listening
                 FROM {instances}
                 WHERE heartbeat_at > @alive_since AND stopped_at IS NULL
                 GROUP BY application, role
             )
             SELECT coalesce(s.application, l.application), coalesce(s.role, l.role), s.run_workers, s.run_planner,
                    s.changed_by, s.reason, s.changed_at, coalesce(l.instances, 0), coalesce(l.workers, 0), coalesce(l.planners, 0),
-                   coalesce(l.older, 0)
+                   coalesce(l.older, 0), s.listen, coalesce(l.listening, 0)
             FROM {switches} AS s
             FULL JOIN live AS l ON l.application = s.application AND l.role = s.role
             ORDER BY 1, 2
@@ -440,6 +457,9 @@ internal sealed class MonitorSql
 
     /// <summary>Sets the switch of an application and role, logs it and announces it.</summary>
     public string SetSwitch { get; }
+
+    /// <summary>Sets whether an application and role listens, logs it and announces it.</summary>
+    public string SetListening { get; }
 
     /// <summary>The switches, and the applications and roles of live instances, with what those instances run.</summary>
     public string Switches { get; }
