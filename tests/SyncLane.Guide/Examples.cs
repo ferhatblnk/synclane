@@ -108,6 +108,13 @@ public static class Steps
         app.MapSyncLane("/synclane").RequireAuthorization("ops");
     }
 
+    public static async Task UpgradeAsync(ISyncLaneMonitor monitor, string user)
+    {
+        await monitor.SetSwitchAsync("shop", role: null, runWorkers: false, runPlanner: false, reason: "web instances, as their settings said", by: user);
+        await monitor.SetSwitchAsync("shop", role: "worker", runWorkers: true, runPlanner: true, reason: "the worker, as its settings said", by: user);
+        await monitor.SetListeningAsync("shop", role: null, listen: false, reason: "behind the pooler, as its settings said", by: user);
+    }
+
     public static async Task RefreshAsync(ISyncLaneMonitor monitor, ISyncLane syncLane, Shop shop, User user)
     {
         await monitor.SyncNowAsync("shop.stores", owner: shop.Id.ToString(), type: "orders", by: user.Id);
