@@ -31,13 +31,20 @@ public class BudgetGateTests : PostgresTest
     /// </summary>
     private const int SlowRunnerRefusals = 1;
 
+    /// <summary>
+    /// The pretend API's burst. At 4, requests whose tokens were spaced right but that waited for a thread together could
+    /// still go past it twice in one run (PostgreSQL 14 in CI). At 8 it takes that bunching, and a run without a shared
+    /// budget, about 60 a second against the API's 40, uses it up within half a second and is refused all the same.
+    /// </summary>
+    private const double ApiBurst = 8;
+
     [PostgresTheory]
     [InlineData(true)]
     [InlineData(false)]
     public async Task Jobs_sharing_a_budget_inside_the_apis_limit_are_never_throttled(bool budgeted)
     {
         // The API allows 40 a second with bursts of 4, and sends no Retry-After: the hardest kind to be polite to.
-        var api = new LimitedApi(perSecond: 40, burst: 4);
+        var api = new LimitedApi(perSecond: 40, burst: ApiBurst);
         using var host = Host(api, budgeted ? """, "rate": { "budget": "shop", "key": "shared-account" }""" : "");
 
         if (budgeted)
@@ -77,7 +84,7 @@ public class BudgetGateTests : PostgresTest
     public async Task Two_hosts_sharing_a_budget_stay_inside_it_together(bool shared)
     {
         // Each host alone stays inside the API's limit; two hosts with buckets of their own together do not.
-        var api = new LimitedApi(perSecond: 40, burst: 4);
+        var api = new LimitedApi(perSecond: 40, burst: ApiBurst);
         using var first = Host(api, Rate(shared ? "shared-account" : "account-a"), agent: "host-a");
         using var second = Host(api, Rate(shared ? "shared-account" : "account-b"), agent: "host-b");
 
