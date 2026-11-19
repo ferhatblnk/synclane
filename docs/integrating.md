@@ -10,6 +10,7 @@ The order is fixed: write down what the project does today, answer the questions
 - **Write no comments in the code.** Names and small methods say what the code does; the reasons go in the pull request. The one exception is a comment the project's own rules require, such as XML documentation on public members. `synclane init` writes a comment beside every guess in a recipe draft: confirm each guess with the user, then remove its comment.
 - **Keep what the project does.** The integration changes when and how the work runs, not what is fetched, how it is mapped, or what the business rules decide. Write down today's behaviour first ([section 1](#1-what-the-project-does-today)) and prove at the end that the data is the same ([section 5](#5-prove-it)). Speed may improve; results may not change.
 - **Leave the existing tests alone.** Every test that passed before passes after, unchanged. Never edit, skip or delete a test to make it pass: a test that fails means the behaviour changed.
+- **If the project already uses SyncLane, start at [section 7](#7-upgrading-an-existing-integration).** The steps of section 4 are for a project without it; applied to a running integration, some of them would reload its history or set its web instances to work.
 - **Ask before you write code.** Work through [the questions](#2-questions-to-answer-first) with the user. Where the user does not know, take the default in the table and say that you did.
 - **Use only what is documented.** The calls, settings and types on this page and the pages it links to. If something seems to be missing, say so; do not invent an overload or a setting.
 - **Follow the project's conventions.** Its layers, folder structure, DI style, naming and test framework. SyncLane's own repository rules (SyncLane's `CLAUDE.md`) are for changing SyncLane, not for applications that use it.
@@ -85,7 +86,7 @@ Decide per row of [the inventory](#1-what-the-project-does-today) and write the 
 | --- | --- | --- |
 | The application's name, its own on the schema | `appsettings.json`, committed | `"SyncLane": { "Application": "shop" }` |
 | The role, only when one build runs as web and worker | the worker's environment | `SyncLane__Role: "worker"` |
-| Queue names, starting with the application's name | code ([step 5](#step-5-declare-the-queue)) | `shop.stores` |
+| Names of new queues, starting with the application's name | code ([step 5](#step-5-declare-the-queue)) | `shop.stores` |
 | Whether it runs workers and the planner | a switch in the database, set from the monitor | `POST /synclane/switch?application=shop&workers=false&reason=…` |
 | Whether it listens for job changes | a switch of its own, set from the monitor | `POST /synclane/switch/listen?application=shop&listen=false&reason=…` |
 
@@ -95,8 +96,8 @@ Decide per row of [the inventory](#1-what-the-project-does-today) and write the 
 | **Web and worker, one image** | Syncing must not take CPU or memory from user requests. | The same build runs as two containers; the worker's environment gives it a role, `SyncLane__Role=worker`. Before the first deploy, the web instances (no role) are switched off and the worker role on, from the monitor ([step 6](#step-6-split-the-roles-if-you-chose-to)). Nothing in `appsettings.json` turns anything off. |
 | **Several workers** | More owners loading side by side. | Run more copies of the worker. Jobs, planning and budgets are shared through the table; nothing else to configure. |
 
-- Give the application a name of its own. The default is the entry assembly's name, and projects built from one template often share it (`Api`, `WebApi`): two applications under one name are one to SyncLane, so one switch stops both and the monitor shows them as one. SyncLane warns when it sees it (`InstanceInfo.SharesNameWith`, a Degraded health check), but only a name of its own prevents it.
-- Keep one application per queue, and start every queue name with the application's name. Copies of one application share their queues; a second application that runs the same queue is refused at start-up (`SL1011`). An instance switched off, workers and planner, claims no queue and may call `ISyncLane` and the monitor freely.
+- Give the application a name of its own. The default is the entry assembly's name, and projects built from one template often share it (`Api`, `WebApi`): two applications under one name are one to SyncLane, so one switch stops both and the monitor shows them as one. SyncLane warns when it sees it (`InstanceInfo.SharesNameWith`, a Degraded health check), but only a name of its own prevents it. A running integration keeps the name it has ([step U3](#step-u3-name-the-application-and-its-roles)).
+- Keep one application per queue, and start the name of every new queue with the application's name; never rename a queue that already runs ([section 7](#what-never-changes-in-an-upgrade)). Copies of one application share their queues; a second application that runs the same queue is refused at start-up (`SL1011`). An instance switched off, workers and planner, claims no queue and may call `ISyncLane` and the monitor freely.
 - Run one process per container. If a worker and a web host share a container and one of them dies, the orchestrator does not restart it.
 - The worker needs no open port. Its state is in the database: the monitor reads it from any instance.
 - Work the user waits for (an answer on screen) stays in the web process. Work nobody waits for (fetching, reports, sending data out) becomes a job, and a "refresh" button enqueues it and returns at once.
@@ -294,7 +295,7 @@ builder.Services.AddSyncLane(builder.Configuration.GetSection("SyncLane"), lane 
 });
 ```
 
-- The queue's name starts with the application's name, so it cannot meet another application's on the schema.
+- A new queue's name starts with the application's name, so it cannot meet another application's on the schema. A queue that already runs keeps its name.
 - `Windowed`: history in slices back to `horizon`, newest first, then one job per `every` from where the data ends.
 - `Snapshot`: one job that reads everything, then one per `every`.
 - `Handle`: never planned; runs only when enqueued.
@@ -504,6 +505,62 @@ Then turn the old jobs off, keep their code for one more release in case you mus
 
 Run the [production trial](production-trial.md): one integration that is allowed to fail, slow settings, the old path beside it for two weeks, and the drills (graceful stop, `kill -9`, rolling deploy, two instances, provider outage, revoked access).
 
+## 7. Upgrading an existing integration
+
+For a project that already runs SyncLane. The order matters more here than anywhere else on this page: the integration is live, and a change made in the wrong order shows at once in production. Read the project's SyncLane code and settings first, as [section 1](#1-what-the-project-does-today) reads its jobs, and write down what you find.
+
+### What never changes in an upgrade
+
+| Do not change | Because |
+| --- | --- |
+| A queue's name | A queue of another name is a new queue: its owners' history is fetched again from the horizon, and the jobs of the old one wait with no worker. The rule that queue names start with the application's name is for new queues only. |
+| A job type's name | Each type keeps what it has loaded under its name; a new name loads it all again. |
+| An owner's key | The same: the owner's history loads again under the new key. |
+| A budget's name or key, without a reason | Its learned rate starts again from its declared limit. |
+
+### Step U1. Find what the project has
+
+List, for every environment (test, staging, production) and every kind of container (web, worker):
+
+- the SyncLane packages and their version;
+- `Application`, `Role`, `RunWorkers`, `RunPlanner` and `ListenForChanges`, from `appsettings*.json`, from environment variables (`SyncLane__RunWorkers`, ...) and from the deployment files, with the value each kind of container ends up with;
+- the queues, job types and budgets the code declares.
+
+**Done when** the pull request has the table, one row per environment and kind of container.
+
+### Step U2. Upgrade the packages
+
+Raise every SyncLane package to the same version. Read each version's **Changed** section in `CHANGELOG.md` between the old version and the new one: it lists what a project may have to change. The schema upgrades itself at start-up (with the project's own migrations, add `migrationBuilder.Sql(SyncLaneSchema.Script("synclane"))` in a new migration, [step 12](#step-12-deploy)). Change nothing else in this step.
+
+**Done when** the project builds, its tests pass unchanged, and the new version runs in test with the old settings, doing what it did before.
+
+### Step U3. Name the application and its roles
+
+- **The name.** Set `SyncLane:Application` to the name the instances already register under (`GetInstancesAsync`), so that it is written down and nothing else changes. Choose a new one only when that name is shared with another application (`SharesNameWith`). To change it, switch the old name off first, `SetSwitchAsync(oldName, null, runWorkers: false, runPlanner: false, ...)` for each of its roles, then deploy the new name: instances that are switched off claim no queue, so the new ones start. Without that, a new instance that starts while one under the old name still runs the same queues is refused (`SL1011`), and a rolling deploy waits for it forever.
+- **The role.** Where one build runs as web and worker, add `SyncLane__Role=worker` to the worker's environment, and keep the old settings in place for now.
+
+**Done when** `GetInstancesAsync` shows every instance under the name and role you expect, all of them following switches (`FollowsSwitches`), and `GetSwitchesAsync` shows no instance ignoring them (`IgnoringSwitch` is 0).
+
+### Step U4. Write the settings into switches, then remove the settings
+
+The settings still decide what each container does. Write the same decisions into switches, in each environment, before any setting is removed. A switch with the same values as the settings changes nothing at the moment it is set, so this step is safe while the old settings are still deployed:
+
+```csharp
+await monitor.SetSwitchAsync("shop", role: null, runWorkers: false, runPlanner: false, reason: "web instances, as their settings said", by: user);
+await monitor.SetSwitchAsync("shop", role: "worker", runWorkers: true, runPlanner: true, reason: "the worker, as its settings said", by: user);
+await monitor.SetListeningAsync("shop", role: null, listen: false, reason: "behind the pooler, as its settings said", by: user);
+```
+
+Only for what the table of step U1 shows: a container whose settings leave `RunWorkers`, `RunPlanner` or `ListenForChanges` at `true` needs no switch for it. Over HTTP: `POST /synclane/switch` and `POST /synclane/switch/listen`, as in [step 6](#step-6-split-the-roles-if-you-chose-to). The switches are per environment; an AI assistant in the code cannot set them, and should not: it writes them into the pull request as a list for the people who run each environment, and the settings are removed only after that list is done.
+
+Then, in a deploy of its own, remove `RunWorkers`, `RunPlanner` and `ListenForChanges` from `appsettings*.json`, the environment variables and the deployment files.
+
+**Done when** `GetSwitchesAsync` shows, in every environment, each role running what it ran before the upgrade, and the settings hold none of the three.
+
+### Step U5. Prove nothing changed
+
+The gates of [section 5](#5-prove-it), shorter: the project's tests pass unchanged; for a day after each step, the jobs created and completed per type, and the records written, match the days before; no job is `abandoned` without a known cause; `/health` is `Healthy`.
+
 ## Mistakes we have seen
 
 | Mistake | What happens | Instead |
@@ -517,6 +574,9 @@ Run the [production trial](production-trial.md): one integration that is allowed
 | Two applications under the default name (`Api`) | One switch stops both; the monitor shows them as one; SyncLane warns (`SharesNameWith`, Degraded). | `SyncLane:Application`, a name of its own, in each. |
 | `RunWorkers: false` in `appsettings.json` to keep web instances idle | The decision is spread over every project and needs a deploy to change. | Leave it out; switch the web instances off from the monitor. |
 | `RunPlanner` off in every process | No jobs are created. | At least one process plans; `GetOverviewAsync` shows `Planners` per queue, and `GetSwitchesAsync` what each role runs. |
+| Renaming a queue or a job type in a running integration | The history of every owner is fetched again, and the old queue's jobs wait with no worker. | Keep the names; new names only for new queues ([section 7](#what-never-changes-in-an-upgrade)). |
+| Removing `RunWorkers: false` before the switches are set | The web instances start working at the next deploy. | Switches first, in every environment, then remove the setting ([step U4](#step-u4-write-the-settings-into-switches-then-remove-the-settings)). |
+| Renaming the application in a rolling deploy | The new instances are refused (`SL1011`) while the old ones run the queues, and the rollout never finishes. | Switch the old name off first ([step U3](#step-u3-name-the-application-and-its-roles)). |
 | Many applications and replicas on one PostgreSQL, connections never counted | `too many clients` when the last replica starts. | Count each instance's listening connection and pool against `max_connections` ([step 12](#step-12-deploy)). |
 | A job type declared with its own handler and also given a recipe | The application does not start (`SL5015`). | One or the other per job type; a recipe's type uses `HttpRecipeHandler`. |
 | Listening through PgBouncer in transaction mode | Live changes never arrive, and other clients see timeouts. | `ListenConnectionString` around the pooler, or listening switched off from the monitor (`SetListeningAsync`). |
@@ -539,7 +599,7 @@ Run the [production trial](production-trial.md): one integration that is allowed
 - [ ] Each handler returns after one page, uses the job's window and cursor, and throws the right exception for `429` and revoked access.
 - [ ] Budgets are declared in every process that calls the API.
 - [ ] No credential in code, recipes, configuration files, tests or cursors.
-- [ ] `SyncLane:Application` is set to a name of its own, and every queue name starts with it.
+- [ ] `SyncLane:Application` is set to a name of its own, and every new queue's name starts with it; in an upgrade, the names it ran under are kept ([section 7](#7-upgrading-an-existing-integration)).
 - [ ] `RunWorkers`, `RunPlanner` and `ListenForChanges` are not in the settings; roles are set where one build runs as web and worker, and their switches are set in each environment; one process per container; at least one process plans.
 - [ ] Health check, telemetry and alerts are wired.
 - [ ] The monitor requires authorization.

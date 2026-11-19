@@ -4,6 +4,10 @@ All notable changes to this project are recorded here. The format follows [Keep 
 
 ## [Unreleased]
 
+### Added
+
+- [Integrating](docs/integrating.md#7-upgrading-an-existing-integration) has a section for a project that already runs SyncLane: what never changes in an upgrade (queue, job type and owner names, whose change reloads history), the settings each environment has today, the packages, the application's name and roles, the settings written into switches in every environment before they are removed, and the checks that nothing changed. Renaming the application goes through switching the old name off, so a rolling deploy is not refused (`SL1011`).
+
 ## [0.8.0] - 2026-11-19
 
 Listening for job changes joins the workers and the planner as something an operator switches from the monitor, so many applications on one database can keep their connections down without a deploy. No migration: the switch's column has been there since 0.7.0. The integration guide's examples are now compiled with every build.
