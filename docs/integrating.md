@@ -87,6 +87,7 @@ Decide per row of [the inventory](#1-what-the-project-does-today) and write the 
 | The role, only when one build runs as web and worker | the worker's environment | `SyncLane__Role: "worker"` |
 | Queue names, starting with the application's name | code ([step 5](#step-5-declare-the-queue)) | `shop.stores` |
 | Whether it runs workers and the planner | a switch in the database, set from the monitor | `POST /synclane/switch?application=shop&workers=false&reason=…` |
+| Whether it listens for job changes | a switch of its own, set from the monitor | `POST /synclane/switch/listen?application=shop&listen=false&reason=…` |
 
 | Layout | When | Settings |
 | --- | --- | --- |
@@ -167,7 +168,7 @@ Add a connection string, and a `SyncLane` section with the application's name an
 }
 ```
 
-`Application` is the name the monitor, the switches and the other applications on the schema know this one by: lower case, short, its own, and the same in every environment. Do not add `RunWorkers` or `RunPlanner`; whether the application works is a switch ([D2](#d2-which-process-does-what)). The password comes from where the project keeps secrets, never from a committed file. Behind PgBouncer in transaction mode, also set `SyncLane:ListenConnectionString` to a connection that goes around the pooler, or set `SyncLane:ListenForChanges` to `false` ([Behind a connection pooler](operations.md#behind-a-connection-pooler)).
+`Application` is the name the monitor, the switches and the other applications on the schema know this one by: lower case, short, its own, and the same in every environment. Do not add `RunWorkers` or `RunPlanner`; whether the application works is a switch ([D2](#d2-which-process-does-what)). The password comes from where the project keeps secrets, never from a committed file. Behind PgBouncer in transaction mode, also set `SyncLane:ListenConnectionString` to a connection that goes around the pooler ([Behind a connection pooler](operations.md#behind-a-connection-pooler)). If none can, switch listening off from the monitor before the first deploy, `SetListeningAsync("shop", null, listen: false, reason: "behind the pooler", by: user)`, so the application never tries; its workers then find jobs every `PollInterval`. `SyncLane:ListenForChanges` stays out of the settings, like `RunWorkers` and `RunPlanner`.
 
 **The schema needs no work by hand.** With the defaults, the first start creates the schema `synclane` in the database of `ConnectionString`, with every table and index, behind a lock so instances that start together do not collide; each later SyncLane version adds its migrations the same way. SyncLane never touches the project's own tables. Several applications can share one database and one schema: each declares its own queues, and the monitor of any of them shows every application's jobs ([Several applications on one schema](operations.md#several-applications-on-one-schema)). Keep the default name unless the project's database rules say otherwise (`SyncLane:Schema`, lower case). If the application's database user may not create a schema, run the script from the project's migrations instead ([step 12](#step-12-deploy)).
 
@@ -412,7 +413,7 @@ If another system already loaded the history, record it so it is not fetched aga
 - **Schema:** with `CreateSchema = true` the first instance creates it and applies migrations behind a lock. With the project's own migrations, add `migrationBuilder.Sql(SyncLaneSchema.Script("synclane"))` now, and again in a new migration with each SyncLane upgrade that adds one ([Running the schema yourself](operations.md#running-the-schema-yourself)).
 - **Rolling deploys** are safe: migrations only add, and an older instance keeps working against the newer schema.
 - **Clocks:** keep the hosts' clocks in sync; leases and budgets use them.
-- **Connections:** each instance keeps one connection open to hear job changes, outside any pooler, from when its workers first wait for a job or something watches; and it takes connections from its pool only while a statement runs, rarely more than its busy slots plus a few for the planner, the heartbeat and the monitor. With many applications and replicas on one PostgreSQL, add them up, with the applications' own pools, against `max_connections`; cap SyncLane's pool with `Maximum Pool Size` in its connection string if you must, switch off what does not need to work, and switch off listening (`SetListeningAsync`) where polling every `PollInterval` is fast enough: that frees one connection per instance.
+- **Connections:** each instance keeps one connection open to hear job changes, outside any pooler, from when its workers first wait for a job or something watches (a web instance whose workers are off opens none unless a live view reads it); and it takes connections from its pool only while a statement runs, rarely more than its busy slots plus a few for the planner, the heartbeat and the monitor. With many applications and replicas on one PostgreSQL, add them up, with the applications' own pools, against `max_connections`; cap SyncLane's pool with `Maximum Pool Size` in its connection string if you must, switch off what does not need to work, and switch off listening (`SetListeningAsync`) where polling every `PollInterval` is fast enough: that frees one connection per instance.
 
 **Done when** two copies of the worker run side by side for a day with every job created once and never two running jobs in one lane.
 
@@ -518,7 +519,7 @@ Run the [production trial](production-trial.md): one integration that is allowed
 | `RunPlanner` off in every process | No jobs are created. | At least one process plans; `GetOverviewAsync` shows `Planners` per queue, and `GetSwitchesAsync` what each role runs. |
 | Many applications and replicas on one PostgreSQL, connections never counted | `too many clients` when the last replica starts. | Count each instance's listening connection and pool against `max_connections` ([step 12](#step-12-deploy)). |
 | A job type declared with its own handler and also given a recipe | The application does not start (`SL5015`). | One or the other per job type; a recipe's type uses `HttpRecipeHandler`. |
-| Listening through PgBouncer in transaction mode | Live changes never arrive, and other clients see timeouts. | `ListenConnectionString` around the pooler, or `ListenForChanges = false`. |
+| Listening through PgBouncer in transaction mode | Live changes never arrive, and other clients see timeouts. | `ListenConnectionString` around the pooler, or listening switched off from the monitor (`SetListeningAsync`). |
 | Deleting job rows by hand | A returning owner never loads its history again. | `ForgetOwnerAsync`. |
 | Following this page over the project's own `CLAUDE.md` or `ARCHITECTURE.md` | The integration breaks the project's conventions. | The project's rules first; this page inside them. |
 | Copying a business rule into the handler | Two copies drift apart; the old and new data stop matching. | Call the service that holds the rule today. |
@@ -539,7 +540,7 @@ Run the [production trial](production-trial.md): one integration that is allowed
 - [ ] Budgets are declared in every process that calls the API.
 - [ ] No credential in code, recipes, configuration files, tests or cursors.
 - [ ] `SyncLane:Application` is set to a name of its own, and every queue name starts with it.
-- [ ] `RunWorkers` and `RunPlanner` are not in the settings; roles are set where one build runs as web and worker, and their switches are set in each environment; one process per container; at least one process plans.
+- [ ] `RunWorkers`, `RunPlanner` and `ListenForChanges` are not in the settings; roles are set where one build runs as web and worker, and their switches are set in each environment; one process per container; at least one process plans.
 - [ ] Health check, telemetry and alerts are wired.
 - [ ] The monitor requires authorization.
 - [ ] Disconnect and removal call `CancelAsync` and `ForgetOwnerAsync`.
