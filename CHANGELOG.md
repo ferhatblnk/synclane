@@ -4,13 +4,21 @@ All notable changes to this project are recorded here. The format follows [Keep 
 
 ## [Unreleased]
 
+## [0.8.0] - 2026-11-19
+
+Listening for job changes joins the workers and the planner as something an operator switches from the monitor, so many applications on one database can keep their connections down without a deploy. No migration: the switch's column has been there since 0.7.0. The integration guide's examples are now compiled with every build.
+
 ### Added
 
-- Listening can be switched on and off from the monitor, per application and role, without a deploy: `SetListeningAsync(application, role, listen, reason)` and `POST /switch/listen`. An instance switched off closes its listening connection at once, and its workers find jobs by polling; switched on again, it listens within half a minute. The workers and the planner keep their own switch, and `SwitchInfo` shows `Listen` and how many live instances listen (`Listening`). It frees one connection per instance when many applications share one database. `ISyncLaneMonitor` gains the method. See [Switching an application on and off](docs/operations.md#switching-an-application-on-and-off) and D71.
+- Listening can be switched on and off from the monitor, per application and role, without a deploy: `SetListeningAsync(application, role, listen, reason)` and `POST /switch/listen`. An instance switched off closes its listening connection at once, and its workers find jobs by polling; switched on again, it listens within half a minute. The workers and the planner keep their own switch, and `SwitchInfo` shows `Listen` and how many live instances listen (`Listening`). It frees one connection per instance when many applications share one database. See [Switching an application on and off](docs/operations.md#switching-an-application-on-and-off) and D71 (#65).
+
+### Changed
+
+- `ISyncLaneMonitor` gains `SetListeningAsync`. A class of your own that implements the interface, such as a test double, must add it.
 
 ### Fixed
 
-- [Integrating](docs/integrating.md), checked by compiling every example against the published packages and running them: the owner source's query passes `JobOwner` its arguments in order, since a named argument out of order does not compile in an EF Core query; the namespaces of the three packages are listed; a recipe's job type is declared with `HttpRecipeHandler`, never also with a handler of its own (`SL5015`); and deploying many applications on one PostgreSQL counts each instance's connections. Every C# example of the guide is now compiled with each build (`tests/SyncLane.Guide`), and a convention test fails when the guide and the compiled copy differ.
+- [Integrating](docs/integrating.md), checked by compiling every example against the published packages and running them: the owner source's query passes `JobOwner` its arguments in order, since a named argument out of order does not compile in an EF Core query; the namespaces of the three packages are listed; a recipe's job type is declared with `HttpRecipeHandler`, never also with a handler of its own (`SL5015`); and deploying many applications on one PostgreSQL counts each instance's connections. Every C# example of the guide is now compiled with each build (`tests/SyncLane.Guide`), and a convention test fails when the guide and the compiled copy differ (#64).
 
 ## [0.7.1] - 2026-11-18
 
