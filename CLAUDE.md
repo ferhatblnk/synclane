@@ -38,6 +38,7 @@ Run the PostgreSQL tests before calling any change to storage, running or the pu
 | `src/SyncLane.Cli` | The `synclane` command, a `dotnet tool`: `init` turns a curl into a recipe, `test` runs one for two pages without a database, `mcp` serves both to an AI assistant (D58). Its own codes (`CliErrorCodes`, `SL6xxx`) and catalog (`CliErrors`). Uses only the public API of the other packages; `CliHost` is everything it reaches outside itself, so tests replace the terminal and the network. |
 | `src/SyncLane.AspNetCore` | `MapSyncLane`: the monitor over HTTP and server-sent events, listed in the host's OpenAPI document. Local requests only until the group requires authorization. Its own codes (`EndpointErrorCodes`, `SL7xxx`) and catalog (`EndpointErrors`). Uses only the engine's public API. |
 | `tests/SyncLane.Tests` | Unit tests, PostgreSQL tests (`[PostgresFact]`) and `ConventionTests`. |
+| `tests/SyncLane.Guide` | Every C# example of `docs/integrating.md`, as written, compiled with the solution; the application's types they use are stand-ins. |
 | `schemas` | `recipe.schema.json`, generated; embedded in `SyncLane.Http`. |
 | `docs` | User documentation and `errors.md`. Design notes, phase plans and analyses are kept out of the repository, in the git-ignored `private/` folder. |
 
@@ -135,6 +136,7 @@ Every failure falls into exactly one category. Pick the mechanism from the categ
 - Breaking changes are allowed before 1.0 and must be listed under the version in `CHANGELOG.md`.
 - **Every new setting has a default the user never has to think about.** Leaving it out must be right for most users and safe for all; a setting only exists for the case its default cannot cover, and its doc comment names that case. Where SyncLane can tell what is needed (a pooler, a limit header), it finds out and says so in a warning that names the setting, instead of asking up front. Reason: SyncLane is meant to be quick to adopt, and every setting a newcomer must understand before data flows is a cost on every installation.
 - **Settings say what a process is; the database says whether it works.** Application name and role come from settings; turning workers, the planner or listening on and off is a switch per application and role in the database, never a value to change in `appsettings.json`, and never keyed on an instance id, which changes with every start. Reason: with many applications on one schema, a decision spread over every project's settings needs a deploy to change and is lost or wrong after a restart (D70).
+- **The integration guide's examples compile.** Every C# block of `docs/integrating.md` is copied unchanged into `tests/SyncLane.Guide`, which builds with the solution. Change both together. Reason: the guide is handed to AI assistants that follow it to the letter, and an example that no longer compiles stops an integration at its first step. **(checked)**
 - The README is the way in: what SyncLane is, a quick start that gets data flowing, and where to read on. Reference tables live in `docs/`. Keep it short enough to read in a few minutes.
 
 ### 10. Tests

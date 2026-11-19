@@ -4,6 +4,10 @@ All notable changes to this project are recorded here. The format follows [Keep 
 
 ## [Unreleased]
 
+### Fixed
+
+- [Integrating](docs/integrating.md), checked by compiling every example against the published packages and running them: the owner source's query passes `JobOwner` its arguments in order, since a named argument out of order does not compile in an EF Core query; the namespaces of the three packages are listed; a recipe's job type is declared with `HttpRecipeHandler`, never also with a handler of its own (`SL5015`); and deploying many applications on one PostgreSQL counts each instance's connections. Every C# example of the guide is now compiled with each build (`tests/SyncLane.Guide`), and a convention test fails when the guide and the compiled copy differ.
+
 ## [0.7.1] - 2026-11-18
 
 Applications that share a schema are told apart and the monitor shows what a switch cannot reach. Migration 16 adds a column and an index to `instances`; nothing changes for an application that sets no switch. The documentation keeps settings to naming a process and leaves whether it works to the switches.
@@ -11,7 +15,7 @@ Applications that share a schema are told apart and the monitor shows what a swi
 ### Added
 
 - Two applications that took the same name are told of each other. Each instance records what it declares, every job type with its queue and handler (migration 16 adds `instances.declares` and an index on `instances.application`), and with each heartbeat compares it with the live instances of its name. One that declares nothing in common is a warning in the log, a Degraded health check and `InstanceInfo.SharesNameWith` in `GetInstancesAsync` and `GET /instances`. Copies, web instances and a deploy that adds or removes a queue are not reported. The default name is the entry assembly's, which projects built from one template often share. See [Several applications on one schema](docs/operations.md#several-applications-on-one-schema) and D69 (#61).
-- The monitor shows the instances a switch cannot reach: `SwitchInfo.IgnoringSwitch` counts the live instances of an application and role that run a version before 0.7, which do not read switches and run as their own settings say, and `InstanceInfo.FollowsSwitches` marks each instance. A switch that seems to have no effect on part of an application is explained before anyone looks at a server (#62).
+- The monitor shows the instances a switch cannot reach: `SwitchInfo.IgnoringSwitch` counts the live instances of an application and role that run a version before 0.7, which do not read switches and run as their own settings say, and `InstanceInfo.FollowsSwitches` marks each instance. A switch that seems to have no effect on part of an application is explained before anyone looks at a server (#63).
 
 ### Changed
 

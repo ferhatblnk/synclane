@@ -144,7 +144,7 @@ dotnet add package SyncLane.Http
 dotnet add package SyncLane.AspNetCore
 ```
 
-`SyncLane.Http` is needed only for recipes, `SyncLane.AspNetCore` only for the monitor over HTTP.
+`SyncLane.Http` is needed only for recipes, `SyncLane.AspNetCore` only for the monitor over HTTP. Their namespaces: `SyncLane` (the engine: `AddSyncLane`, `IJobHandler`, `IOwnerSource`, `ISyncLane`, `ISyncLaneMonitor`), `SyncLane.Http` (`AddSyncLaneHttp`, `HttpRecipeHandler`, `ICredentialStore`, `IRecordSink`) and `SyncLane.AspNetCore` (`MapSyncLane`).
 
 **Done when** the project builds.
 
@@ -183,13 +183,15 @@ public sealed class ConnectedShops(AppDb db) : IOwnerSource
     public async Task<IReadOnlyList<JobOwner>> GetOwnersAsync(string queue, CancellationToken cancellationToken) =>
         await db.Shops
             .Where(shop => shop.IsConnected)
-            .Select(shop => new JobOwner(shop.Id.ToString(), Name: shop.Name)
+            .Select(shop => new JobOwner(shop.Id.ToString(), null, shop.Name)
             {
                 Priority = shop.IsNew ? JobPriority.High : JobPriority.Normal
             })
             .ToListAsync(cancellationToken);
 }
 ```
+
+- Inside a query, give `JobOwner` its arguments in order: the key, the lane (`null` for a lane of its own) and the name. A named argument out of order, such as `Name: shop.Name`, does not compile in an expression tree.
 
 - A `High` priority for new accounts makes their history load before the others'.
 - Return only owners that should have jobs. An owner left out gets no new jobs; the jobs it already has still run until they are cancelled ([step 10](#step-10-accounts-that-disconnect-or-leave)).
@@ -295,7 +297,7 @@ builder.Services.AddSyncLane(builder.Configuration.GetSection("SyncLane"), lane 
 - `Windowed`: history in slices back to `horizon`, newest first, then one job per `every` from where the data ends.
 - `Snapshot`: one job that reads everything, then one per `every`.
 - `Handle`: never planned; runs only when enqueued.
-- A recipe's job type uses `HttpRecipeHandler` as its handler.
+- Each job type is a handler ([step 4a](#step-4a-a-handler)) or a recipe ([step 4b](#step-4b-a-recipe)), never both. A recipe's job type is declared with `HttpRecipeHandler` and has the recipe's name: `.Windowed<HttpRecipeHandler>("orders", ...)` for `http.Recipe("orders", ...)`.
 - Types run in the order they are declared, within a priority.
 - Declare the same budgets in every process that calls the API, the web process included.
 
@@ -410,6 +412,7 @@ If another system already loaded the history, record it so it is not fetched aga
 - **Schema:** with `CreateSchema = true` the first instance creates it and applies migrations behind a lock. With the project's own migrations, add `migrationBuilder.Sql(SyncLaneSchema.Script("synclane"))` now, and again in a new migration with each SyncLane upgrade that adds one ([Running the schema yourself](operations.md#running-the-schema-yourself)).
 - **Rolling deploys** are safe: migrations only add, and an older instance keeps working against the newer schema.
 - **Clocks:** keep the hosts' clocks in sync; leases and budgets use them.
+- **Connections:** each instance keeps one connection open to hear job changes, outside any pooler, from when its workers first wait for a job or something watches; and it takes connections from its pool only while a statement runs, rarely more than its busy slots plus a few for the planner, the heartbeat and the monitor. With many applications and replicas on one PostgreSQL, add them up, with the applications' own pools, against `max_connections`; cap SyncLane's pool with `Maximum Pool Size` in its connection string if you must, and switch off what does not need to work.
 
 **Done when** two copies of the worker run side by side for a day with every job created once and never two running jobs in one lane.
 
@@ -513,6 +516,8 @@ Run the [production trial](production-trial.md): one integration that is allowed
 | Two applications under the default name (`Api`) | One switch stops both; the monitor shows them as one; SyncLane warns (`SharesNameWith`, Degraded). | `SyncLane:Application`, a name of its own, in each. |
 | `RunWorkers: false` in `appsettings.json` to keep web instances idle | The decision is spread over every project and needs a deploy to change. | Leave it out; switch the web instances off from the monitor. |
 | `RunPlanner` off in every process | No jobs are created. | At least one process plans; `GetOverviewAsync` shows `Planners` per queue, and `GetSwitchesAsync` what each role runs. |
+| Many applications and replicas on one PostgreSQL, connections never counted | `too many clients` when the last replica starts. | Count each instance's listening connection and pool against `max_connections` ([step 12](#step-12-deploy)). |
+| A job type declared with its own handler and also given a recipe | The application does not start (`SL5015`). | One or the other per job type; a recipe's type uses `HttpRecipeHandler`. |
 | Listening through PgBouncer in transaction mode | Live changes never arrive, and other clients see timeouts. | `ListenConnectionString` around the pooler, or `ListenForChanges = false`. |
 | Deleting job rows by hand | A returning owner never loads its history again. | `ForgetOwnerAsync`. |
 | Following this page over the project's own `CLAUDE.md` or `ARCHITECTURE.md` | The integration breaks the project's conventions. | The project's rules first; this page inside them. |
