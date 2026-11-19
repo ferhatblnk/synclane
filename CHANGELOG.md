@@ -18,7 +18,7 @@ Listening for job changes joins the workers and the planner as something an oper
 
 ### Fixed
 
-- [Integrating](docs/integrating.md), checked by compiling every example against the published packages and running them: the owner source's query passes `JobOwner` its arguments in order, since a named argument out of order does not compile in an EF Core query; the namespaces of the three packages are listed; a recipe's job type is declared with `HttpRecipeHandler`, never also with a handler of its own (`SL5015`); and deploying many applications on one PostgreSQL counts each instance's connections. Every C# example of the guide is now compiled with each build (`tests/SyncLane.Guide`), and a convention test fails when the guide and the compiled copy differ (#64).
+- [Integrating](docs/integrating.md), checked by compiling every example against the published packages and running them: the owner source's query passes `JobOwner` its arguments in order, since a named argument out of order does not compile in an EF Core query; the namespaces of the three packages are listed; a recipe's job type is declared with `HttpRecipeHandler`, never also with a handler of its own (`SL5015`); deploying many applications on one PostgreSQL counts each instance's connections; and listening behind a pooler that cannot listen is switched off from the monitor instead of with `ListenForChanges` in settings. Every C# example of the guide is now compiled with each build (`tests/SyncLane.Guide`), and a convention test fails when the guide and the compiled copy differ (#64).
 
 ## [0.7.1] - 2026-11-18
 
