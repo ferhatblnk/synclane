@@ -6,9 +6,9 @@ All examples use the default schema, `synclane`.
 
 ## Looking
 
-`ISyncLaneMonitor` answers the usual questions without SQL: the state of each queue, whose data is old and why, failures grouped by error code, rate budgets, instances, and volume per hour or day. See [Watching it run](monitoring.md). The queries below are for everything else.
+`ISyncLaneMonitor` answers the usual questions without SQL: the state of each queue, whose data is old and why, each owner's jobs counted by status, failures grouped by error code, rate budgets, instances, and volume per hour or day. See [Watching it run](monitoring.md). The queries below are for everything else.
 
-**Finding an owner by name.** Give `JobOwner` a name in your owner source, for example the customer and its store, and `GetJobsAsync` and `GetFreshnessAsync` find owners by any part of it with `Search`, ignoring case. The key and the name live in `synclane.owners`, one row per queue and owner; a search reads that small table and never the jobs:
+**Finding an owner by name.** Give `JobOwner` a name in your owner source, for example the customer and its store, and `GetJobsAsync`, `GetFreshnessAsync`, `GetFreshnessOwnersAsync` and `GetJobOwnersAsync` find owners by any part of it with `Search`, ignoring case. The key and the name live in `synclane.owners`, one row per queue and owner; a search reads that small table and never the jobs. How many jobs each owner found by name has given up on is `GetJobOwnersAsync` with `Search` and `Status = JobStatus.Abandoned` (`GET /synclane/jobs/owners?queues=shop.orders&queues=shop.stock&search=acme&status=abandoned`), counted across the queues you name. The same count in SQL, per queue:
 
 ```sql
 SELECT o.queue, o.owner, o.name, count(*) FILTER (WHERE j.status = 'abandoned') AS given_up

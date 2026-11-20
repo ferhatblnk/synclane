@@ -69,28 +69,152 @@ internal sealed class MonitorStore(NpgsqlDataSource dataSource, MonitorSql sql)
         var rows = new List<(OwnerFreshness, DateTimeOffset)>(limit);
         // Sequential: reading rows of one data reader.
         while (await reader.ReadAsync(cancellationToken))
-        {
-            var completedTo = Moment(reader, 3);
-            var completedAt = Moment(reader, 4);
-            rows.Add((new OwnerFreshness
-            {
-                Queue = reader.GetString(0),
-                Owner = reader.GetString(1),
-                OwnerName = Text(reader, 13),
-                Type = reader.GetString(2),
-                DataUntil = completedTo ?? completedAt,
-                LastCompletedAt = completedAt,
-                Status = reader.IsDBNull(5) ? null : JobText.Status(reader.GetString(5)),
-                Code = Text(reader, 6),
-                Error = Text(reader, 7),
-                NextRunAt = Moment(reader, 8),
-                HistoryTotal = reader.GetInt32(9),
-                HistoryCompleted = reader.GetInt32(10),
-                Paused = reader.GetBoolean(12)
-            }, reader.GetFieldValue<DateTimeOffset>(11)));
-        }
+            rows.Add((ReadFreshness(reader), reader.GetFieldValue<DateTimeOffset>(11)));
 
         return rows;
+    }
+
+    /// <summary>
+    /// A page of owners grouped across <paramref name="queues"/>, with the key of the last one for the next cursor and
+    /// whether more follow, and the number of matching owners when <paramref name="countTotal"/> is set. Both statements
+    /// go to the database in one round trip.
+    /// </summary>
+    public async Task<(List<OwnerFreshnessGroup> Groups, DateTimeOffset LastKey, bool More, long? Total)> FreshnessOwnersAsync(
+        string[] queues, string? search, FreshnessShow show, DateTimeOffset staleBefore, (DateTimeOffset Key, string Owner)? after,
+        int limit, bool countTotal, DateTimeOffset now, CancellationToken cancellationToken)
+    {
+        await using var batch = dataSource.CreateBatch();
+
+        var page = new NpgsqlBatchCommand(sql.FreshnessOwners[show]);
+        AddFilters(page.Parameters);
+        page.Parameters.Add(new NpgsqlParameter("after_key", NpgsqlDbType.TimestampTz) { Value = (object?)after?.Key.ToUniversalTime() ?? DBNull.Value });
+        page.Parameters.Add(Text("after_owner", after?.Owner));
+        page.Parameters.AddWithValue("limit", limit);
+        batch.BatchCommands.Add(page);
+
+        if (countTotal)
+        {
+            var count = new NpgsqlBatchCommand(sql.FreshnessOwnersCount[show]);
+            AddFilters(count.Parameters);
+            batch.BatchCommands.Add(count);
+        }
+
+        await using var reader = await batch.ExecuteReaderAsync(cancellationToken);
+        var groups = new List<OwnerFreshnessGroup>(limit);
+        List<OwnerFreshness>? rows = null;
+        var lastKey = MonitorSql.Never;
+        var more = false;
+        // Sequential: reading rows of one data reader.
+        while (await reader.ReadAsync(cancellationToken))
+        {
+            var row = ReadFreshness(reader);
+            if (rows is null || groups[^1].Owner != row.Owner)
+            {
+                rows = [];
+                groups.Add(new OwnerFreshnessGroup { Owner = row.Owner, OwnerName = Text(reader, 14), Rows = rows });
+            }
+
+            rows.Add(row);
+            lastKey = reader.GetFieldValue<DateTimeOffset>(11);
+            more = reader.GetBoolean(15);
+        }
+
+        long? total = null;
+        if (countTotal && await reader.NextResultAsync(cancellationToken) && await reader.ReadAsync(cancellationToken))
+            total = reader.GetInt64(0);
+
+        return (groups, lastKey, more, total);
+
+        void AddFilters(NpgsqlParameterCollection parameters)
+        {
+            parameters.Add(new NpgsqlParameter("queues", NpgsqlDbType.Array | NpgsqlDbType.Text) { Value = queues });
+            parameters.Add(Text("search", search is null ? null : JobStore.ContainsPattern(search)));
+            parameters.AddWithValue("never", MonitorSql.Never);
+            parameters.AddWithValue("stale_before", staleBefore.ToUniversalTime());
+            parameters.AddWithValue("now", now.ToUniversalTime());
+        }
+    }
+
+    /// <summary>One row of <see cref="MonitorSql.Freshness"/> or <see cref="MonitorSql.FreshnessOwners"/>, which share their first columns.</summary>
+    private static OwnerFreshness ReadFreshness(NpgsqlDataReader reader)
+    {
+        var completedTo = Moment(reader, 3);
+        var completedAt = Moment(reader, 4);
+        return new OwnerFreshness
+        {
+            Queue = reader.GetString(0),
+            Owner = reader.GetString(1),
+            OwnerName = Text(reader, 13),
+            Type = reader.GetString(2),
+            DataUntil = completedTo ?? completedAt,
+            LastCompletedAt = completedAt,
+            Status = reader.IsDBNull(5) ? null : JobText.Status(reader.GetString(5)),
+            Code = Text(reader, 6),
+            Error = Text(reader, 7),
+            NextRunAt = Moment(reader, 8),
+            HistoryTotal = reader.GetInt32(9),
+            HistoryCompleted = reader.GetInt32(10),
+            Paused = reader.GetBoolean(12)
+        };
+    }
+
+    /// <summary>
+    /// Reads up to <paramref name="limit"/> owners after <paramref name="after"/>, newest job first, and the number of
+    /// matching owners when <paramref name="countTotal"/> is set. Both statements go to the database in one round trip.
+    /// </summary>
+    public async Task<(List<JobOwnerSummary> Owners, long? Total)> JobOwnersAsync(
+        string[] queues, JobStatus? status, string? type, string? search, (DateTimeOffset At, string Owner)? after, int limit,
+        bool countTotal, CancellationToken cancellationToken)
+    {
+        await using var batch = dataSource.CreateBatch();
+
+        var page = new NpgsqlBatchCommand(sql.JobOwners);
+        AddFilters(page.Parameters);
+        page.Parameters.Add(new NpgsqlParameter("after_at", NpgsqlDbType.TimestampTz) { Value = (object?)after?.At.ToUniversalTime() ?? DBNull.Value });
+        page.Parameters.Add(Text("after_owner", after?.Owner));
+        page.Parameters.AddWithValue("limit", limit);
+        batch.BatchCommands.Add(page);
+
+        if (countTotal)
+        {
+            var count = new NpgsqlBatchCommand(sql.JobOwnersCount);
+            AddFilters(count.Parameters);
+            batch.BatchCommands.Add(count);
+        }
+
+        await using var reader = await batch.ExecuteReaderAsync(cancellationToken);
+        var owners = new List<JobOwnerSummary>(limit);
+        // Sequential: reading rows of one data reader.
+        while (await reader.ReadAsync(cancellationToken))
+        {
+            owners.Add(new JobOwnerSummary
+            {
+                Owner = reader.GetString(0),
+                OwnerName = Text(reader, 1),
+                Pending = reader.GetInt32(2),
+                Running = reader.GetInt32(3),
+                Completed = reader.GetInt32(4),
+                Failed = reader.GetInt32(5),
+                Deferred = reader.GetInt32(6),
+                Abandoned = reader.GetInt32(7),
+                Total = reader.GetInt32(8),
+                LastJobAt = reader.GetFieldValue<DateTimeOffset>(9)
+            });
+        }
+
+        long? total = null;
+        if (countTotal && await reader.NextResultAsync(cancellationToken) && await reader.ReadAsync(cancellationToken))
+            total = reader.GetInt64(0);
+
+        return (owners, total);
+
+        void AddFilters(NpgsqlParameterCollection parameters)
+        {
+            parameters.Add(new NpgsqlParameter("queues", NpgsqlDbType.Array | NpgsqlDbType.Text) { Value = queues });
+            parameters.Add(Text("status", status is { } value ? JobText.Of(value) : null));
+            parameters.Add(Text("type", type));
+            parameters.Add(Text("search", search is null ? null : JobStore.ContainsPattern(search)));
+        }
     }
 
     public async Task<List<ProblemGroup>> ProblemsAsync(string? queue, CancellationToken cancellationToken)

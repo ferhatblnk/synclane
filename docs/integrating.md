@@ -104,7 +104,7 @@ Decide per row of [the inventory](#1-what-the-project-does-today) and write the 
 
 ### D3. Owner, lane and budget key
 
-- **Owner key:** stable and unique per queue, usually the connected account's id. Never a name or an email.
+- **Owner key:** stable and unique per queue, usually the connected account's id. Never a name or an email. Give one account the same key on every queue, so the monitor counts its jobs on all of them together (`GetJobOwnersAsync`).
 - **Lane:** leave it out, and each owner gets its own lane. Give owners that share credentials or a rate limit the same lane, so their jobs never run at the same time.
 - **Budget key:** usually the owner key. Owners that share one rate limit pass one key.
 - **Name:** what people call the owner, shown and searched by the monitor. It may change at any time.
@@ -359,7 +359,7 @@ A worker without an HTTP port reports through its telemetry and its row in `sync
 app.MapSyncLane("/synclane").RequireAuthorization("ops");
 ```
 
-It answers only requests from the same machine until it requires authorization. Require it before anything else: the switches stop and start every application on the schema, not only this one. Every action (pause, requeue, skip, sync now) is logged with who and why. The routes are in [the package's readme](../src/SyncLane.AspNetCore/README.md); in code, inject `ISyncLaneMonitor` ([Watching it run](monitoring.md)).
+It answers only requests from the same machine until it requires authorization. Require it before anything else: the switches stop and start every application on the schema, not only this one. Every action (pause, requeue, skip, sync now) is logged with who and why. The routes are in [the package's readme](../src/SyncLane.AspNetCore/README.md); in code, inject `ISyncLaneMonitor` ([Watching it run](monitoring.md)). A screen of the project's own reads these calls, never SyncLane's tables with SQL of its own, which a SyncLane upgrade may change: each owner's jobs by status, for example, are `GetJobOwnersAsync` (`GET /synclane/jobs/owners?queues=shop.stores`).
 
 **Done when** `GET /synclane/overview` returns the queue with an authorized user, and is refused without one.
 
