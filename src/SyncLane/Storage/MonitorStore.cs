@@ -158,6 +158,65 @@ internal sealed class MonitorStore(NpgsqlDataSource dataSource, MonitorSql sql)
         };
     }
 
+    /// <summary>
+    /// Reads up to <paramref name="limit"/> owners after <paramref name="after"/>, newest job first, and the number of
+    /// matching owners when <paramref name="countTotal"/> is set. Both statements go to the database in one round trip.
+    /// </summary>
+    public async Task<(List<JobOwnerSummary> Owners, long? Total)> JobOwnersAsync(
+        string[] queues, JobStatus? status, string? type, string? search, (DateTimeOffset At, string Owner)? after, int limit,
+        bool countTotal, CancellationToken cancellationToken)
+    {
+        await using var batch = dataSource.CreateBatch();
+
+        var page = new NpgsqlBatchCommand(sql.JobOwners);
+        AddFilters(page.Parameters);
+        page.Parameters.Add(new NpgsqlParameter("after_at", NpgsqlDbType.TimestampTz) { Value = (object?)after?.At.ToUniversalTime() ?? DBNull.Value });
+        page.Parameters.Add(Text("after_owner", after?.Owner));
+        page.Parameters.AddWithValue("limit", limit);
+        batch.BatchCommands.Add(page);
+
+        if (countTotal)
+        {
+            var count = new NpgsqlBatchCommand(sql.JobOwnersCount);
+            AddFilters(count.Parameters);
+            batch.BatchCommands.Add(count);
+        }
+
+        await using var reader = await batch.ExecuteReaderAsync(cancellationToken);
+        var owners = new List<JobOwnerSummary>(limit);
+        // Sequential: reading rows of one data reader.
+        while (await reader.ReadAsync(cancellationToken))
+        {
+            owners.Add(new JobOwnerSummary
+            {
+                Owner = reader.GetString(0),
+                OwnerName = Text(reader, 1),
+                Pending = reader.GetInt32(2),
+                Running = reader.GetInt32(3),
+                Completed = reader.GetInt32(4),
+                Failed = reader.GetInt32(5),
+                Deferred = reader.GetInt32(6),
+                Abandoned = reader.GetInt32(7),
+                Total = reader.GetInt32(8),
+                LastJobAt = reader.GetFieldValue<DateTimeOffset>(9)
+            });
+        }
+
+        long? total = null;
+        if (countTotal && await reader.NextResultAsync(cancellationToken) && await reader.ReadAsync(cancellationToken))
+            total = reader.GetInt64(0);
+
+        return (owners, total);
+
+        void AddFilters(NpgsqlParameterCollection parameters)
+        {
+            parameters.Add(new NpgsqlParameter("queues", NpgsqlDbType.Array | NpgsqlDbType.Text) { Value = queues });
+            parameters.Add(Text("status", status is { } value ? JobText.Of(value) : null));
+            parameters.Add(Text("type", type));
+            parameters.Add(Text("search", search is null ? null : JobStore.ContainsPattern(search)));
+        }
+    }
+
     public async Task<List<ProblemGroup>> ProblemsAsync(string? queue, CancellationToken cancellationToken)
     {
         await using var command = dataSource.CreateCommand(sql.Problems);

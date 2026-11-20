@@ -35,6 +35,20 @@ public interface ISyncLaneMonitor
     Task<SyncListResult<OwnerFreshnessGroup>> GetFreshnessOwnersAsync(FreshnessOwnerQuery query, CancellationToken cancellationToken = default);
 
     /// <summary>
+    /// Each owner's jobs counted by status, one row per owner across the queues the query names, the owner with the newest
+    /// job first. Only jobs matching the status and type of the query count, and only owners with such a job are listed.
+    /// Completed recurring and manual jobs count while the table keeps them (<see cref="SyncLaneOptions.KeepCompletedJobs"/>,
+    /// 7 days by default), so the completed count is of the jobs kept. Follow <see cref="SyncListResult{T}.NextCursor"/>
+    /// for the next page.
+    /// </summary>
+    /// <returns>
+    /// One page, with <see cref="SyncListResult{T}.Total"/> owners when the query asks for it. Fails with
+    /// <see cref="SyncErrorCodes.QueuesInvalid"/>, <see cref="SyncErrorCodes.LimitOutOfRange"/>,
+    /// <see cref="SyncErrorCodes.SearchInvalid"/> or <see cref="SyncErrorCodes.CursorInvalid"/>.
+    /// </returns>
+    Task<SyncListResult<JobOwnerSummary>> GetJobOwnersAsync(JobOwnerQuery query, CancellationToken cancellationToken = default);
+
+    /// <summary>
     /// Failing, deferred and abandoned jobs grouped by their error code, most jobs first: forty rows become one line.
     /// The code is the first <c>SLxxxx</c> in the error, or the exception's type for errors of your own handlers.
     /// </summary>

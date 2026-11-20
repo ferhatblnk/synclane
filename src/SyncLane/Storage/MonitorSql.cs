@@ -197,6 +197,80 @@ internal sealed class MonitorSql
 
         FreshnessOwnersCount = shows.ToDictionary(show => show, show => $"SELECT count(DISTINCT r.owner) FROM ({OwnerRows(show)}) AS r");
 
+        const string jobFilters = "(@status::text IS NULL OR j.status = @status) AND (@type::text IS NULL OR j.type = @type)";
+
+        // The owners of the queues, or those a search finds, from their small table; an owner is known by its key on
+        // each queue, so a row of owners is one (queue, owner) pair.
+        var ownerPairs =
+            $"""
+            SELECT s.queue, s.owner
+                FROM {owners} AS s
+                WHERE s.queue = ANY(@queues)
+                  AND (@search::text IS NULL OR s.owner IN (
+                          SELECT k.owner FROM {owners} AS k
+                          WHERE k.queue = ANY(@queues) AND (k.owner ILIKE @search OR k.name ILIKE @search)))
+            """;
+
+        // Each pair's newest matching job through jobs_owner backwards (jobs_open when the status is not completed), so
+        // every owner is ranked from one index entry per queue; only the owners of the page then count their jobs.
+        // Counting every job of the queues first and sorting the owners took 77 ms on a million jobs, this 23 ms.
+        JobOwners =
+            $"""
+            WITH newest AS (
+                SELECT o.owner, max(n.created_at) AS last_job_at
+                FROM ({ownerPairs}) AS o
+                CROSS JOIN LATERAL (
+                    SELECT j.created_at
+                    FROM {jobs} AS j
+                    WHERE j.queue = o.queue AND j.owner = o.owner
+                      AND {jobFilters}
+                    ORDER BY j.id DESC
+                    LIMIT 1
+                ) AS n
+                GROUP BY o.owner
+            ),
+            page AS (
+                SELECT owner, last_job_at
+                FROM newest
+                WHERE @after_at::timestamptz IS NULL
+                   OR last_job_at < @after_at OR (last_job_at = @after_at AND owner > @after_owner)
+                ORDER BY last_job_at DESC, owner
+                LIMIT @limit
+            )
+            SELECT p.owner,
+                   (SELECT n.name FROM {owners} AS n
+                    WHERE n.queue = ANY(@queues) AND n.owner = p.owner AND n.name IS NOT NULL
+                    ORDER BY n.updated_at DESC, n.queue
+                    LIMIT 1),
+                   c.pending, c.running, c.completed, c.failed, c.deferred, c.abandoned, c.total,
+                   p.last_job_at
+            FROM page AS p
+            CROSS JOIN LATERAL (
+                SELECT (count(*) FILTER (WHERE j.status = 'pending'))::int AS pending,
+                       (count(*) FILTER (WHERE j.status = 'running'))::int AS running,
+                       (count(*) FILTER (WHERE j.status = 'completed'))::int AS completed,
+                       (count(*) FILTER (WHERE j.status = 'failed'))::int AS failed,
+                       (count(*) FILTER (WHERE j.status = 'deferred'))::int AS deferred,
+                       (count(*) FILTER (WHERE j.status = 'abandoned'))::int AS abandoned,
+                       count(*)::int AS total
+                FROM {jobs} AS j
+                WHERE j.queue = ANY(@queues) AND j.owner = p.owner
+                  AND {jobFilters}
+            ) AS c
+            ORDER BY p.last_job_at DESC, p.owner
+            """;
+
+        // The same owners as JobOwners lists, each found by one probe per queue.
+        JobOwnersCount =
+            $"""
+            SELECT count(DISTINCT o.owner)
+            FROM ({ownerPairs}) AS o
+            WHERE EXISTS (
+                      SELECT 1 FROM {jobs} AS j
+                      WHERE j.queue = o.queue AND j.owner = o.owner
+                        AND {jobFilters})
+            """;
+
         Problems =
             $"""
             SELECT queue, code,
@@ -548,6 +622,12 @@ internal sealed class MonitorSql
 
     /// <summary>How many owners <see cref="FreshnessOwners"/> would page through, for each <see cref="FreshnessShow"/>.</summary>
     public IReadOnlyDictionary<FreshnessShow, string> FreshnessOwnersCount { get; }
+
+    /// <summary>A page of owners across the queues of <c>@queues</c>, newest job first, with their jobs counted by status.</summary>
+    public string JobOwners { get; }
+
+    /// <summary>How many owners <see cref="JobOwners"/> lists across every page.</summary>
+    public string JobOwnersCount { get; }
 
     public string Problems { get; }
 

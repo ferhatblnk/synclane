@@ -92,6 +92,45 @@ internal sealed partial class SyncLaneMonitor(
         return SyncListResult<OwnerFreshnessGroup>.Success(groups, next, total);
     }
 
+    public async Task<SyncListResult<JobOwnerSummary>> GetJobOwnersAsync(JobOwnerQuery query, CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(query);
+        if (query.Queues is not { Count: > 0 } queues)
+            return SyncListResult<JobOwnerSummary>.Failure(SyncLaneErrors.QueuesInvalid("no queue was given."));
+
+        if (queues.Any(string.IsNullOrWhiteSpace))
+            return SyncListResult<JobOwnerSummary>.Failure(SyncLaneErrors.QueuesInvalid("a queue name is empty."));
+
+        if (query.Limit is < 1 or > JobQuery.MaxLimit)
+            return SyncListResult<JobOwnerSummary>.Failure(SyncLaneErrors.LimitOutOfRange(query.Limit));
+
+        if (query.Search is { } search && !JobQuery.IsUsableSearch(search))
+            return SyncListResult<JobOwnerSummary>.Failure(SyncLaneErrors.SearchInvalid(search.Length));
+
+        (DateTimeOffset, string)? after = null;
+        if (query.Cursor is { } cursor)
+        {
+            if (!KeysetCursor.TryDecode(cursor, 2, out var parts)
+                || !long.TryParse(parts[0], NumberStyles.None, CultureInfo.InvariantCulture, out var ticks)
+                || ticks < DateTimeOffset.MinValue.UtcTicks || ticks > DateTimeOffset.MaxValue.UtcTicks)
+                return SyncListResult<JobOwnerSummary>.Failure(SyncLaneErrors.CursorInvalid());
+
+            after = (new DateTimeOffset(ticks, TimeSpan.Zero), parts[1]);
+        }
+
+        // One row more than asked tells whether a next page exists without a second query.
+        var (owners, total) = await monitor.JobOwnersAsync(
+            queues.Distinct(StringComparer.Ordinal).ToArray(), query.Status, query.Type, query.Search, after, query.Limit + 1,
+            query.IncludeTotal, cancellationToken);
+        if (owners.Count <= query.Limit)
+            return SyncListResult<JobOwnerSummary>.Success(owners, null, total);
+
+        owners.RemoveAt(owners.Count - 1);
+        var last = owners[^1];
+        var next = KeysetCursor.Encode(last.LastJobAt.UtcTicks.ToString(CultureInfo.InvariantCulture), last.Owner);
+        return SyncListResult<JobOwnerSummary>.Success(owners, next, total);
+    }
+
     public async Task<SyncResult<IReadOnlyList<ProblemGroup>>> GetProblemsAsync(string? queue = null, CancellationToken cancellationToken = default) =>
         SyncResult<IReadOnlyList<ProblemGroup>>.Success(await monitor.ProblemsAsync(queue, cancellationToken));
 

@@ -18,6 +18,7 @@ app.MapSyncLane("/synclane").RequireAuthorization("ops");
 | GET | `/instances` | Every process of every application on the schema: alive, stopped (with when) or gone |
 | GET | `/volume?from=&to=&queue=&type=&unit=hour` | Completed jobs, records, failures per hour or day |
 | GET | `/jobs?queue=&owner=&status=&type=&search=&limit=&cursor=` | Jobs, newest first, with each owner's name; `search` finds owners by name or key |
+| GET | `/jobs/owners?queues=&queues=&status=&type=&search=&limit=&cursor=&includeTotal=` | Each owner's jobs counted by status across the queues given (one `queues=` per queue, at least one), newest job first; `includeTotal=true` adds `total`, the number of owners |
 | GET | `/stream?queue=&owner=` | Server-sent events, one `job` event per created job or status change |
 | GET | `/pauses` | The pauses in force: who, why, until when |
 | GET | `/budget-limits` | The budget limits in force: who, why, until when |
