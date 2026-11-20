@@ -8,7 +8,7 @@ All examples use the default schema, `synclane`.
 
 `ISyncLaneMonitor` answers the usual questions without SQL: the state of each queue, whose data is old and why, failures grouped by error code, rate budgets, instances, and volume per hour or day. See [Watching it run](monitoring.md). The queries below are for everything else.
 
-**Finding an owner by name.** Give `JobOwner` a name in your owner source, for example the customer and its store, and `GetJobsAsync` and `GetFreshnessAsync` find owners by any part of it with `Search`, ignoring case. The key and the name live in `synclane.owners`, one row per queue and owner; a search reads that small table and never the jobs:
+**Finding an owner by name.** Give `JobOwner` a name in your owner source, for example the customer and its store, and `GetJobsAsync`, `GetFreshnessAsync` and `GetFreshnessOwnersAsync` find owners by any part of it with `Search`, ignoring case. The key and the name live in `synclane.owners`, one row per queue and owner; a search reads that small table and never the jobs:
 
 ```sql
 SELECT o.queue, o.owner, o.name, count(*) FILTER (WHERE j.status = 'abandoned') AS given_up

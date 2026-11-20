@@ -12,9 +12,13 @@ All notable changes to this project are recorded here. The format follows [Keep 
 
 - [Integrating](docs/integrating.md#7-upgrading-an-existing-integration) has a section for a project that already runs SyncLane: what never changes in an upgrade (queue, job type and owner names, whose change reloads history), the settings each environment has today, the packages, the application's name and roles, the settings written into switches in every environment before they are removed, and the checks that nothing changed. Renaming the application goes through switching the old name off, so a rolling deploy is not refused (`SL1011`).
 
+- Freshness grouped by owner: `GetFreshnessOwnersAsync(FreshnessOwnerQuery)` and `GET /freshness/owners` return each owner once across the queues you name as sharing owner keys, with its freshness rows, the owner with the oldest data first, paged by owner so a page never cuts one in half. `Show` keeps only the rows, and the owners, that are stale (older than `StaleAfter`, 24 hours by default), need attention (an open job failed, deferred or abandoned) or are paused; `Search` finds owners by key or name; `IncludeTotal` counts the owners in the same round trip. `SL3016` refuses a read without queues and `SL3017` a `StaleAfter` that is not positive. Over HTTP the page carries `total` only when asked for (`includeTotal=true`). No migration: the read is served by the existing indexes, measured at 6 ms a page on a million jobs and a thousand owners. See [Watching it run](docs/monitoring.md) and D72.
+
 ### Changed
 
 - `PageOf<T>` of `SyncLane.AspNetCore` has a new optional `Total`, left out of the JSON when null (`JsonIgnore(WhenWritingNull)`), so a list that was not asked for a total answers exactly as before; the OpenAPI schema of every page type now lists an optional `total`. Source code is unaffected, but code compiled against 0.8.0 that constructs or deconstructs a `PageOf<T>` must be rebuilt.
+
+- `ISyncLaneMonitor` gains `GetFreshnessOwnersAsync`. A class of your own that implements the interface, such as a test double, must add it.
 
 ## [0.8.0] - 2026-11-19
 

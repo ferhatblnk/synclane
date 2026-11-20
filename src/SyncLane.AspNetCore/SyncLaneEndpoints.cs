@@ -51,6 +51,9 @@ public static partial class SyncLaneEndpoints
             .Produces<IReadOnlyList<QueueOverview>>().WithName("SyncLane_Overview").WithSummary("One line per queue: open jobs by state, owners, instances and the last day.");
         group.MapGet("/freshness", GetFreshnessAsync)
             .Produces<PageOf<OwnerFreshness>>().ProducesProblem(StatusCodes.Status400BadRequest).WithName("SyncLane_Freshness").WithSummary("Owners ranked by how old their completed data is, with the job that explains it. Search finds owners by name or key.");
+        group.MapGet("/freshness/owners", GetFreshnessOwnersAsync)
+            .Produces<PageOf<OwnerFreshnessGroup>>().ProducesProblem(StatusCodes.Status400BadRequest).WithName("SyncLane_FreshnessOwners")
+            .WithSummary("Owners of the given queues, stalest first, each with its freshness rows, so a page never cuts an owner in half. Show keeps only the stale, attention or paused rows.");
         group.MapGet("/problems", GetProblemsAsync)
             .Produces<IReadOnlyList<ProblemGroup>>().WithName("SyncLane_Problems").WithSummary("Failing, deferred and abandoned jobs grouped by error code.");
         group.MapGet("/budgets", GetBudgetsAsync)
@@ -118,6 +121,25 @@ public static partial class SyncLaneEndpoints
         ISyncLaneMonitor monitor, string? queue, string? owner, string? search, int? limit, string? cursor, CancellationToken cancellationToken) =>
         Answer(await monitor.GetFreshnessAsync(
             new FreshnessQuery { Queue = queue, Owner = owner, Search = search, Limit = limit ?? 50, Cursor = cursor }, cancellationToken));
+
+    private static async Task<IResult> GetFreshnessOwnersAsync(
+        ISyncLaneMonitor monitor, string[]? queues, string? search, QueryEnum<FreshnessShow>? show, TimeSpan? staleAfter, int? limit,
+        string? cursor, bool? includeTotal, CancellationToken cancellationToken)
+    {
+        var query = new FreshnessOwnerQuery
+        {
+            Queues = queues ?? [],
+            Search = search,
+            Show = show?.Value ?? FreshnessShow.All,
+            Limit = limit ?? 50,
+            Cursor = cursor,
+            IncludeTotal = includeTotal ?? false
+        };
+        if (staleAfter is { } age)
+            query = query with { StaleAfter = age };
+
+        return Answer(await monitor.GetFreshnessOwnersAsync(query, cancellationToken));
+    }
 
     private static async Task<IResult> GetProblemsAsync(ISyncLaneMonitor monitor, string? queue, CancellationToken cancellationToken) =>
         Answer(await monitor.GetProblemsAsync(queue, cancellationToken));

@@ -92,6 +92,38 @@ public class EndpointTests : PostgresTest
     }
 
     [PostgresFact]
+    public async Task Freshness_by_owner_takes_its_queues_a_show_in_any_case_and_counts_owners_on_request()
+    {
+        await ExecuteAsync(
+            $"INSERT INTO {Schema}.coverage (queue, owner, type, completed_to) VALUES " +
+            $"('{Queue}', 'c-1:us', 'orders', '{Noon:O}'), ('{Queue}.products', 'c-1:us', 'products', NULL), ('{Queue}', 'c-2:us', 'orders', now())");
+        await using var app = await StartAsync();
+
+        var stale = await SendAsync(
+            app, "GET", $"/synclane/freshness/owners?queues={Queue}&queues={Queue}.products&show=Stale&staleAfter=1.00:00:00&includeTotal=true", IPAddress.Loopback);
+        var all = await SendAsync(app, "GET", $"/synclane/freshness/owners?queues={Queue}&limit=1", IPAddress.Loopback);
+        var flat = await SendAsync(app, "GET", "/synclane/freshness", IPAddress.Loopback);
+        var noQueues = await SendAsync(app, "GET", "/synclane/freshness/owners", IPAddress.Loopback);
+        var unknownShow = await SendAsync(app, "GET", $"/synclane/freshness/owners?queues={Queue}&show=sleeping", IPAddress.Loopback);
+        var badAge = await SendAsync(app, "GET", $"/synclane/freshness/owners?queues={Queue}&staleAfter=-01:00:00", IPAddress.Loopback);
+
+        Assert.Equal(200, stale.Status);
+        Assert.Contains("\"owner\":\"c-1:us\"", stale.Body);
+        Assert.Contains("\"rows\":[", stale.Body);
+        Assert.Contains("\"queue\":\"stores.products\"", stale.Body);
+        Assert.DoesNotContain("c-2:us", stale.Body);
+        Assert.Contains("\"total\":1", stale.Body);
+        Assert.Equal(200, all.Status);
+        Assert.Contains("\"nextCursor\":\"", all.Body);
+        Assert.DoesNotContain("\"total\"", all.Body);
+        Assert.Equal(200, flat.Status);
+        Assert.DoesNotContain("\"total\"", flat.Body);
+        Assert.Equal((400, 400, 400), (noQueues.Status, unknownShow.Status, badAge.Status));
+        Assert.Contains("\"code\":\"SL3016\"", noQueues.Body);
+        Assert.Contains("\"code\":\"SL3017\"", badAge.Body);
+    }
+
+    [PostgresFact]
     public async Task Jobs_are_filtered_by_status_in_any_case_and_an_unknown_status_is_refused()
     {
         await InsertRowAsync("c-1:us", JobMode.Recurring, JobStatus.Pending, Noon, key: "1");
@@ -256,7 +288,7 @@ public class EndpointTests : PostgresTest
             .Where(description => description.RelativePath!.StartsWith("synclane/", StringComparison.Ordinal))
             .ToList();
 
-        Assert.Equal(24, descriptions.Count);
+        Assert.Equal(25, descriptions.Count);
         Assert.All(descriptions, description => Assert.Contains(
             description.ActionDescriptor.EndpointMetadata.OfType<ITagsMetadata>(), tags => tags.Tags.Contains("SyncLane")));
         var overview = Assert.Single(descriptions, description => description.RelativePath == "synclane/overview");

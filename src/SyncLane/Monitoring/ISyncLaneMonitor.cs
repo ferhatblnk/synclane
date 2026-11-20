@@ -22,6 +22,19 @@ public interface ISyncLaneMonitor
     Task<SyncListResult<OwnerFreshness>> GetFreshnessAsync(FreshnessQuery query, CancellationToken cancellationToken = default);
 
     /// <summary>
+    /// The rows of <see cref="GetFreshnessAsync"/> grouped by owner across the queues that share owner keys, so a page
+    /// never cuts an owner in half: the owner whose stalest row is oldest first, each with its rows that match the query,
+    /// oldest first. <see cref="FreshnessOwnerQuery.Show"/> keeps only the rows, and so the owners, that are stale, need
+    /// attention or are paused. Follow <see cref="SyncListResult{T}.NextCursor"/> for the next page;
+    /// <see cref="FreshnessOwnerQuery.IncludeTotal"/> counts the owners.
+    /// </summary>
+    /// <returns>
+    /// One page of owners. Fails with <see cref="SyncErrorCodes.QueuesInvalid"/>, <see cref="SyncErrorCodes.StaleAfterInvalid"/>,
+    /// <see cref="SyncErrorCodes.SearchInvalid"/>, <see cref="SyncErrorCodes.LimitOutOfRange"/> or <see cref="SyncErrorCodes.CursorInvalid"/>.
+    /// </returns>
+    Task<SyncListResult<OwnerFreshnessGroup>> GetFreshnessOwnersAsync(FreshnessOwnerQuery query, CancellationToken cancellationToken = default);
+
+    /// <summary>
     /// Failing, deferred and abandoned jobs grouped by their error code, most jobs first: forty rows become one line.
     /// The code is the first <c>SLxxxx</c> in the error, or the exception's type for errors of your own handlers.
     /// </summary>
