@@ -193,9 +193,17 @@ internal sealed class BudgetSql
                     WHERE l.budget = b.budget AND l.key IN ('', b.key) AND (l.until IS NULL OR l.until > @now))
             FROM {table} AS b
             WHERE (@budget::text IS NULL OR budget = @budget)
+              AND (@search::text IS NULL OR budget ILIKE @search OR key ILIKE @search)
               AND (@after_budget::text IS NULL OR (budget, key) > (@after_budget, @after_key))
             ORDER BY budget, key
             LIMIT @limit
+            """;
+
+        Count =
+            $"""
+            SELECT count(*) FROM {table}
+            WHERE (@budget::text IS NULL OR budget = @budget)
+              AND (@search::text IS NULL OR budget ILIKE @search OR key ILIKE @search)
             """;
     }
 
@@ -203,6 +211,9 @@ internal sealed class BudgetSql
 
     /// <summary>A page of buckets by budget and key, for the monitor. The primary key serves it.</summary>
     public string List { get; }
+
+    /// <summary>How many buckets match the filters of <see cref="List"/>, whatever page it is on.</summary>
+    public string Count { get; }
 
     public string ReportLimit { get; }
 

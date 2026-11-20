@@ -121,18 +121,34 @@ internal sealed class BudgetStore(NpgsqlDataSource dataSource, BudgetSql sql)
         return await command.ExecuteNonQueryAsync(cancellationToken) == 1;
     }
 
-    /// <summary>Up to <paramref name="limit"/> buckets after the given budget and key.</summary>
-    public async Task<List<BudgetState>> ListAsync(
-        string? budget, (string Budget, string Key)? after, int limit, DateTimeOffset now, CancellationToken cancellationToken)
+    /// <summary>
+    /// Up to <paramref name="limit"/> buckets after the given budget and key, and the number of matching buckets when
+    /// <paramref name="countTotal"/> is set. Both statements go to the database in one round trip.
+    /// </summary>
+    public async Task<(List<BudgetState> States, long? Total)> ListAsync(
+        string? budget, string? search, (string Budget, string Key)? after, int limit, bool countTotal, DateTimeOffset now,
+        CancellationToken cancellationToken)
     {
-        await using var command = dataSource.CreateCommand(sql.List);
+        await using var batch = dataSource.CreateBatch();
+
+        var command = new NpgsqlBatchCommand(sql.List);
         command.Parameters.Add(new NpgsqlParameter("budget", NpgsqlTypes.NpgsqlDbType.Text) { Value = (object?)budget ?? DBNull.Value });
+        command.Parameters.Add(new NpgsqlParameter("search", NpgsqlTypes.NpgsqlDbType.Text) { Value = search is null ? DBNull.Value : JobStore.ContainsPattern(search) });
         command.Parameters.Add(new NpgsqlParameter("after_budget", NpgsqlTypes.NpgsqlDbType.Text) { Value = (object?)after?.Budget ?? DBNull.Value });
         command.Parameters.Add(new NpgsqlParameter("after_key", NpgsqlTypes.NpgsqlDbType.Text) { Value = (object?)after?.Key ?? DBNull.Value });
         command.Parameters.AddWithValue("limit", limit);
         command.Parameters.AddWithValue("now", now.ToUniversalTime());
+        batch.BatchCommands.Add(command);
 
-        await using var reader = await command.ExecuteReaderAsync(cancellationToken);
+        if (countTotal)
+        {
+            var count = new NpgsqlBatchCommand(sql.Count);
+            count.Parameters.Add(new NpgsqlParameter("budget", NpgsqlTypes.NpgsqlDbType.Text) { Value = (object?)budget ?? DBNull.Value });
+            count.Parameters.Add(new NpgsqlParameter("search", NpgsqlTypes.NpgsqlDbType.Text) { Value = search is null ? DBNull.Value : JobStore.ContainsPattern(search) });
+            batch.BatchCommands.Add(count);
+        }
+
+        await using var reader = await batch.ExecuteReaderAsync(cancellationToken);
         var states = new List<BudgetState>(limit);
         // Sequential: reading rows of one data reader.
         while (await reader.ReadAsync(cancellationToken))
@@ -153,7 +169,11 @@ internal sealed class BudgetStore(NpgsqlDataSource dataSource, BudgetSql sql)
             });
         }
 
-        return states;
+        long? total = null;
+        if (countTotal && await reader.NextResultAsync(cancellationToken) && await reader.ReadAsync(cancellationToken))
+            total = reader.GetInt64(0);
+
+        return (states, total);
     }
 
     private static NpgsqlBatchCommand Command(string statement, string budget, string key)

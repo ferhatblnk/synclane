@@ -54,7 +54,7 @@ public static partial class SyncLaneEndpoints
         group.MapGet("/problems", GetProblemsAsync)
             .Produces<IReadOnlyList<ProblemGroup>>().WithName("SyncLane_Problems").WithSummary("Failing, deferred and abandoned jobs grouped by error code.");
         group.MapGet("/budgets", GetBudgetsAsync)
-            .Produces<PageOf<BudgetState>>().ProducesProblem(StatusCodes.Status400BadRequest).WithName("SyncLane_Budgets").WithSummary("Each rate budget and key: learned rate, pause and last refusal.");
+            .Produces<PageOf<BudgetState>>().ProducesProblem(StatusCodes.Status400BadRequest).WithName("SyncLane_Budgets").WithSummary("Each rate budget and key: learned rate, pause and last refusal. Search finds budgets by name or key; includeTotal counts them.");
         group.MapGet("/instances", GetInstancesAsync)
             .Produces<IReadOnlyList<InstanceInfo>>().WithName("SyncLane_Instances").WithSummary("Every process of every application on the schema: alive, stopped, or gone without stopping.");
         group.MapGet("/volume", GetVolumeAsync)
@@ -123,8 +123,9 @@ public static partial class SyncLaneEndpoints
         Answer(await monitor.GetProblemsAsync(queue, cancellationToken));
 
     private static async Task<IResult> GetBudgetsAsync(
-        ISyncLaneMonitor monitor, string? budget, int? limit, string? cursor, CancellationToken cancellationToken) =>
-        Answer(await monitor.GetBudgetsAsync(new BudgetQuery { Budget = budget, Limit = limit ?? 50, Cursor = cursor }, cancellationToken));
+        ISyncLaneMonitor monitor, string? budget, string? search, bool? includeTotal, int? limit, string? cursor, CancellationToken cancellationToken) =>
+        Answer(await monitor.GetBudgetsAsync(
+            new BudgetQuery { Budget = budget, Search = search, IncludeTotal = includeTotal ?? false, Limit = limit ?? 50, Cursor = cursor }, cancellationToken));
 
     private static async Task<IResult> GetInstancesAsync(ISyncLaneMonitor monitor, CancellationToken cancellationToken) =>
         Answer(await monitor.GetInstancesAsync(cancellationToken));
