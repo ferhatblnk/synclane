@@ -4,6 +4,14 @@ All notable changes to this project are recorded here. The format follows [Keep 
 
 ## [Unreleased]
 
+### Added
+
+- Freshness grouped by owner: `GetFreshnessOwnersAsync(FreshnessOwnerQuery)` and `GET /freshness/owners` return each owner once across the queues you name as sharing owner keys, with its freshness rows, the owner with the oldest data first, paged by owner so a page never cuts one in half. `Show` keeps only the rows, and the owners, that are stale (older than `StaleAfter`, 24 hours by default), need attention (an open job failed, deferred or abandoned) or are paused; `Search` finds owners by key or name; `IncludeTotal` counts the owners in the same round trip. `SL3016` refuses a read without queues and `SL3017` a `StaleAfter` that is not positive. Over HTTP the page carries `total` only when asked for (`includeTotal=true`). No migration: the read is served by the existing indexes, measured at 6 ms a page on a million jobs and a thousand owners. See [Watching it run](docs/monitoring.md) and D72.
+
+### Changed
+
+- `ISyncLaneMonitor` gains `GetFreshnessOwnersAsync`. A class of your own that implements the interface, such as a test double, must add it.
+
 ## [0.9.1] - 2026-11-20
 
 The package pages on NuGet show the pictures of the README. No code changes.

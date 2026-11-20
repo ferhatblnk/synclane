@@ -106,6 +106,12 @@ public static class SyncErrorCodes
     /// <summary>A switch names an application or role that is not usable as a name.</summary>
     public const string SwitchNameInvalid = "SL3015";
 
+    /// <summary>A read that groups owners across queues was given no queues, or a queue name that is empty.</summary>
+    public const string QueuesInvalid = "SL3016";
+
+    /// <summary>The age after which data counts as stale is zero or negative.</summary>
+    public const string StaleAfterInvalid = "SL3017";
+
     /// <summary>A job with the same owner, type and dedup key already exists.</summary>
     public const string JobAlreadyExists = "SL3101";
 

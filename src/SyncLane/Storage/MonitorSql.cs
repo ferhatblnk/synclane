@@ -109,6 +109,94 @@ internal sealed class MonitorSql
             LIMIT @limit
             """;
 
+        // One statement per FreshnessShow, so a filter that is not asked for costs nothing: only the attention statement
+        // reads the open jobs (through jobs_open) for every coverage row of the queues. Keyed by the value, not by its
+        // position, so reordering FreshnessShow cannot swap the filters.
+        string ShowFilter(FreshnessShow show) => show switch
+        {
+            FreshnessShow.All => "true",
+            FreshnessShow.Attention =>
+                $"""
+                EXISTS (SELECT 1 FROM {jobs} AS j
+                        WHERE j.queue = c.queue AND j.owner = c.owner AND j.type = c.type
+                          AND j.status <> 'completed' AND j.status IN ('failed', 'deferred', 'abandoned'))
+                """,
+            FreshnessShow.Stale => "(coalesce(c.completed_to, c.completed_at) IS NULL OR coalesce(c.completed_to, c.completed_at) < @stale_before)",
+            FreshnessShow.Paused => JobSql.PausedOver(schema, "c"),
+            _ => throw new ArgumentOutOfRangeException(nameof(show), show, null)
+        };
+
+        var shows = Enum.GetValues<FreshnessShow>();
+
+        // An owner is its key on one queue; the caller names the queues that share keys, and an owner found by key or
+        // name on any of them brings its rows on all of them.
+        string OwnerRows(FreshnessShow show) =>
+            $"""
+            SELECT c.queue, c.owner, c.type, c.completed_to, c.completed_at,
+                   coalesce(c.completed_to, c.completed_at, @never) AS sort_key
+            FROM {coverage} AS c
+            WHERE c.queue = ANY(@queues)
+              AND (@search::text IS NULL OR c.owner IN (
+                      SELECT n.owner FROM {owners} AS n
+                      WHERE n.queue = ANY(@queues) AND (n.owner ILIKE @search OR n.name ILIKE @search)))
+              AND {ShowFilter(show)}
+            """;
+
+        // Owners are ranked by their stalest row, the key /freshness sorts by, and paged by (that key, owner). One owner
+        // more than the page is read to tell whether a next page exists, and only the owners of the page look up their
+        // open jobs, their history and their names.
+        FreshnessOwners = shows.ToDictionary(show => show, show =>
+            $"""
+            WITH r AS (
+                {OwnerRows(show)}
+            ),
+            g AS (
+                SELECT owner, min(sort_key) AS group_key FROM r GROUP BY owner
+            ),
+            p AS (
+                SELECT owner, group_key FROM g
+                WHERE @after_key::timestamptz IS NULL OR (group_key, owner) > (@after_key, @after_owner)
+                ORDER BY group_key, owner
+                LIMIT @limit + 1
+            ),
+            shown AS (
+                SELECT owner, group_key,
+                       (SELECT n.name FROM {owners} AS n
+                        WHERE n.owner = p.owner AND n.queue = ANY(@queues) AND n.name IS NOT NULL
+                        ORDER BY n.queue
+                        LIMIT 1) AS group_name
+                FROM p
+                ORDER BY group_key, owner
+                LIMIT @limit
+            )
+            SELECT r.queue, r.owner, r.type, r.completed_to, r.completed_at,
+                   o.status, {CodeOf("o.error")}, o.error, o.next_run_at,
+                   coalesce(h.total, 0), coalesce(h.completed, 0),
+                   s.group_key,
+                   {JobSql.PausedOver(schema, "r")},
+                   (SELECT n.name FROM {owners} AS n WHERE n.queue = r.queue AND n.owner = r.owner),
+                   s.group_name,
+                   (SELECT count(*) FROM p) > @limit
+            FROM shown AS s
+            JOIN r ON r.owner = s.owner
+            LEFT JOIN LATERAL (
+                SELECT j.status, j.error, j.next_run_at
+                FROM {jobs} AS j
+                WHERE j.queue = r.queue AND j.owner = r.owner AND j.type = r.type AND j.status <> 'completed'
+                ORDER BY CASE j.status WHEN 'abandoned' THEN 0 WHEN 'deferred' THEN 1 WHEN 'failed' THEN 2 WHEN 'running' THEN 3 ELSE 4 END,
+                         j.next_run_at
+                LIMIT 1
+            ) AS o ON true
+            LEFT JOIN LATERAL (
+                SELECT count(*)::int AS total, (count(*) FILTER (WHERE j.status = 'completed'))::int AS completed
+                FROM {jobs} AS j
+                WHERE j.queue = r.queue AND j.owner = r.owner AND j.type = r.type AND j.mode = 'initial'
+            ) AS h ON true
+            ORDER BY s.group_key, s.owner, r.sort_key, r.queue, r.type
+            """);
+
+        FreshnessOwnersCount = shows.ToDictionary(show => show, show => $"SELECT count(DISTINCT r.owner) FROM ({OwnerRows(show)}) AS r");
+
         Problems =
             $"""
             SELECT queue, code,
@@ -454,6 +542,12 @@ internal sealed class MonitorSql
     public string Overview { get; }
 
     public string Freshness { get; }
+
+    /// <summary>A page of owners grouped across queues, with their matching rows, for each <see cref="FreshnessShow"/>.</summary>
+    public IReadOnlyDictionary<FreshnessShow, string> FreshnessOwners { get; }
+
+    /// <summary>How many owners <see cref="FreshnessOwners"/> would page through, for each <see cref="FreshnessShow"/>.</summary>
+    public IReadOnlyDictionary<FreshnessShow, string> FreshnessOwnersCount { get; }
 
     public string Problems { get; }
 
