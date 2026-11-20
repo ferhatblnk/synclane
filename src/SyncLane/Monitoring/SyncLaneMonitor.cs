@@ -284,6 +284,9 @@ internal sealed partial class SyncLaneMonitor(
         if (query.Limit is < 1 or > JobQuery.MaxLimit)
             return SyncListResult<OperatorAction>.Failure(SyncLaneErrors.LimitOutOfRange(query.Limit));
 
+        if (query.Search is { } search && !JobQuery.IsUsableSearch(search))
+            return SyncListResult<OperatorAction>.Failure(SyncLaneErrors.SearchInvalid(search.Length));
+
         long? before = null;
         if (query.Cursor is { } cursor)
         {
@@ -293,12 +296,13 @@ internal sealed partial class SyncLaneMonitor(
             before = id;
         }
 
-        var rows = await monitor.ActionsAsync(query.Queue, query.Owner, before, query.Limit + 1, cancellationToken);
+        var (rows, total) = await monitor.ActionsAsync(
+            query.Queue, query.Owner, query.Search, before, query.Limit + 1, query.IncludeTotal, cancellationToken);
         if (rows.Count <= query.Limit)
-            return SyncListResult<OperatorAction>.Success(rows);
+            return SyncListResult<OperatorAction>.Success(rows, null, total);
 
         rows.RemoveAt(rows.Count - 1);
-        return SyncListResult<OperatorAction>.Success(rows, rows[^1].Id.ToString(CultureInfo.InvariantCulture));
+        return SyncListResult<OperatorAction>.Success(rows, rows[^1].Id.ToString(CultureInfo.InvariantCulture), total);
     }
 
     /// <summary>The name an action is logged under when the caller gave none.</summary>

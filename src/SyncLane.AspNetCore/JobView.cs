@@ -1,3 +1,5 @@
+using System.Text.Json.Serialization;
+
 namespace SyncLane.AspNetCore;
 
 /// <summary>
@@ -106,5 +108,9 @@ public sealed record JobView
     };
 }
 
-/// <summary>One page of a list. Pass <see cref="NextCursor"/> back as <c>cursor</c> for the next one; it is <c>null</c> on the last.</summary>
-public sealed record PageOf<T>(IReadOnlyList<T> Items, string? NextCursor);
+/// <summary>
+/// One page of a list. Pass <see cref="NextCursor"/> back as <c>cursor</c> for the next one; it is <c>null</c> on the last.
+/// <see cref="Total"/> is left out of the answer unless the request asked for it with <c>includeTotal=true</c>.
+/// </summary>
+public sealed record PageOf<T>(
+    IReadOnlyList<T> Items, string? NextCursor, [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] long? Total = null);

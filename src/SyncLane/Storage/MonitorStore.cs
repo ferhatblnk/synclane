@@ -389,15 +389,29 @@ internal sealed class MonitorStore(NpgsqlDataSource dataSource, MonitorSql sql)
         return pauses;
     }
 
-    public async Task<List<OperatorAction>> ActionsAsync(string? queue, string? owner, long? before, int limit, CancellationToken cancellationToken)
+    /// <summary>
+    /// Reads up to <paramref name="limit"/> actions older than <paramref name="before"/>, newest first, and how many
+    /// match when <paramref name="countTotal"/> is set. Both statements go to the database in one round trip.
+    /// </summary>
+    public async Task<(List<OperatorAction> Actions, long? Total)> ActionsAsync(
+        string? queue, string? owner, string? search, long? before, int limit, bool countTotal, CancellationToken cancellationToken)
     {
-        await using var command = dataSource.CreateCommand(sql.Actions);
-        command.Parameters.Add(Text("queue", queue));
-        command.Parameters.Add(Text("owner", owner));
-        command.Parameters.Add(new NpgsqlParameter("before", NpgsqlDbType.Bigint) { Value = (object?)before ?? DBNull.Value });
-        command.Parameters.AddWithValue("limit", limit);
+        await using var batch = dataSource.CreateBatch();
 
-        await using var reader = await command.ExecuteReaderAsync(cancellationToken);
+        var list = new NpgsqlBatchCommand(sql.Actions);
+        AddFilters(list.Parameters);
+        list.Parameters.Add(new NpgsqlParameter("before", NpgsqlDbType.Bigint) { Value = (object?)before ?? DBNull.Value });
+        list.Parameters.AddWithValue("limit", limit);
+        batch.BatchCommands.Add(list);
+
+        if (countTotal)
+        {
+            var count = new NpgsqlBatchCommand(sql.ActionsCount);
+            AddFilters(count.Parameters);
+            batch.BatchCommands.Add(count);
+        }
+
+        await using var reader = await batch.ExecuteReaderAsync(cancellationToken);
         var actions = new List<OperatorAction>(limit);
         // Sequential: reading rows of one data reader.
         while (await reader.ReadAsync(cancellationToken))
@@ -416,7 +430,18 @@ internal sealed class MonitorStore(NpgsqlDataSource dataSource, MonitorSql sql)
             });
         }
 
-        return actions;
+        long? total = null;
+        if (countTotal && await reader.NextResultAsync(cancellationToken) && await reader.ReadAsync(cancellationToken))
+            total = reader.GetInt64(0);
+
+        return (actions, total);
+
+        void AddFilters(NpgsqlParameterCollection parameters)
+        {
+            parameters.Add(Text("queue", queue));
+            parameters.Add(Text("owner", owner));
+            parameters.Add(Text("search", search is null ? null : JobStore.ContainsPattern(search)));
+        }
     }
 
     private static void AddWho(NpgsqlParameterCollection parameters, string by, string? reason)

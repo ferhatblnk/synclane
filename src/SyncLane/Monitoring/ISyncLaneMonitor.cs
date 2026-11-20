@@ -222,6 +222,9 @@ public interface ISyncLaneMonitor
     Task<SyncResult<IReadOnlyList<SwitchInfo>>> GetSwitchesAsync(CancellationToken cancellationToken = default);
 
     /// <summary>What operators did through the monitor, newest first, with who did it and why. Kept for 400 days.</summary>
-    /// <returns>One page. Fails with <see cref="SyncErrorCodes.LimitOutOfRange"/> or <see cref="SyncErrorCodes.CursorInvalid"/>.</returns>
+    /// <returns>
+    /// One page, with <see cref="SyncListResult{T}.Total"/> when <see cref="ActionQuery.IncludeTotal"/> is set. Fails with
+    /// <see cref="SyncErrorCodes.LimitOutOfRange"/>, <see cref="SyncErrorCodes.SearchInvalid"/> or <see cref="SyncErrorCodes.CursorInvalid"/>.
+    /// </returns>
     Task<SyncListResult<OperatorAction>> GetActionsAsync(ActionQuery query, CancellationToken cancellationToken = default);
 }

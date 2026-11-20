@@ -147,6 +147,61 @@ public class PauseTests : PostgresTest
     }
 
     [PostgresFact]
+    public async Task The_actions_log_is_searched_in_every_text_column_ignoring_case_and_counted_on_request()
+    {
+        var monitor = Monitor();
+        await monitor.PauseAsync(Queue, "acme:us", "Token rotation", by: "Ayse");
+        await monitor.PauseAsync(Queue, "globex", "vendor outage", by: "mehmet");
+        await monitor.PauseAsync("billing", "acme:us", "100% sure_ref", by: "mehmet");
+        await monitor.ResumeAsync(Queue, "acme:us", by: "mehmet");
+        async Task<List<string>> Found(string search) =>
+            (await monitor.GetActionsAsync(new ActionQuery { Search = search })).Items.Select(action => $"{action.Action} {action.Owner} {action.By}").ToList();
+
+        var byWho = await Found("AYSE");
+        var byReason = await Found("rotation");
+        var byOwner = await Found("ACME");
+        var byAction = await Found("resum");
+        var byQueue = await Found("billing");
+        var wildcard = await Found("100%");
+        var underscore = await Found("sure_");
+        var notWildcard = await Found("sure_ref");
+        var nothing = await Found("initech");
+
+        Assert.Equal(["pause acme:us Ayse"], byWho);
+        Assert.Equal(["pause acme:us Ayse"], byReason);
+        Assert.Equal(3, byOwner.Count);
+        Assert.Equal(["resume acme:us mehmet"], byAction);
+        Assert.Equal(["pause acme:us mehmet"], byQueue);
+        Assert.Equal(["pause acme:us mehmet"], wildcard);
+        Assert.Equal(["pause acme:us mehmet"], underscore);
+        Assert.Equal(["pause acme:us mehmet"], notWildcard);
+        Assert.Empty(nothing);
+
+        var withTotal = await monitor.GetActionsAsync(new ActionQuery { Search = "mehmet", Limit = 1, IncludeTotal = true });
+        var withoutTotal = await monitor.GetActionsAsync(new ActionQuery { Search = "mehmet", Limit = 1 });
+        var narrowed = await monitor.GetActionsAsync(new ActionQuery { Queue = Queue, Search = "mehmet", IncludeTotal = true });
+        var emptyTotal = await monitor.GetActionsAsync(new ActionQuery { Search = "initech", IncludeTotal = true });
+        var nextPage = await monitor.GetActionsAsync(new ActionQuery { Search = "mehmet", Limit = 1, Cursor = withTotal.NextCursor, IncludeTotal = true });
+
+        Assert.Equal((1, 3L, true), (withTotal.Items.Count, withTotal.Total, withTotal.HasMore));
+        Assert.Null(withoutTotal.Total);
+        Assert.Equal(2L, narrowed.Total);
+        Assert.Equal(0L, emptyTotal.Total);
+        Assert.Equal(3L, nextPage.Total);
+    }
+
+    [PostgresFact]
+    public async Task An_empty_or_too_long_actions_search_is_refused_and_nothing_is_read()
+    {
+        var monitor = Monitor();
+
+        var empty = await monitor.GetActionsAsync(new ActionQuery { Search = "  " });
+        var tooLong = await monitor.GetActionsAsync(new ActionQuery { Search = new string('x', JobQuery.MaxSearchLength + 1) });
+
+        Assert.Equal((SyncErrorCodes.SearchInvalid, SyncErrorCodes.SearchInvalid), (empty.Error!.Code, tooLong.Error!.Code));
+    }
+
+    [PostgresFact]
     public async Task The_overview_freshness_and_pause_list_show_what_is_paused_and_an_end_in_the_past_is_refused()
     {
         await ExecuteAsync($"INSERT INTO {Schema}.coverage (queue, owner, type, has_initial) VALUES ('{Queue}', 'a', 'orders', true)");

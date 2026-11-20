@@ -128,7 +128,7 @@ internal static class SyncLaneErrors
 
     public static SyncError SearchInvalid(int length) => new(
         SyncErrorCodes.SearchInvalid, SyncErrorKind.Validation,
-        $"A search of {length} characters cannot be used. Search for 1 to {JobQuery.MaxSearchLength} characters of an owner's key or name, or leave Search out.");
+        $"A search of {length} characters cannot be used. Search for 1 to {JobQuery.MaxSearchLength} characters of an owner's key or name (of an action's text when listing actions), or leave Search out.");
 
     public static SyncError OwnerTypeNotPlanned(string queue, string owner, string type) => new(
         SyncErrorCodes.OwnerTypeNotPlanned, SyncErrorKind.NotFound,

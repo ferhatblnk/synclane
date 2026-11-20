@@ -9,11 +9,23 @@ public sealed record ActionQuery
     /// <summary>Only actions on this owner.</summary>
     public string? Owner { get; init; }
 
+    /// <summary>
+    /// Only actions whose action, queue, owner, target, reason or who did it contains this text, ignoring case:
+    /// "ayse" finds what Ayse did, "token" what was written about a token. 1 to <see cref="JobQuery.MaxSearchLength"/> characters.
+    /// </summary>
+    public string? Search { get; init; }
+
     /// <summary>Rows per page, 1 to <see cref="JobQuery.MaxLimit"/>. Default 50.</summary>
     public int Limit { get; init; } = 50;
 
     /// <summary>The <see cref="SyncListResult{T}.NextCursor"/> of the previous page, or <c>null</c> for the newest.</summary>
     public string? Cursor { get; init; }
+
+    /// <summary>
+    /// Also count every matching action into <see cref="SyncListResult{T}.Total"/>, so a screen can show "page 2 of 7".
+    /// The log is kept for 400 days, so ask for it on the first page of a screen, not on every page.
+    /// </summary>
+    public bool IncludeTotal { get; init; }
 }
 
 /// <summary>Something an operator did through the monitor, and who did it. Kept for 400 days.</summary>
