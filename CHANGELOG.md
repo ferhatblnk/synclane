@@ -4,6 +4,14 @@ All notable changes to this project are recorded here. The format follows [Keep 
 
 ## [Unreleased]
 
+## [0.9.1] - 2026-11-20
+
+The package pages on NuGet show the pictures of the README. No code changes.
+
+### Fixed
+
+- The README on NuGet shows SyncLane's architecture and, new beside it, how a job runs: the pictures were HTML with paths relative to the repository, which NuGet does not render, and are now Markdown images from `raw.githubusercontent.com`. The descriptions of `SyncLane` and `SyncLane.AspNetCore` name the monitor, the switches and the actions log.
+
 ## [0.9.0] - 2026-11-20
 
 The actions log and the budgets list can be searched and counted, so a dashboard can find an action or a bucket and show how many pages there are. No migration. The integration guide shows how to upgrade a project that already runs SyncLane.

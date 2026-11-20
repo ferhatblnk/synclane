@@ -11,9 +11,11 @@
 
 If your application pulls orders, products or anything else from an external API for many accounts, it needs the same things every time: load two years of history in slices, pick up what is new every few minutes, continue after a crash instead of starting over, back off when the other side says "slow down", never hit one account's limit from two workers at once, and send data back in order. SyncLane is a .NET library that does exactly that, inside your process, with no dependency beyond Npgsql and the `Microsoft.Extensions` abstractions.
 
-<p align="center"><img src="docs/images/architecture.png" width="100%" alt="SyncLane's architecture: the PostgreSQL schema with the jobs table and the indexes that carry the guarantees; the planner, lease, page loop, failure policy, rate budgets, change feed, instances and monitor inside your application; the recipe pipeline of SyncLane.Http; their APIs and your tables; and what it promises."></p>
+![SyncLane's architecture: the PostgreSQL schema with the jobs table and the indexes that carry the guarantees; the planner, lease, page loop, failure policy, rate budgets, change feed, instances and monitor inside your application; the recipe pipeline of SyncLane.Http; their APIs and your tables; and what it promises.](https://raw.githubusercontent.com/ferhatblnk/synclane/main/docs/images/architecture.png)
 
-How a job runs, from the planner to a saved cursor and every way back when something fails: [the picture](docs/images/how-it-works.png), and [How it works](docs/how-it-works.md) in words.
+How a job runs, from the planner to a saved cursor and every way back when something fails ([How it works](docs/how-it-works.md) says it in words):
+
+![How a job runs: plan, take, run a page, save the cursor and complete; a failed page waits and continues from its cursor, steps aside after the fifth try and waits for an operator after one more; a worker that stops hands its job back, one that dies loses it to another slot when the lease runs out; and a 429 pauses the account's budget for every instance.](https://raw.githubusercontent.com/ferhatblnk/synclane/main/docs/images/how-it-works.png)
 
 ## Why
 
