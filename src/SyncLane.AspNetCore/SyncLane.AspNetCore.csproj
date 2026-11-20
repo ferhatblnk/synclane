@@ -6,7 +6,7 @@
     <GenerateDocumentationFile>true</GenerateDocumentationFile>
     <IsPackable>true</IsPackable>
     <PackageId>SyncLane.AspNetCore</PackageId>
-    <Description>HTTP endpoints for SyncLane's monitor: queue overview, freshness, problems, budgets, instances, volume, jobs, repairs and a live stream of job changes, in one MapSyncLane call. They appear in the application's OpenAPI document and answer only local requests until they require authorization.</Description>
+    <Description>HTTP endpoints for SyncLane's monitor, in one MapSyncLane call: queue overview, freshness, problems, budgets, instances, volume, jobs, repairs, pauses, switches, the actions log and a live stream of job changes. They appear in the application's OpenAPI document and answer only local requests until they require authorization.</Description>
     <PackageTags>sync;jobs;monitoring;aspnetcore;minimal-api;openapi;server-sent-events;postgres</PackageTags>
     <PackageReadmeFile>README.md</PackageReadmeFile>
   </PropertyGroup>
