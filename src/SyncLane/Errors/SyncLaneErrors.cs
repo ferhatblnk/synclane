@@ -126,9 +126,9 @@ internal static class SyncLaneErrors
         SyncErrorCodes.PauseEndInvalid, SyncErrorKind.Validation,
         $"A pause of queue '{queue}' cannot end at {until:u}, which is not after now ({now:u}). Give a later end, or none to pause until resumed.");
 
-    public static SyncError SearchInvalid(int length) => new(
+    public static SyncError SearchInvalid(int length, string searched = "an owner's key or name") => new(
         SyncErrorCodes.SearchInvalid, SyncErrorKind.Validation,
-        $"A search of {length} characters cannot be used. Search for 1 to {JobQuery.MaxSearchLength} characters of an owner's key or name, or leave Search out.");
+        $"A search of {length} characters cannot be used. Search for 1 to {JobQuery.MaxSearchLength} characters of {searched}, or leave Search out.");
 
     public static SyncError OwnerTypeNotPlanned(string queue, string owner, string type) => new(
         SyncErrorCodes.OwnerTypeNotPlanned, SyncErrorKind.NotFound,

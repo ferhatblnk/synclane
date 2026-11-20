@@ -6,7 +6,15 @@ All notable changes to this project are recorded here. The format follows [Keep 
 
 ### Added
 
+- The actions log can be searched and counted: `ActionQuery.Search` finds text, ignoring case, in an action's name, queue, owner, target, reason or who did it (1 to 100 characters, `SL3011` otherwise), and `ActionQuery.IncludeTotal` fills `SyncListResult.Total` with how many actions match, counted in the same round trip, so a pager can show "page 2 of 7". Over HTTP, `GET /actions?search=&includeTotal=true` adds `total` to the page; other lists are unchanged. No migration: the search reads the log newest first without an index, which stays cheap for 400 days of operator actions (numbers in [the performance model](ARCHITECTURE.md)).
+
+- Budgets can be searched and counted: `BudgetQuery.Search` finds buckets whose budget name or key contains the text, ignoring case (1 to 100 characters, refused with `SL3011` otherwise), and `BudgetQuery.IncludeTotal` fills `SyncListResult<BudgetState>.Total` with the number of matching buckets, counted in the same round trip, so a dashboard can show "page 2 of 7". Over HTTP: `GET /budgets?search=&includeTotal=`, whose page then carries `total`. No migration: on 50,000 buckets a search takes 19 ms, on 5,000 about 2 ms.
+
 - [Integrating](docs/integrating.md#7-upgrading-an-existing-integration) has a section for a project that already runs SyncLane: what never changes in an upgrade (queue, job type and owner names, whose change reloads history), the settings each environment has today, the packages, the application's name and roles, the settings written into switches in every environment before they are removed, and the checks that nothing changed. Renaming the application goes through switching the old name off, so a rolling deploy is not refused (`SL1011`).
+
+### Changed
+
+- `PageOf<T>` of `SyncLane.AspNetCore` has a new optional `Total`, left out of the JSON when null (`JsonIgnore(WhenWritingNull)`), so a list that was not asked for a total answers exactly as before; the OpenAPI schema of every page type now lists an optional `total`. Source code is unaffected, but code compiled against 0.8.0 that constructs or deconstructs a `PageOf<T>` must be rebuilt.
 
 ## [0.8.0] - 2026-11-19
 

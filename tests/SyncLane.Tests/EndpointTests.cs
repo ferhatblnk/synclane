@@ -189,6 +189,50 @@ public class EndpointTests : PostgresTest
     }
 
     [PostgresFact]
+    public async Task Actions_are_searched_and_counted_over_http_and_other_pages_carry_no_total()
+    {
+        await using var app = await StartAsync();
+        var monitor = app.Services.GetRequiredService<ISyncLaneMonitor>();
+        await monitor.PauseAsync(Queue, "a", "token rotation", by: "ayse");
+        await monitor.PauseAsync(Queue, "b", "vendor outage", by: "mehmet");
+
+        var found = await SendAsync(app, "GET", "/synclane/actions?search=TOKEN&includeTotal=true&limit=1", IPAddress.Loopback);
+        var plain = await SendAsync(app, "GET", "/synclane/actions?search=token", IPAddress.Loopback);
+        var tooLong = await SendAsync(app, "GET", $"/synclane/actions?search={new string('x', JobQuery.MaxSearchLength + 1)}", IPAddress.Loopback);
+        var overview = await SendAsync(app, "GET", "/synclane/overview", IPAddress.Loopback);
+
+        Assert.Equal(200, found.Status);
+        Assert.Contains("\"total\":1", found.Body);
+        Assert.Contains("token rotation", found.Body);
+        Assert.DoesNotContain("vendor outage", found.Body);
+        Assert.DoesNotContain("total", plain.Body);
+        Assert.Equal(400, tooLong.Status);
+        Assert.Contains("\"code\":\"SL3011\"", tooLong.Body);
+        Assert.DoesNotContain("total", overview.Body);
+    }
+
+    [PostgresFact]
+    public async Task Budgets_are_searched_and_counted_over_http_and_a_total_shows_only_when_asked()
+    {
+        await ExecuteAsync(
+            $"INSERT INTO {Schema}.rate_buckets (budget, key, tokens, refilled_at, updated_at) VALUES " +
+            "('shop', 'Acme Toys', 1, now(), now()), ('shop', 'other', 1, now(), now())");
+        await using var app = await StartAsync();
+
+        var searched = await SendAsync(app, "GET", "/synclane/budgets?search=ACME&includeTotal=true", IPAddress.Loopback);
+        var plain = await SendAsync(app, "GET", "/synclane/budgets?search=acme", IPAddress.Loopback);
+        var tooLong = await SendAsync(app, "GET", $"/synclane/budgets?search={new string('x', JobQuery.MaxSearchLength + 1)}", IPAddress.Loopback);
+
+        Assert.Equal(200, searched.Status);
+        Assert.Contains("\"key\":\"Acme Toys\"", searched.Body);
+        Assert.DoesNotContain("\"other\"", searched.Body);
+        Assert.Contains("\"total\":1", searched.Body);
+        Assert.DoesNotContain("total", plain.Body);
+        Assert.Equal(400, tooLong.Status);
+        Assert.Contains("\"code\":\"SL3011\"", tooLong.Body);
+    }
+
+    [PostgresFact]
     public async Task A_refusal_comes_back_as_problem_details_with_its_code_and_status()
     {
         await using var app = await StartAsync();

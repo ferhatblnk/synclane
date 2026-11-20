@@ -396,15 +396,31 @@ internal sealed class MonitorSql
             ORDER BY queue, owner
             """;
 
+        // The log is small (400 days of what operators did), so a search reads it newest first and filters.
+        const string Matches =
+            """
+            (@queue::text IS NULL OR queue = @queue)
+              AND (@owner::text IS NULL OR owner = @owner)
+              AND (@search::text IS NULL
+                   OR action ILIKE @search OR queue ILIKE @search OR owner ILIKE @search
+                   OR target ILIKE @search OR reason ILIKE @search OR by ILIKE @search)
+            """;
+
         Actions =
             $"""
             SELECT id, at, by, action, queue, owner, target, reason, changed
             FROM {actions}
-            WHERE (@queue::text IS NULL OR queue = @queue)
-              AND (@owner::text IS NULL OR owner = @owner)
+            WHERE {Matches}
               AND (@before::bigint IS NULL OR id < @before)
             ORDER BY id DESC
             LIMIT @limit
+            """;
+
+        ActionsCount =
+            $"""
+            SELECT count(*)
+            FROM {actions}
+            WHERE {Matches}
             """;
 
         Volume =
@@ -465,6 +481,9 @@ internal sealed class MonitorSql
     public string Switches { get; }
 
     public string Actions { get; }
+
+    /// <summary>How many actions match the filters of <see cref="Actions"/>, whatever the page.</summary>
+    public string ActionsCount { get; }
 
     /// <summary>The channel pauses and resumes are announced on.</summary>
     public string Channel { get; }

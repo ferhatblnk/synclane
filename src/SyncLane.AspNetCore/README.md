@@ -13,7 +13,7 @@ app.MapSyncLane("/synclane").RequireAuthorization("ops");
 | GET | `/overview` | One line per queue: open jobs by state, owners, instances, the last day |
 | GET | `/freshness?queue=&owner=&search=&limit=&cursor=` | Owners ranked by how old their completed data is, with the job that explains it; `search` finds owners by name or key |
 | GET | `/problems?queue=` | Failing and abandoned jobs grouped by error code |
-| GET | `/budgets?budget=&limit=&cursor=` | Rate budgets: learned rate, pause, last refusal |
+| GET | `/budgets?budget=&search=&includeTotal=&limit=&cursor=` | Rate budgets: learned rate, pause, last refusal; `search` finds budgets by name or key; `includeTotal=true` adds `total`, the number of matching buckets |
 | GET | `/instances` | Every process of every application on the schema: alive, stopped (with when) or gone |
 | GET | `/volume?from=&to=&queue=&type=&unit=hour` | Completed jobs, records, failures per hour or day |
 | GET | `/jobs?queue=&owner=&status=&type=&search=&limit=&cursor=` | Jobs, newest first, with each owner's name; `search` finds owners by name or key |
@@ -21,7 +21,7 @@ app.MapSyncLane("/synclane").RequireAuthorization("ops");
 | GET | `/pauses` | The pauses in force: who, why, until when |
 | GET | `/budget-limits` | The budget limits in force: who, why, until when |
 | GET | `/switches` | Each application and role: its switch, how many live instances run workers and the planner and listen, and how many ignore switches because they run an older version |
-| GET | `/actions?queue=&owner=&limit=&cursor=` | What operators did, newest first, with who and why |
+| GET | `/actions?queue=&owner=&search=&limit=&cursor=&includeTotal=` | What operators did, newest first, with who and why; `search` finds text in the action, queue, owner, target, reason or who did it; `includeTotal=true` adds `total`, the number of matches over every page |
 | POST | `/pause?queue=&owner=&reason=&until=` | Emergency stop of a queue or one owner: running jobs are cut and handed back |
 | POST | `/resume?queue=&owner=` | Lift a pause |
 | POST | `/budgets/limit?budget=&key=&limit=&per=&reason=&until=` | Lower a rate budget, or one key of it, for a while (`per` as `00:01:00`) |

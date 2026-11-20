@@ -54,7 +54,7 @@ public static partial class SyncLaneEndpoints
         group.MapGet("/problems", GetProblemsAsync)
             .Produces<IReadOnlyList<ProblemGroup>>().WithName("SyncLane_Problems").WithSummary("Failing, deferred and abandoned jobs grouped by error code.");
         group.MapGet("/budgets", GetBudgetsAsync)
-            .Produces<PageOf<BudgetState>>().ProducesProblem(StatusCodes.Status400BadRequest).WithName("SyncLane_Budgets").WithSummary("Each rate budget and key: learned rate, pause and last refusal.");
+            .Produces<PageOf<BudgetState>>().ProducesProblem(StatusCodes.Status400BadRequest).WithName("SyncLane_Budgets").WithSummary("Each rate budget and key: learned rate, pause and last refusal. Search finds budgets by name or key; includeTotal counts them.");
         group.MapGet("/instances", GetInstancesAsync)
             .Produces<IReadOnlyList<InstanceInfo>>().WithName("SyncLane_Instances").WithSummary("Every process of every application on the schema: alive, stopped, or gone without stopping.");
         group.MapGet("/volume", GetVolumeAsync)
@@ -70,7 +70,7 @@ public static partial class SyncLaneEndpoints
             .WithSummary("Each application and role: its switch, and how many of its live instances run workers and the planner.");
         group.MapGet("/actions", GetActionsAsync)
             .Produces<PageOf<OperatorAction>>().ProducesProblem(StatusCodes.Status400BadRequest)
-            .WithName("SyncLane_Actions").WithSummary("What operators did, newest first, with who did it and why.");
+            .WithName("SyncLane_Actions").WithSummary("What operators did, newest first, with who did it and why. Search finds text in any of it; includeTotal counts every match.");
         group.MapGet("/stream", Stream)
             .Produces(StatusCodes.Status200OK, contentType: "text/event-stream").WithName("SyncLane_Stream").WithSummary("Server-sent events: 'ready' once connected, then one 'job' event per created job or status change, from every instance.");
 
@@ -123,8 +123,9 @@ public static partial class SyncLaneEndpoints
         Answer(await monitor.GetProblemsAsync(queue, cancellationToken));
 
     private static async Task<IResult> GetBudgetsAsync(
-        ISyncLaneMonitor monitor, string? budget, int? limit, string? cursor, CancellationToken cancellationToken) =>
-        Answer(await monitor.GetBudgetsAsync(new BudgetQuery { Budget = budget, Limit = limit ?? 50, Cursor = cursor }, cancellationToken));
+        ISyncLaneMonitor monitor, string? budget, string? search, bool? includeTotal, int? limit, string? cursor, CancellationToken cancellationToken) =>
+        Answer(await monitor.GetBudgetsAsync(
+            new BudgetQuery { Budget = budget, Search = search, IncludeTotal = includeTotal ?? false, Limit = limit ?? 50, Cursor = cursor }, cancellationToken));
 
     private static async Task<IResult> GetInstancesAsync(ISyncLaneMonitor monitor, CancellationToken cancellationToken) =>
         Answer(await monitor.GetInstancesAsync(cancellationToken));
@@ -217,8 +218,11 @@ public static partial class SyncLaneEndpoints
         Answer(await monitor.GetPausesAsync(cancellationToken));
 
     private static async Task<IResult> GetActionsAsync(
-        ISyncLaneMonitor monitor, string? queue, string? owner, int? limit, string? cursor, CancellationToken cancellationToken) =>
-        Answer(await monitor.GetActionsAsync(new ActionQuery { Queue = queue, Owner = owner, Limit = limit ?? 50, Cursor = cursor }, cancellationToken));
+        ISyncLaneMonitor monitor, string? queue, string? owner, string? search, int? limit, string? cursor, bool? includeTotal,
+        CancellationToken cancellationToken) =>
+        Answer(await monitor.GetActionsAsync(
+            new ActionQuery { Queue = queue, Owner = owner, Search = search, Limit = limit ?? 50, Cursor = cursor, IncludeTotal = includeTotal ?? false },
+            cancellationToken));
 
     private static async Task<IResult> PauseAsync(
         string queue, string? owner, string reason, DateTimeOffset? until, ISyncLaneMonitor monitor, HttpContext http, ILoggerFactory loggers)
@@ -277,7 +281,7 @@ public static partial class SyncLaneEndpoints
         result.Succeeded ? TypedResults.Json(result.Value, Json) : Problem(result.Error!);
 
     private static IResult Answer<T>(SyncListResult<T> result) =>
-        result.Succeeded ? TypedResults.Json(new PageOf<T>(result.Items, result.NextCursor), Json) : Problem(result.Error!);
+        result.Succeeded ? TypedResults.Json(new PageOf<T>(result.Items, result.NextCursor, result.Total), Json) : Problem(result.Error!);
 
     private static IResult Problem(SyncError error, int? status = null) => TypedResults.Problem(
         detail: error.Message,
