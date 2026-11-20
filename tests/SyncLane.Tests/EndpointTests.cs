@@ -92,6 +92,38 @@ public class EndpointTests : PostgresTest
     }
 
     [PostgresFact]
+    public async Task Freshness_by_owner_takes_its_queues_a_show_in_any_case_and_counts_owners_on_request()
+    {
+        await ExecuteAsync(
+            $"INSERT INTO {Schema}.coverage (queue, owner, type, completed_to) VALUES " +
+            $"('{Queue}', 'c-1:us', 'orders', '{Noon:O}'), ('{Queue}.products', 'c-1:us', 'products', NULL), ('{Queue}', 'c-2:us', 'orders', now())");
+        await using var app = await StartAsync();
+
+        var stale = await SendAsync(
+            app, "GET", $"/synclane/freshness/owners?queues={Queue}&queues={Queue}.products&show=Stale&staleAfter=1.00:00:00&includeTotal=true", IPAddress.Loopback);
+        var all = await SendAsync(app, "GET", $"/synclane/freshness/owners?queues={Queue}&limit=1", IPAddress.Loopback);
+        var flat = await SendAsync(app, "GET", "/synclane/freshness", IPAddress.Loopback);
+        var noQueues = await SendAsync(app, "GET", "/synclane/freshness/owners", IPAddress.Loopback);
+        var unknownShow = await SendAsync(app, "GET", $"/synclane/freshness/owners?queues={Queue}&show=sleeping", IPAddress.Loopback);
+        var badAge = await SendAsync(app, "GET", $"/synclane/freshness/owners?queues={Queue}&staleAfter=-01:00:00", IPAddress.Loopback);
+
+        Assert.Equal(200, stale.Status);
+        Assert.Contains("\"owner\":\"c-1:us\"", stale.Body);
+        Assert.Contains("\"rows\":[", stale.Body);
+        Assert.Contains("\"queue\":\"stores.products\"", stale.Body);
+        Assert.DoesNotContain("c-2:us", stale.Body);
+        Assert.Contains("\"total\":1", stale.Body);
+        Assert.Equal(200, all.Status);
+        Assert.Contains("\"nextCursor\":\"", all.Body);
+        Assert.DoesNotContain("\"total\"", all.Body);
+        Assert.Equal(200, flat.Status);
+        Assert.DoesNotContain("\"total\"", flat.Body);
+        Assert.Equal((400, 400, 400), (noQueues.Status, unknownShow.Status, badAge.Status));
+        Assert.Contains("\"code\":\"SL3016\"", noQueues.Body);
+        Assert.Contains("\"code\":\"SL3017\"", badAge.Body);
+    }
+
+    [PostgresFact]
     public async Task Jobs_are_filtered_by_status_in_any_case_and_an_unknown_status_is_refused()
     {
         await InsertRowAsync("c-1:us", JobMode.Recurring, JobStatus.Pending, Noon, key: "1");
@@ -107,6 +139,33 @@ public class EndpointTests : PostgresTest
         Assert.Contains("\"status\":\"pending\"", lower.Body);
         Assert.DoesNotContain("\"status\":\"failed\"", lower.Body);
         Assert.Equal(400, unknown.Status);
+    }
+
+    [PostgresFact]
+    public async Task Job_owners_are_summarised_across_the_queues_given_with_a_total_only_on_request()
+    {
+        await InsertRowAsync("c-1:us", JobMode.Recurring, JobStatus.Failed, Noon, key: "1");
+        await InsertRowAsync("c-1:us", JobMode.Recurring, JobStatus.Pending, Noon, key: "1", queue: "stock");
+        await InsertRowAsync("c-2:us", JobMode.Recurring, JobStatus.Pending, Noon.AddHours(-1), key: "1");
+        await ExecuteAsync($"INSERT INTO {Schema}.owners (queue, owner, name, updated_at) VALUES ('{Queue}', 'c-1:us', 'Acme Toys', now()), ('stock', 'c-1:us', NULL, now()), ('{Queue}', 'c-2:us', NULL, now())");
+        await using var app = await StartAsync();
+
+        var both = await SendAsync(app, "GET", $"/synclane/jobs/owners?queues={Queue}&queues=stock&includeTotal=true", IPAddress.Loopback);
+        var failed = await SendAsync(app, "GET", $"/synclane/jobs/owners?queues={Queue}&queues=stock&status=failed&search=acme&limit=1", IPAddress.Loopback);
+        var noQueue = await SendAsync(app, "GET", "/synclane/jobs/owners", IPAddress.Loopback);
+        var freshness = await SendAsync(app, "GET", "/synclane/freshness", IPAddress.Loopback);
+
+        Assert.Equal(200, both.Status);
+        Assert.Contains("\"owner\":\"c-1:us\",\"ownerName\":\"Acme Toys\",\"pending\":1,\"running\":0,\"completed\":0,\"failed\":1", both.Body);
+        Assert.Contains("\"total\":2,", both.Body);
+        Assert.EndsWith("\"nextCursor\":null,\"total\":2}", both.Body);
+        Assert.Equal(200, failed.Status);
+        Assert.Contains("\"failed\":1,\"deferred\":0,\"abandoned\":0,\"total\":1,", failed.Body);
+        Assert.DoesNotContain("c-2:us", failed.Body);
+        Assert.EndsWith("\"nextCursor\":null}", failed.Body);
+        Assert.Equal(400, noQueue.Status);
+        Assert.Contains("\"code\":\"SL3016\"", noQueue.Body);
+        Assert.DoesNotContain("\"total\"", freshness.Body);
     }
 
     [PostgresFact]
@@ -256,11 +315,14 @@ public class EndpointTests : PostgresTest
             .Where(description => description.RelativePath!.StartsWith("synclane/", StringComparison.Ordinal))
             .ToList();
 
-        Assert.Equal(24, descriptions.Count);
+        Assert.Equal(26, descriptions.Count);
         Assert.All(descriptions, description => Assert.Contains(
             description.ActionDescriptor.EndpointMetadata.OfType<ITagsMetadata>(), tags => tags.Tags.Contains("SyncLane")));
         var overview = Assert.Single(descriptions, description => description.RelativePath == "synclane/overview");
         Assert.Contains(overview.SupportedResponseTypes, response => response.Type == typeof(IReadOnlyList<QueueOverview>));
+        var owners = Assert.Single(descriptions, description => description.RelativePath == "synclane/jobs/owners");
+        Assert.Contains(owners.SupportedResponseTypes, response => response.Type == typeof(PageOf<JobOwnerSummary>));
+        Assert.Contains(owners.ParameterDescriptions, parameter => parameter.Name == "queues");
     }
 
     [PostgresFact]

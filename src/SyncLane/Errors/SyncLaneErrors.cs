@@ -145,6 +145,16 @@ internal static class SyncLaneErrors
         $"The switch was not set: the {what} '{name}' is not usable as a name. Give the name instances register under, as the " +
         "monitor's instances list shows it: 1 to 100 letters, digits, dots, underscores, colons, slashes or hyphens, or an empty role.");
 
+    public static SyncError QueuesInvalid(string problem) => new(
+        SyncErrorCodes.QueuesInvalid, SyncErrorKind.Validation,
+        $"A read that groups owners across queues cannot run: {problem} An owner is known by its key on one queue, so give the " +
+        "queues whose owners share keys in Queues, one or more queue names, as GetOverviewAsync lists them. Nothing was read.");
+
+    public static SyncError StaleAfterInvalid(TimeSpan staleAfter) => new(
+        SyncErrorCodes.StaleAfterInvalid, SyncErrorKind.Validation,
+        $"StaleAfter of {staleAfter} cannot be used: data is stale after a positive time. Give one, such as 1.00:00:00 for a " +
+        "day, or leave it out for the default of 24 hours.");
+
     public static SyncError RequestedByInvalid(int length) => new(
         SyncErrorCodes.RequestedByInvalid, SyncErrorKind.Validation,
         $"NewJob.RequestedBy of {length} characters cannot be used: it is up to {NewJobLimits.RequestedBy} characters on one line, " +

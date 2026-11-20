@@ -12,11 +12,13 @@ app.MapSyncLane("/synclane").RequireAuthorization("ops");
 | --- | --- | --- |
 | GET | `/overview` | One line per queue: open jobs by state, owners, instances, the last day |
 | GET | `/freshness?queue=&owner=&search=&limit=&cursor=` | Owners ranked by how old their completed data is, with the job that explains it; `search` finds owners by name or key |
+| GET | `/freshness/owners?queues=&search=&show=&staleAfter=&limit=&cursor=&includeTotal=` | The same, grouped by owner across the queues named (repeat `queues`), stalest owner first, so a page never cuts an owner in half; `show` is `all`, `attention`, `stale` or `paused`, `staleAfter` as `1.00:00:00`; `includeTotal=true` counts the owners into `total` |
 | GET | `/problems?queue=` | Failing and abandoned jobs grouped by error code |
 | GET | `/budgets?budget=&search=&includeTotal=&limit=&cursor=` | Rate budgets: learned rate, pause, last refusal; `search` finds budgets by name or key; `includeTotal=true` adds `total`, the number of matching buckets |
 | GET | `/instances` | Every process of every application on the schema: alive, stopped (with when) or gone |
 | GET | `/volume?from=&to=&queue=&type=&unit=hour` | Completed jobs, records, failures per hour or day |
 | GET | `/jobs?queue=&owner=&status=&type=&search=&limit=&cursor=` | Jobs, newest first, with each owner's name; `search` finds owners by name or key |
+| GET | `/jobs/owners?queues=&queues=&status=&type=&search=&limit=&cursor=&includeTotal=` | Each owner's jobs counted by status across the queues given (one `queues=` per queue, at least one), newest job first; `includeTotal=true` adds `total`, the number of owners |
 | GET | `/stream?queue=&owner=` | Server-sent events, one `job` event per created job or status change |
 | GET | `/pauses` | The pauses in force: who, why, until when |
 | GET | `/budget-limits` | The budget limits in force: who, why, until when |

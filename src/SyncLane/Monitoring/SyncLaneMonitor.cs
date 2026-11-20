@@ -48,6 +48,89 @@ internal sealed partial class SyncLaneMonitor(
         return SyncListResult<OwnerFreshness>.Success(rows.Select(row => row.Row).ToList(), next);
     }
 
+    public async Task<SyncListResult<OwnerFreshnessGroup>> GetFreshnessOwnersAsync(
+        FreshnessOwnerQuery query, CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(query);
+        if (!Enum.IsDefined(query.Show))
+            throw new ArgumentOutOfRangeException(nameof(query));
+
+        if (query.Queues is not { Count: > 0 } queues)
+            return SyncListResult<OwnerFreshnessGroup>.Failure(SyncLaneErrors.QueuesInvalid("no queue was given."));
+
+        if (queues.Any(string.IsNullOrWhiteSpace))
+            return SyncListResult<OwnerFreshnessGroup>.Failure(SyncLaneErrors.QueuesInvalid("a queue name is empty."));
+
+        if (query.StaleAfter <= TimeSpan.Zero)
+            return SyncListResult<OwnerFreshnessGroup>.Failure(SyncLaneErrors.StaleAfterInvalid(query.StaleAfter));
+
+        if (query.Limit is < 1 or > JobQuery.MaxLimit)
+            return SyncListResult<OwnerFreshnessGroup>.Failure(SyncLaneErrors.LimitOutOfRange(query.Limit));
+
+        if (query.Search is { } search && !JobQuery.IsUsableSearch(search))
+            return SyncListResult<OwnerFreshnessGroup>.Failure(SyncLaneErrors.SearchInvalid(search.Length));
+
+        (DateTimeOffset, string)? after = null;
+        if (query.Cursor is { } cursor)
+        {
+            if (!KeysetCursor.TryDecode(cursor, 2, out var parts)
+                || !long.TryParse(parts[0], NumberStyles.None, CultureInfo.InvariantCulture, out var ticks)
+                || ticks < DateTimeOffset.MinValue.UtcTicks || ticks > DateTimeOffset.MaxValue.UtcTicks)
+                return SyncListResult<OwnerFreshnessGroup>.Failure(SyncLaneErrors.CursorInvalid());
+
+            after = (new DateTimeOffset(ticks, TimeSpan.Zero), parts[1]);
+        }
+
+        var now = time.GetUtcNow();
+        // A StaleAfter longer than the calendar reaches back makes only owners without completed data stale.
+        var staleBefore = query.StaleAfter < now - MonitorSql.Never ? now - query.StaleAfter : MonitorSql.Never;
+        var (groups, lastKey, more, total) = await monitor.FreshnessOwnersAsync(
+            queues.Distinct(StringComparer.Ordinal).ToArray(), query.Search, query.Show, staleBefore, after, query.Limit,
+            query.IncludeTotal, now, cancellationToken);
+
+        var next = more ? KeysetCursor.Encode(lastKey.UtcTicks.ToString(CultureInfo.InvariantCulture), groups[^1].Owner) : null;
+        return SyncListResult<OwnerFreshnessGroup>.Success(groups, next, total);
+    }
+
+    public async Task<SyncListResult<JobOwnerSummary>> GetJobOwnersAsync(JobOwnerQuery query, CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(query);
+        if (query.Queues is not { Count: > 0 } queues)
+            return SyncListResult<JobOwnerSummary>.Failure(SyncLaneErrors.QueuesInvalid("no queue was given."));
+
+        if (queues.Any(string.IsNullOrWhiteSpace))
+            return SyncListResult<JobOwnerSummary>.Failure(SyncLaneErrors.QueuesInvalid("a queue name is empty."));
+
+        if (query.Limit is < 1 or > JobQuery.MaxLimit)
+            return SyncListResult<JobOwnerSummary>.Failure(SyncLaneErrors.LimitOutOfRange(query.Limit));
+
+        if (query.Search is { } search && !JobQuery.IsUsableSearch(search))
+            return SyncListResult<JobOwnerSummary>.Failure(SyncLaneErrors.SearchInvalid(search.Length));
+
+        (DateTimeOffset, string)? after = null;
+        if (query.Cursor is { } cursor)
+        {
+            if (!KeysetCursor.TryDecode(cursor, 2, out var parts)
+                || !long.TryParse(parts[0], NumberStyles.None, CultureInfo.InvariantCulture, out var ticks)
+                || ticks < DateTimeOffset.MinValue.UtcTicks || ticks > DateTimeOffset.MaxValue.UtcTicks)
+                return SyncListResult<JobOwnerSummary>.Failure(SyncLaneErrors.CursorInvalid());
+
+            after = (new DateTimeOffset(ticks, TimeSpan.Zero), parts[1]);
+        }
+
+        // One row more than asked tells whether a next page exists without a second query.
+        var (owners, total) = await monitor.JobOwnersAsync(
+            queues.Distinct(StringComparer.Ordinal).ToArray(), query.Status, query.Type, query.Search, after, query.Limit + 1,
+            query.IncludeTotal, cancellationToken);
+        if (owners.Count <= query.Limit)
+            return SyncListResult<JobOwnerSummary>.Success(owners, null, total);
+
+        owners.RemoveAt(owners.Count - 1);
+        var last = owners[^1];
+        var next = KeysetCursor.Encode(last.LastJobAt.UtcTicks.ToString(CultureInfo.InvariantCulture), last.Owner);
+        return SyncListResult<JobOwnerSummary>.Success(owners, next, total);
+    }
+
     public async Task<SyncResult<IReadOnlyList<ProblemGroup>>> GetProblemsAsync(string? queue = null, CancellationToken cancellationToken = default) =>
         SyncResult<IReadOnlyList<ProblemGroup>>.Success(await monitor.ProblemsAsync(queue, cancellationToken));
 
