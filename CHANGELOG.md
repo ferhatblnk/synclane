@@ -4,23 +4,22 @@ All notable changes to this project are recorded here. The format follows [Keep 
 
 ## [Unreleased]
 
+## [0.10.0] - 2026-11-20
+
+The monitor reads by owner: each owner's freshness and its jobs by status, across the queues whose owner keys mean the same accounts, so a dashboard needs no SQL of its own. No migration. The package pages on NuGet show the README's pictures.
+
 ### Added
 
-- Freshness grouped by owner: `GetFreshnessOwnersAsync(FreshnessOwnerQuery)` and `GET /freshness/owners` return each owner once across the queues you name as sharing owner keys, with its freshness rows, the owner with the oldest data first, paged by owner so a page never cuts one in half. `Show` keeps only the rows, and the owners, that are stale (older than `StaleAfter`, 24 hours by default), need attention (an open job failed, deferred or abandoned) or are paused; `Search` finds owners by key or name; `IncludeTotal` counts the owners in the same round trip. `SL3016` refuses a read without queues and `SL3017` a `StaleAfter` that is not positive. Over HTTP the page carries `total` only when asked for (`includeTotal=true`). No migration: the read is served by the existing indexes, measured at 6 ms a page on a million jobs and a thousand owners. See [Watching it run](docs/monitoring.md) and D72.
-- The monitor summarises jobs by owner: `GetJobOwnersAsync(JobOwnerQuery)` and `GET /jobs/owners` give one row per owner with its jobs counted by status (pending, running, completed, failed, deferred, abandoned and in all), its name and when its newest job was created, the newest first. An owner is known by its key on each queue, so the query names the queues whose owner keys mean the same accounts (`Queues`, required; `SL3016` without them) and each owner's jobs on all of them are counted together. `Status` and `Type` narrow what is counted, `Search` finds owners by name or key as `GetJobsAsync` does, and `IncludeTotal` counts the owners in the same round trip, for "page 2 of 7". Completed recurring and manual jobs count while the table keeps them (`KeepCompletedJobs`, 7 days by default). No migration: on a million jobs and a thousand owners a page of 50 takes 23 ms through the existing indexes. A dashboard that read the jobs table with SQL of its own for this can call the monitor instead. See [Watching it run](docs/monitoring.md).
+- Freshness grouped by owner: `GetFreshnessOwnersAsync(FreshnessOwnerQuery)` and `GET /freshness/owners` return each owner once across the queues you name as sharing owner keys, with its freshness rows, the owner with the oldest data first, paged by owner so a page never cuts one in half. `Show` keeps only the rows, and the owners, that are stale (older than `StaleAfter`, 24 hours by default), need attention (an open job failed, deferred or abandoned) or are paused; `Search` finds owners by key or name; `IncludeTotal` counts the owners in the same round trip. `SL3016` refuses a read without queues and `SL3017` a `StaleAfter` that is not positive. Over HTTP the page carries `total` only when asked for (`includeTotal=true`). No migration: the read is served by the existing indexes, measured at 6 ms a page on a million jobs and a thousand owners. See [Watching it run](docs/monitoring.md) and D72 (#74).
+- The monitor summarises jobs by owner: `GetJobOwnersAsync(JobOwnerQuery)` and `GET /jobs/owners` give one row per owner with its jobs counted by status (pending, running, completed, failed, deferred, abandoned and in all), its name and when its newest job was created, the newest first. An owner is known by its key on each queue, so the query names the queues whose owner keys mean the same accounts (`Queues`, required; `SL3016` without them) and each owner's jobs on all of them are counted together. `Status` and `Type` narrow what is counted, `Search` finds owners by name or key as `GetJobsAsync` does, and `IncludeTotal` counts the owners in the same round trip, for "page 2 of 7". Completed recurring and manual jobs count while the table keeps them (`KeepCompletedJobs`, 7 days by default). No migration: on a million jobs and a thousand owners a page of 50 takes 23 ms through the existing indexes. A dashboard that read the jobs table with SQL of its own for this can call the monitor instead. See [Watching it run](docs/monitoring.md) (#74).
 
 ### Changed
 
-- `ISyncLaneMonitor` gains `GetFreshnessOwnersAsync`. A class of your own that implements the interface, such as a test double, must add it.
-- `ISyncLaneMonitor` gains `GetJobOwnersAsync`. A class of your own that implements the interface, such as a test double, must add it.
-
-## [0.9.1] - 2026-11-20
-
-The package pages on NuGet show the pictures of the README. No code changes.
+- `ISyncLaneMonitor` gains `GetFreshnessOwnersAsync` and `GetJobOwnersAsync`. A class of your own that implements the interface, such as a test double, must add them (#74).
 
 ### Fixed
 
-- The README on NuGet shows SyncLane's architecture and, new beside it, how a job runs: the pictures were HTML with paths relative to the repository, which NuGet does not render, and are now Markdown images from `raw.githubusercontent.com`. The descriptions of `SyncLane` and `SyncLane.AspNetCore` name the monitor, the switches and the actions log.
+- The README on NuGet shows SyncLane's architecture and, new beside it, how a job runs: the pictures were HTML with paths relative to the repository, which NuGet does not render, and are now Markdown images from `raw.githubusercontent.com`. The descriptions of `SyncLane` and `SyncLane.AspNetCore` name the monitor, the switches and the actions log (#73).
 
 ## [0.9.0] - 2026-11-20
 
