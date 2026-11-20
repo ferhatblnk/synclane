@@ -64,6 +64,9 @@ public static partial class SyncLaneEndpoints
             .Produces<IReadOnlyList<VolumeBucket>>().WithName("SyncLane_Volume").WithSummary("Completed jobs, records, failures and give-ups per hour or day.");
         group.MapGet("/jobs", GetJobsAsync)
             .Produces<PageOf<JobView>>().ProducesProblem(StatusCodes.Status400BadRequest).WithName("SyncLane_Jobs").WithSummary("Jobs by queue, owner, status, type or a search of owner names and keys, newest first. Cursors of jobs are never shown.");
+        group.MapGet("/jobs/owners", GetJobOwnersAsync)
+            .Produces<PageOf<JobOwnerSummary>>().ProducesProblem(StatusCodes.Status400BadRequest).WithName("SyncLane_JobOwners")
+            .WithSummary("Each owner's jobs counted by status across the queues that share owner keys, newest job first. Search finds owners by name or key.");
         group.MapGet("/pauses", GetPausesAsync)
             .Produces<IReadOnlyList<PauseInfo>>().WithName("SyncLane_Pauses").WithSummary("The pauses in force: who paused what, why, and until when.");
         group.MapGet("/budget-limits", GetBudgetLimitsAsync)
@@ -169,6 +172,17 @@ public static partial class SyncLaneEndpoints
             ? TypedResults.Json(new PageOf<JobView>(jobs.Items.Select(JobView.Of).ToList(), jobs.NextCursor), Json)
             : Problem(jobs.Error!);
     }
+
+    private static async Task<IResult> GetJobOwnersAsync(
+        ISyncLaneMonitor monitor, string[]? queues, QueryEnum<JobStatus>? status, string? type, string? search, int? limit, string? cursor,
+        bool? includeTotal, CancellationToken cancellationToken) =>
+        Answer(await monitor.GetJobOwnersAsync(
+            new JobOwnerQuery
+            {
+                Queues = queues, Status = status?.Value, Type = type, Search = search, Limit = limit ?? 50, Cursor = cursor,
+                IncludeTotal = includeTotal ?? false
+            },
+            cancellationToken));
 
     private static ServerSentEventsResult<string> Stream(ISyncLaneMonitor monitor, string? queue, string? owner, HttpContext http) =>
         TypedResults.ServerSentEvents(Changes(monitor, queue, owner, http.RequestAborted));

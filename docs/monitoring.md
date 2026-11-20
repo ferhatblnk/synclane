@@ -9,6 +9,7 @@ How to see what SyncLane does: the monitor's questions, live changes, the HTTP e
 | `GetOverviewAsync()` | One line per queue: due, postponed, running, retrying, deferred and abandoned jobs; owners; live instances; jobs, records and failures in the last 24 hours. |
 | `GetFreshnessAsync(query)` | Owners ranked by how old their newest completed data is, each with the job that explains it (its status, error code and next run) and how much of its history has loaded. `Search` finds owners by name or key. |
 | `GetFreshnessOwnersAsync(query)` | The same rows grouped by owner across the queues you name, the owner with the oldest data first, so a page never cuts an owner in half. `Show` keeps only the rows, and so the owners, that are stale, need attention (an open job failed, was deferred or abandoned) or are paused. `IncludeTotal` counts the owners. |
+| `GetJobOwnersAsync(query)` | Each owner's jobs counted by status (pending, running, completed, failed, deferred, abandoned) across the queues you name, one row per owner, the owner with the newest job first. `Status` and `Type` narrow the counts, `Search` finds owners by name or key, `IncludeTotal` counts the owners. |
 | `GetProblemsAsync(queue?)` | Failing, deferred and abandoned jobs grouped by error code: "SL5106: 37 jobs, 12 owners" instead of 37 rows. |
 | `GetBudgetsAsync(query)` | Each rate budget and key: the rate it learned, the limit the API reports and any operator's limit, whether it is paused, when it was last refused. `Search` finds buckets whose budget name or key contains the text, ignoring case; `IncludeTotal` also counts the matching buckets into `Total`, for a pager that shows "page 2 of 7". |
 | `GetInstancesAsync()` | Every process of every application: host, role, version, queues, whether it runs workers, the planner and listening, and whether it is alive, stopped (and when) or gone without stopping. Stopped and gone ones stay listed for a day. `SharesNameWith` names live instances under the same application that declare none of its queues and job types: most likely another application that took the same name. `FollowsSwitches` is false for an instance of a version that does not read switches. |
@@ -35,6 +36,16 @@ foreach (var owner in owners.Items)
     Console.WriteLine($"{owner.OwnerName ?? owner.Owner}: {string.Join(", ", owner.Rows.Select(row => $"{row.Queue} {row.Type} {row.Code}"))}");
 ```
 
+An owner is known by its key on each queue, so `GetJobOwnersAsync` takes the queues whose owner keys mean the same accounts, such as the queues of one integration, and counts each owner's jobs on all of them together; leaving `Queues` out is refused (`SL3016`). A page costs about the same at any depth, so a screen can show "page 2 of 7" with `IncludeTotal` on its first page:
+
+```csharp
+var owners = await monitor.GetJobOwnersAsync(new JobOwnerQuery { Queues = ["shop.orders", "shop.stock"], IncludeTotal = true });
+foreach (var owner in owners.Items)
+    Console.WriteLine($"{owner.OwnerName ?? owner.Owner}: {owner.Failed} failed, {owner.Abandoned} abandoned, last job {owner.LastJobAt:u}");
+```
+
+The counts are of the jobs still in the table. Completed recurring and manual jobs are deleted after `KeepCompletedJobs` (7 days by default), and initial jobs are kept, so `Completed` counts the completed recurring and manual jobs of that last week and every completed initial job; `GetVolumeAsync` counts completions for 400 days.
+
 `WatchAsync(queue?, owner?)` streams jobs as they are created and change status, from every instance, a moment after each change commits, so a live view or an alert needs no polling:
 
 ```csharp
@@ -52,7 +63,7 @@ See [the package's readme](../src/SyncLane.AspNetCore/README.md) for the routes.
 
 `SetSwitchAsync(application, role, runWorkers, runPlanner, reason)` turns an application's workers and planner on or off without a deploy, and `SetListeningAsync(application, role, listen, reason)` its listening connections ([Switching an application on and off](operations.md#switching-an-application-on-and-off)). It also has an emergency stop, `PauseAsync(queue, owner?, reason)`, which cuts what runs on every instance and takes nothing more until `ResumeAsync`, and the repairs the answers call for: `RequeueJobAsync(id)`, `RestartJobAsync(id)` to fetch a window again, `RequeueByCodeAsync(queue, code)` after fixing what a problem group shows, `PrioritizeOwnerAsync(queue, owner)` for an account that should load first, and `SyncNowAsync(queue, owner, type)` when the other side announces a change, for example with a webhook: it fetches from where the owner's data reaches to now, at high priority, and a burst of calls is one fetch. `LimitBudgetAsync` lowers a rate budget for a while. Every action is logged with who did it and why, and `GetActionsAsync(query)` lists the log newest first: `Search` finds text in the action, queue, owner, target, reason or who did it (ignoring case, 1 to 100 characters), and `IncludeTotal` also counts every match, so a screen can show "page 2 of 7" (`total` over HTTP, with `includeTotal=true`). See [docs/operations.md](operations.md#changing).
 
-Each read is one round trip that reads small summary tables and the open jobs, never the history: on a table of a million jobs each one takes about a millisecond, a page of 50 owners grouped across two queues about 6, and a year of daily volume about 45. Lists page with a cursor. `Total` is counted only when the query sets `IncludeTotal`, in the same round trip as the page; ask for it on the first page of a screen, not on every page. Searching budgets and counting them reads the small `rate_buckets` table (one row per budget and key): about 2 ms for 5,000 rows and 19 ms for 50,000.
+Each read except the job owners read is one round trip that reads small summary tables and the open jobs, never the history: on a table of a million jobs each one takes about a millisecond, a page of 50 owners grouped across two queues about 6, and a year of daily volume about 45. The job owners read is one round trip too, but it counts the kept jobs of the owners on its page, through `owners` and an index, never the whole table: about 25 ms for a page of 50 owners out of a thousand. Lists page with a cursor. `Total` is counted only when the query sets `IncludeTotal`, in the same round trip as the page; ask for it on the first page of a screen, not on every page. Searching budgets and counting them reads the small `rate_buckets` table (one row per budget and key): about 2 ms for 5,000 rows and 19 ms for 50,000.
 
 SyncLane also reports metrics and traces through the APIs built into .NET, so it adds no dependency and costs nothing when nobody listens. With OpenTelemetry:
 
