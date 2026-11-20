@@ -124,6 +124,56 @@ public class MonitorTests : PostgresTest
     }
 
     [PostgresFact]
+    public async Task Budgets_are_searched_by_name_or_key_ignoring_case_and_counted_when_asked()
+    {
+        await InsertBucketAsync("api", "Acme Toys", refilledAt: Noon, rate: 1);
+        await InsertBucketAsync("api", "other", refilledAt: Noon, rate: 1);
+        await InsertBucketAsync("acme-search", "x", refilledAt: Noon, rate: 1);
+        await InsertBucketAsync("search", "100%_real", refilledAt: Noon, rate: 1);
+        var monitor = Monitor();
+
+        var byKey = await monitor.GetBudgetsAsync(new BudgetQuery { Search = "ACME", IncludeTotal = true });
+        var asked = await monitor.GetBudgetsAsync(new BudgetQuery { Search = "acme" });
+        var wildcard = await monitor.GetBudgetsAsync(new BudgetQuery { Search = "%_", IncludeTotal = true });
+        var none = await monitor.GetBudgetsAsync(new BudgetQuery { Search = "nothing", IncludeTotal = true });
+
+        Assert.Equal([("acme-search", "x"), ("api", "Acme Toys")], byKey.Items.Select(state => (state.Budget, state.Key)));
+        Assert.Equal(2, byKey.Total);
+        Assert.Null(asked.Total);
+        Assert.Equal([("search", "100%_real")], wildcard.Items.Select(state => (state.Budget, state.Key)));
+        Assert.Equal((0, 0L), (none.Items.Count, none.Total));
+    }
+
+    [PostgresFact]
+    public async Task A_budget_total_counts_every_page_and_follows_the_filters_but_not_the_cursor()
+    {
+        await InsertBucketAsync("api", "a", refilledAt: Noon, rate: 1);
+        await InsertBucketAsync("api", "b", refilledAt: Noon, rate: 1);
+        await InsertBucketAsync("api", "c", refilledAt: Noon, rate: 1);
+        await InsertBucketAsync("search", "a", refilledAt: Noon, rate: 1);
+        var monitor = Monitor();
+
+        var first = await monitor.GetBudgetsAsync(new BudgetQuery { Budget = "api", Limit = 2, IncludeTotal = true });
+        var second = await monitor.GetBudgetsAsync(new BudgetQuery { Budget = "api", Limit = 2, Cursor = first.NextCursor, IncludeTotal = true });
+        var searched = await monitor.GetBudgetsAsync(new BudgetQuery { Budget = "api", Search = "b", Limit = 1, IncludeTotal = true });
+
+        Assert.Equal((2, 3L, true), (first.Items.Count, first.Total, first.HasMore));
+        Assert.Equal((1, 3L, false), (second.Items.Count, second.Total, second.HasMore));
+        Assert.Equal((1L, false), (searched.Total, searched.HasMore));
+    }
+
+    [PostgresFact]
+    public async Task A_budget_search_that_is_empty_or_too_long_is_refused_with_the_search_code()
+    {
+        var empty = await Monitor().GetBudgetsAsync(new BudgetQuery { Search = "  " });
+        var tooLong = await Monitor().GetBudgetsAsync(new BudgetQuery { Search = new string('x', JobQuery.MaxSearchLength + 1) });
+
+        Assert.Equal(SyncErrorCodes.SearchInvalid, empty.Error!.Code);
+        Assert.Equal(SyncErrorCodes.SearchInvalid, tooLong.Error!.Code);
+        Assert.Contains("budget", tooLong.Error!.Message);
+    }
+
+    [PostgresFact]
     public async Task Instances_are_listed_with_whether_they_are_alive()
     {
         await InsertInstanceAsync("host-a:1", Noon.AddSeconds(-10), Queue);

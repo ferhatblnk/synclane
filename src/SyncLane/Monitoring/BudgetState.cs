@@ -6,11 +6,23 @@ public sealed record BudgetQuery
     /// <summary>Only this budget.</summary>
     public string? Budget { get; init; }
 
+    /// <summary>
+    /// Only buckets whose budget name or key contains this text, ignoring case: "acme" finds every key of "Acme Toys".
+    /// 1 to <see cref="JobQuery.MaxSearchLength"/> characters.
+    /// </summary>
+    public string? Search { get; init; }
+
     /// <summary>Rows per page, 1 to <see cref="JobQuery.MaxLimit"/>. Default 50.</summary>
     public int Limit { get; init; } = 50;
 
     /// <summary>The <see cref="SyncListResult{T}.NextCursor"/> of the previous page, or <c>null</c> for the first.</summary>
     public string? Cursor { get; init; }
+
+    /// <summary>
+    /// Also count every matching bucket into <see cref="SyncListResult{T}.Total"/>, so a screen can show "page 2 of 7".
+    /// It counts the buckets of the budget table, which holds one row per budget and key; ask for it on the first page.
+    /// </summary>
+    public bool IncludeTotal { get; init; }
 }
 
 /// <summary>One bucket of a rate budget, shared by every instance.</summary>
