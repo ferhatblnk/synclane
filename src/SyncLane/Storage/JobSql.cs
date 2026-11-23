@@ -143,8 +143,20 @@ internal sealed class JobSql
         Analyze = $"ANALYZE (SKIP_LOCKED) {table}";
         EnqueueOne = Insert("SELECT id FROM inserted", Remember("ARRAY[@owner_key]", "ARRAY[@owner_name]", "ARRAY[@owner_values]"));
 
-        // The latest request for a key wins. The job that is there keeps its row, so its id and its place in an ordered
-        // lane stay, and starts over with what the new request brings. A running job is not taken from its lane: raising
+        // A completed job has no place in its lane any more: reset in its old row, it would run ahead of every job the
+        // lane got since, which an ordered lane must not do. So it is deleted, and the statement after it in the batch
+        // inserts a new row at the back. Retention would have deleted it anyway.
+        DeleteCompletedByKey =
+            $"""
+            DELETE FROM {table}
+            WHERE queue = @queue AND owner = @owner AND type = @type AND dedup_key = @dedup_key
+              AND mode = 'manual' AND status = 'completed'
+            RETURNING id
+            """;
+
+        // The latest request for a key wins. A job that has not completed keeps its row, so its id and its place in an
+        // ordered lane stay, and starts over with what the new request brings. One that completes between the two
+        // statements of the batch is reset in place too. A running job is not taken from its lane: raising
         // its lease generation makes every write of the attempt under way miss, the worker sees its lease lost at its
         // next heartbeat, and the lease takes the job again when it runs out, exactly as after a worker that died.
         // xmax is 0 only on a row this statement inserted. A planned job is left alone, and then no row comes back.
@@ -579,6 +591,9 @@ internal sealed class JobSql
 
     /// <summary>The same as <see cref="Enqueue"/> for one job. Returns its id, or nothing when it exists.</summary>
     public string EnqueueOne { get; }
+
+    /// <summary>Deletes the completed manual job with a key, before <see cref="EnqueueOrReplace"/> inserts its successor.</summary>
+    public string DeleteCompletedByKey { get; }
 
     /// <summary>
     /// Enqueues one manual job, or lets the manual job with its key take its place. Returns the id and whether the row

@@ -39,13 +39,13 @@ return Results.Ok(result.Value);
 
 `NewJob.Arguments` is what the handler needs for this one job and cannot look up, such as the body of a delivery as it was when the user sent it. It is text of your choosing, JSON for example, up to 262,144 characters; SyncLane stores it with the job and hands it back unread as `job.Arguments`.
 
-- It is never written to a log, a trace, a metric or an error.
+- SyncLane never writes it to a log, a trace, a metric or an error. The message of an exception your handler throws is stored in the job's `error` and logged as it is, so keep the arguments out of it: parse with `TryParse` instead of `Parse`, whose message quotes its input.
 - A list of jobs (`GetJobsAsync`, the monitor, the HTTP endpoints) leaves it out; `GetJobAsync(id)` returns it.
 - Put no credential in it: it is kept in the table. Keep it small, and let the handler read by the job's owner and dedup key whatever it can.
 
 ## The latest request wins
 
-A delivery that failed and is waiting for its next attempt is out of date as soon as the user sends a newer one. `EnqueueOrReplaceAsync` puts the new request in the old one's place: the same job, the same id and place in an ordered lane, with the new arguments and a fresh set of attempts. A job that completed runs again; a planned job is never replaced.
+A delivery that failed and is waiting for its next attempt is out of date as soon as the user sends a newer one. `EnqueueOrReplaceAsync` puts the new request in the old one's place: the same job, the same id and place in an ordered lane, with the new arguments, priority and requester and a fresh set of attempts; its window and lane stay as they were. A job that completed has no place left to keep: it is deleted, and a new job with a new id joins its lane at the back, as any new job would. A planned job is never replaced.
 
 A job that is running stays running. Its lease is revoked, so whatever its attempt reports is refused, and it runs again with the new arguments when that lease runs out, at most `LeaseDuration` later. Its lane stays closed until then.
 

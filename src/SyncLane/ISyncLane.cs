@@ -25,9 +25,11 @@ public interface ISyncLane
 
     /// <summary>
     /// Enqueues one job by hand, and when a job with the same owner, type and <see cref="NewJob.DedupKey"/> is there
-    /// already, lets it take this request's place instead of refusing it: the latest request for a key wins. That job
-    /// keeps its id and its place in an ordered lane, takes the new arguments, priority and requester, and runs again
-    /// from the start with a fresh set of attempts, whether it was waiting, had failed, was given up or had completed.
+    /// already, lets it take this request's place instead of refusing it: the latest request for a key wins. A job
+    /// that was waiting, had failed or was given up keeps its id and its place in an ordered lane, takes the new
+    /// arguments, priority and requester, and runs again from the start with a fresh set of attempts; its window and
+    /// lane stay as they were. A job that had completed has no place left to keep: it is deleted, and a new job, with
+    /// a new id and everything the request says, joins the lane at the back.
     /// <para>
     /// A job that is running stays running: its lease is revoked, so whatever its attempt reports is refused, and it is
     /// taken again with the new arguments when that lease runs out. Its lane stays closed until then.

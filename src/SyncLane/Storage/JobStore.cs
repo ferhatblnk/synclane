@@ -132,30 +132,49 @@ internal sealed class JobStore(NpgsqlDataSource dataSource, JobSql sql) : IAsync
         return await command.ExecuteScalarAsync(cancellationToken) is long id ? id : null;
     }
 
-    /// <summary>Records ranges of history as loaded, in one statement. Returns how many were new.</summary>
+    /// <summary>
+    /// Enqueues one manual job, or lets the manual job with its key take its place, in one round trip. A completed job
+    /// is deleted first and a new row inserted, so the request joins its lane at the back, where a new job would.
+    /// Returns nothing when the key belongs to a planned job.
+    /// </summary>
     public async Task<EnqueuedJob?> EnqueueOrReplaceAsync(
         string queue, PlannedJob job, string? ownerName, IReadOnlyDictionary<string, string>? ownerValues, DateTimeOffset now, CancellationToken cancellationToken)
     {
-        await using var command = dataSource.CreateCommand(sql.EnqueueOrReplace);
-        command.Parameters.AddWithValue("queue", queue);
-        command.Parameters.AddWithValue("now", now.ToUniversalTime());
-        command.Parameters.AddWithValue("owner", job.Owner);
-        command.Parameters.AddWithValue("lane", job.Lane);
-        command.Parameters.AddWithValue("type", job.Type);
-        command.Parameters.AddWithValue("priority", job.Priority);
-        command.Parameters.Add(Moment("window_start", job.WindowStart));
-        command.Parameters.Add(Moment("window_end", job.WindowEnd));
-        command.Parameters.Add(Text("dedup_key", job.DedupKey));
-        command.Parameters.Add(Text("requested_by", job.RequestedBy));
-        command.Parameters.Add(Text("arguments", job.Arguments));
-        command.Parameters.Add(Text("owner_key", job.Owner));
-        command.Parameters.Add(Text("owner_name", ownerName));
-        command.Parameters.Add(Text("owner_values", OwnerValues.ToJson(ownerValues)));
+        await using var batch = dataSource.CreateBatch();
 
-        await using var reader = await command.ExecuteReaderAsync(cancellationToken);
-        return await reader.ReadAsync(cancellationToken) ? new EnqueuedJob(reader.GetInt64(0), !reader.GetBoolean(1)) : null;
+        var completed = new NpgsqlBatchCommand(sql.DeleteCompletedByKey);
+        completed.Parameters.AddWithValue("queue", queue);
+        completed.Parameters.AddWithValue("owner", job.Owner);
+        completed.Parameters.AddWithValue("type", job.Type);
+        completed.Parameters.Add(Text("dedup_key", job.DedupKey));
+        batch.BatchCommands.Add(completed);
+
+        var enqueue = new NpgsqlBatchCommand(sql.EnqueueOrReplace);
+        enqueue.Parameters.AddWithValue("queue", queue);
+        enqueue.Parameters.AddWithValue("now", now.ToUniversalTime());
+        enqueue.Parameters.AddWithValue("owner", job.Owner);
+        enqueue.Parameters.AddWithValue("lane", job.Lane);
+        enqueue.Parameters.AddWithValue("type", job.Type);
+        enqueue.Parameters.AddWithValue("priority", job.Priority);
+        enqueue.Parameters.Add(Moment("window_start", job.WindowStart));
+        enqueue.Parameters.Add(Moment("window_end", job.WindowEnd));
+        enqueue.Parameters.Add(Text("dedup_key", job.DedupKey));
+        enqueue.Parameters.Add(Text("requested_by", job.RequestedBy));
+        enqueue.Parameters.Add(Text("arguments", job.Arguments));
+        enqueue.Parameters.Add(Text("owner_key", job.Owner));
+        enqueue.Parameters.Add(Text("owner_name", ownerName));
+        enqueue.Parameters.Add(Text("owner_values", OwnerValues.ToJson(ownerValues)));
+        batch.BatchCommands.Add(enqueue);
+
+        await using var reader = await batch.ExecuteReaderAsync(cancellationToken);
+        var deleted = await reader.ReadAsync(cancellationToken);
+        if (!await reader.NextResultAsync(cancellationToken) || !await reader.ReadAsync(cancellationToken))
+            return null;
+
+        return new EnqueuedJob(reader.GetInt64(0), deleted || !reader.GetBoolean(1));
     }
 
+    /// <summary>Records ranges of history as loaded, in one statement. Returns how many were new.</summary>
     public async Task<int> MarkLoadedAsync(string queue, IReadOnlyList<PlannedJob> loaded, DateTimeOffset now, CancellationToken cancellationToken)
     {
         if (loaded.Count == 0)

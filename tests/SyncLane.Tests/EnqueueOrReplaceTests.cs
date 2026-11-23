@@ -52,23 +52,52 @@ public class EnqueueOrReplaceTests : PostgresTest
     }
 
     [PostgresFact]
-    public async Task A_completed_job_is_replaced_and_runs_again_and_keeps_when_it_was_created()
+    public async Task A_completed_job_is_replaced_by_a_new_job_created_now()
     {
         var first = (await Client().EnqueueOrReplaceAsync(NewJob("product-7", "90"))).GetValueOrThrow();
         await Store.CompleteAsync((await LeaseAsync("w", Noon))!, Noon, CancellationToken.None);
-        var createdAt = (await Client().GetJobAsync(first.Id)).GetValueOrThrow().CreatedAt;
         _clock.Advance(TimeSpan.FromHours(2));
 
         var second = (await Client().EnqueueOrReplaceAsync(NewJob("product-7", "70"))).GetValueOrThrow();
         var job = (await Client().GetJobAsync(second.Id)).GetValueOrThrow();
 
         Assert.True(second.Replaced);
-        Assert.Equal(first.Id, second.Id);
+        Assert.NotEqual(first.Id, second.Id);
         Assert.Equal(JobStatus.Pending, job.Status);
         Assert.Null(job.CompletedAt);
         Assert.Equal(0, job.ProcessedCount);
-        Assert.Equal(createdAt, job.CreatedAt);
+        Assert.Equal(Noon.AddHours(2), job.CreatedAt);
         Assert.Equal("70", job.Arguments);
+        Assert.Equal(1L, await ScalarAsync<long>($"SELECT count(*) FROM {Schema}.jobs"));
+    }
+
+    [PostgresFact]
+    public async Task A_completed_job_that_is_replaced_goes_behind_the_jobs_its_ordered_lane_got_since()
+    {
+        await Client().EnqueueOrReplaceAsync(NewJob("movement-1", "first"));
+        await Store.CompleteAsync((await LeaseOrderedAsync("w"))!, Noon, CancellationToken.None);
+        await Client().EnqueueOrReplaceAsync(NewJob("movement-2", "second"));
+
+        await Client().EnqueueOrReplaceAsync(NewJob("movement-1", "first again"));
+        var next = (await LeaseOrderedAsync("w"))!;
+        await Store.CompleteAsync(next, Noon, CancellationToken.None);
+        var last = (await LeaseOrderedAsync("w"))!;
+
+        Assert.Equal("movement-2", next.DedupKey);
+        Assert.Equal(("movement-1", "first again"), (last.DedupKey, last.Arguments));
+    }
+
+    [PostgresFact]
+    public async Task A_failed_job_that_is_replaced_keeps_its_place_in_its_ordered_lane()
+    {
+        await Client().EnqueueOrReplaceAsync(NewJob("movement-1", "first"));
+        await Store.SettleAsync((await LeaseOrderedAsync("w"))!, JobStatus.Failed, "the other side is down", Noon.AddHours(1), Noon, CancellationToken.None);
+        await Client().EnqueueOrReplaceAsync(NewJob("movement-2", "second"));
+
+        await Client().EnqueueOrReplaceAsync(NewJob("movement-1", "first again"));
+        var next = (await LeaseOrderedAsync("w"))!;
+
+        Assert.Equal(("movement-1", "first again"), (next.DedupKey, next.Arguments));
     }
 
     [PostgresFact]
@@ -146,6 +175,9 @@ public class EnqueueOrReplaceTests : PostgresTest
 
     private static NewJob NewJob(string? key, string? arguments) =>
         new() { Queue = Queue, Owner = new JobOwner("a"), Type = "delivery", DedupKey = key, Arguments = arguments };
+
+    private Task<Job?> LeaseOrderedAsync(string worker) =>
+        Store.LeaseAsync(Queue, worker, Noon, Noon.AddMinutes(5), CancellationToken.None, ordered: true);
 
     private SyncLaneClient Client()
     {
