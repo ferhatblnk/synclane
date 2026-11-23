@@ -301,6 +301,18 @@ internal sealed class JobStore(NpgsqlDataSource dataSource, JobSql sql) : IAsync
         return await command.ExecuteNonQueryAsync(cancellationToken);
     }
 
+    public async Task<int> CompleteByKeyAsync(
+        string queue, string owner, string type, IReadOnlyList<string> dedupKeys, DateTimeOffset now, CancellationToken cancellationToken)
+    {
+        await using var command = dataSource.CreateCommand(sql.CompleteByKey);
+        command.Parameters.AddWithValue("queue", queue);
+        command.Parameters.AddWithValue("owner", owner);
+        command.Parameters.AddWithValue("type", type);
+        command.Parameters.Add(Texts("dedup_keys", dedupKeys));
+        command.Parameters.AddWithValue("now", now.ToUniversalTime());
+        return await command.ExecuteNonQueryAsync(cancellationToken);
+    }
+
     public async Task<int> CancelAsync(string queue, string owner, string reason, DateTimeOffset now, CancellationToken cancellationToken)
     {
         await using var command = dataSource.CreateCommand(sql.Cancel);

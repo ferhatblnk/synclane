@@ -57,6 +57,28 @@ public interface ISyncLane
     Task<SyncResult<int>> CancelAsync(string queue, string owner, string reason, CancellationToken cancellationToken = default);
 
     /// <summary>
+    /// Completes an owner's jobs of one type by their <see cref="NewJob.DedupKey"/>, without running them: for work
+    /// that was done some other way, such as a delivery a later direct call got through. Jobs that are waiting, failed,
+    /// deferred or abandoned are completed, and so is one that is running: whatever its attempt then reports is
+    /// refused and does not reopen it. Its lane is free at once, while that attempt may still be inside your handler
+    /// until its next page or heartbeat.
+    /// <para>
+    /// Only jobs enqueued by hand are completed, never a planned one, and nothing is counted as work done: the hourly
+    /// volume and what an owner's data covers stay as they are. A key that matches no unfinished job is not an error.
+    /// </para>
+    /// </summary>
+    /// <param name="queue">The queue.</param>
+    /// <param name="owner">The owner's key.</param>
+    /// <param name="type">The job type.</param>
+    /// <param name="dedupKeys">The keys of the jobs to complete. A key given twice counts once.</param>
+    /// <param name="cancellationToken">Cancels the call.</param>
+    /// <returns>
+    /// How many jobs were completed. Fails with <see cref="SyncErrorCodes.QueueNotDeclared"/> or
+    /// <see cref="SyncErrorCodes.JobTypeNotDeclared"/>.
+    /// </returns>
+    Task<SyncResult<int>> CompleteAsync(string queue, string owner, string type, IReadOnlyList<string> dedupKeys, CancellationToken cancellationToken = default);
+
+    /// <summary>
     /// Records ranges of history that another system already loaded, so the planner does not fetch them again. Each
     /// range becomes a completed initial job, visible in <see cref="GetJobsAsync"/> and counted by
     /// <see cref="GetProgressAsync"/>. History older than a range is still loaded back to the horizon, and what came

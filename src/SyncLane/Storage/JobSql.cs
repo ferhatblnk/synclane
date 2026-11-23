@@ -414,6 +414,25 @@ internal sealed class JobSql
               AND (@owner::text IS NULL OR owner = @owner)
             """;
 
+        // Work done some other way closes its job without a run, so nothing is counted in the hour and no coverage moves.
+        // A running job is closed too: clearing its lease and raising the generation makes the late write of the attempt
+        // under way miss, so it cannot reopen the job. Planned jobs record what history was loaded and are never closed
+        // this way. The rows are found through jobs_dedup.
+        CompleteByKey =
+            $"""
+            UPDATE {table}
+            SET status = 'completed',
+                completed_at = @now,
+                error = NULL,
+                cursor = NULL,
+                leased_by = NULL,
+                lease_expires_at = NULL,
+                lease_generation = lease_generation + 1,
+                updated_at = @now
+            WHERE queue = @queue AND owner = @owner AND type = @type AND dedup_key = ANY(@dedup_keys)
+              AND mode = 'manual' AND status <> 'completed'
+            """;
+
         Cancel =
             $"""
             UPDATE {table}
@@ -589,6 +608,9 @@ internal sealed class JobSql
     public string Postpone { get; }
 
     public string Requeue { get; }
+
+    /// <summary>Completes an owner's unfinished manual jobs of one type by their dedup keys, a running one included.</summary>
+    public string CompleteByKey { get; }
 
     public string Cancel { get; }
 

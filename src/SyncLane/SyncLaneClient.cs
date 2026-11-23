@@ -92,6 +92,26 @@ internal sealed class SyncLaneClient(SyncLaneOptions options, JobStore store, Qu
         return SyncResult<int>.Success(await store.CancelAsync(declared.Name, owner, reason, time.GetUtcNow(), cancellationToken));
     }
 
+    public async Task<SyncResult<int>> CompleteAsync(
+        string queue, string owner, string type, IReadOnlyList<string> dedupKeys, CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(queue);
+        ArgumentNullException.ThrowIfNull(owner);
+        ArgumentNullException.ThrowIfNull(type);
+        ArgumentNullException.ThrowIfNull(dedupKeys);
+        if (options.Find(queue) is not { } declared)
+            return SyncResult<int>.Failure(SyncLaneErrors.QueueNotDeclared(queue));
+
+        if (declared.Find(type) is not { } declaredType)
+            return SyncResult<int>.Failure(SyncLaneErrors.JobTypeNotDeclared(declared.Name, type));
+
+        if (dedupKeys.Count == 0)
+            return SyncResult<int>.Success(0);
+
+        return SyncResult<int>.Success(
+            await store.CompleteByKeyAsync(declared.Name, owner, declaredType.Name, dedupKeys, time.GetUtcNow(), cancellationToken));
+    }
+
     public async Task<SyncResult<int>> MarkLoadedAsync(string queue, IReadOnlyList<LoadedRange> ranges, CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(queue);
