@@ -93,4 +93,10 @@ public sealed record Job
 
     /// <summary>When the job completed or was abandoned.</summary>
     public DateTimeOffset? CompletedAt { get; init; }
+
+    /// <summary>
+    /// What the job was enqueued with (<see cref="NewJob.Arguments"/>), as it was given. A handler gets it with the job
+    /// it runs; a list of jobs leaves it <c>null</c>, whatever the job holds.
+    /// </summary>
+    public string? Arguments { get; init; }
 }

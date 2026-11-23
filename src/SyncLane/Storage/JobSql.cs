@@ -32,7 +32,7 @@ internal sealed class JobSql
     [
         "id", "queue", "owner", "lane", "type", "mode", "status", "priority", "window_start", "window_end", "dedup_key",
         "cursor", "processed_count", "attempt_count", "error", "next_run_at", "leased_by", "lease_expires_at",
-        "created_at", "started_at", "heartbeat_at", "completed_at", "requested_by", "lease_generation"
+        "created_at", "started_at", "heartbeat_at", "completed_at", "requested_by", "lease_generation", "arguments"
     ];
 
     public JobSql(string schema)
@@ -40,6 +40,8 @@ internal sealed class JobSql
         Schema = schema;
         var table = $"{schema}.{TableName}";
         var leasedColumns = string.Join(", ", ColumnNames.Select(column => $"j.{column}"));
+        // A list never carries arguments: they can be large, and a page of jobs is read to be looked at, not to be run.
+        var listedColumns = string.Join(", ", ColumnNames.Select(column => column == "arguments" ? "NULL::text" : $"j.{column}"));
         // A write of a running job names the lease it holds, not only the worker: two workers can share a name (two
         // containers with one hostname and process id 1), and a worker that paused past its lease must lose it either way.
         const string held = "id = @id AND status = 'running' AND leased_by = @worker AND lease_generation = @generation";
@@ -115,8 +117,8 @@ internal sealed class JobSql
             WITH {(remember is null ? "" : $"remembered AS ({remember}),")}
             proposed AS (
                 SELECT *
-                FROM unnest(@owners, @lanes, @types, @modes, @priorities, @window_starts, @window_ends, @dedup_keys, @requested_bys)
-                    AS t(owner, lane, type, mode, priority, window_start, window_end, dedup_key, requested_by)
+                FROM unnest(@owners, @lanes, @types, @modes, @priorities, @window_starts, @window_ends, @dedup_keys, @requested_bys, @arguments)
+                    AS t(owner, lane, type, mode, priority, window_start, window_end, dedup_key, requested_by, arguments)
             ),
             replaced AS (
                 DELETE FROM {table}
@@ -124,8 +126,8 @@ internal sealed class JobSql
             ),
             inserted AS (
                 INSERT INTO {table}
-                    (queue, owner, lane, type, mode, priority, window_start, window_end, dedup_key, requested_by, next_run_at, created_at, updated_at)
-                SELECT @queue, owner, lane, type, mode, priority, window_start, window_end, dedup_key, requested_by, @now, @now, @now
+                    (queue, owner, lane, type, mode, priority, window_start, window_end, dedup_key, requested_by, arguments, next_run_at, created_at, updated_at)
+                SELECT @queue, owner, lane, type, mode, priority, window_start, window_end, dedup_key, requested_by, arguments, @now, @now, @now
                 FROM proposed
                 ON CONFLICT (queue, owner, type, dedup_key) DO NOTHING
                 RETURNING id, owner, type, mode, status, window_start, window_end, created_at, completed_at
@@ -467,7 +469,7 @@ internal sealed class JobSql
 
         List =
             $"""
-            SELECT {leasedColumns}, {ownerName}
+            SELECT {listedColumns}, {ownerName}
             FROM {table} AS j
             WHERE {filters}
               AND (@before::bigint IS NULL OR j.id < @before)
@@ -480,7 +482,7 @@ internal sealed class JobSql
         // under a millisecond this way and 18 ms when every owner matches.
         ListFound =
             $"""
-            SELECT {leasedColumns}, o.name, o.owner_values::text
+            SELECT {listedColumns}, o.name, o.owner_values::text
             FROM ({found}) AS o
             CROSS JOIN LATERAL (
                 SELECT *

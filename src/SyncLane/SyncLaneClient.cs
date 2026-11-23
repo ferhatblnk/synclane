@@ -38,9 +38,12 @@ internal sealed class SyncLaneClient(SyncLaneOptions options, JobStore store, Qu
         if (job.RequestedBy is { } by && (by.Length > NewJobLimits.RequestedBy || by.AsSpan().ContainsAnyInRange('\0', '\u001f')))
             return SyncResult<long>.Failure(SyncLaneErrors.RequestedByInvalid(by.Length));
 
+        if (job.Arguments is { } arguments && (arguments.Length > NewJobLimits.Arguments || arguments.Contains('\0')))
+            return SyncResult<long>.Failure(SyncLaneErrors.ArgumentsInvalid(arguments.Length));
+
         var planned = new PlannedJob(
             job.Owner.Key, job.Owner.LaneOrKey, type.Name, JobMode.Manual, Priorities.Of(level, type.Priority),
-            job.WindowStart, job.WindowEnd, job.DedupKey, RequestedBy: job.RequestedBy);
+            job.WindowStart, job.WindowEnd, job.DedupKey, RequestedBy: job.RequestedBy, Arguments: job.Arguments);
 
         return await store.EnqueueOneAsync(queue.Name, planned, job.Owner.NameOrNull, job.Owner.Values, time.GetUtcNow(), cancellationToken) is { } id
             ? SyncResult<long>.Success(id)
@@ -133,4 +136,6 @@ internal sealed class SyncLaneClient(SyncLaneOptions options, JobStore store, Qu
 internal static class NewJobLimits
 {
     public const int RequestedBy = 200;
+
+    public const int Arguments = 262_144;
 }

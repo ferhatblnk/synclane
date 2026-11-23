@@ -36,4 +36,12 @@ public sealed record NewJob
     /// Leave it <c>null</c> to always create a new one.
     /// </summary>
     public string? DedupKey { get; init; }
+
+    /// <summary>
+    /// What the handler needs to do this one job, such as the body of a delivery: text of your choosing, JSON for
+    /// example, up to 262,144 characters. SyncLane stores it with the job and hands it to the handler unread; it is
+    /// never written to a log, a trace, a metric or an error, and a list of jobs does not carry it. Put no credential
+    /// in it: it is kept in the table.
+    /// </summary>
+    public string? Arguments { get; init; }
 }

@@ -435,6 +435,7 @@ internal sealed class JobStore(NpgsqlDataSource dataSource, JobSql sql) : IAsync
         command.Parameters.Add(Moments("window_ends", jobs.Select(job => job.WindowEnd)));
         command.Parameters.Add(Texts("dedup_keys", jobs.Select(job => job.DedupKey)));
         command.Parameters.Add(Texts("requested_bys", jobs.Select(job => job.RequestedBy)));
+        command.Parameters.Add(Texts("arguments", jobs.Select(job => job.Arguments)));
         command.Parameters.AddWithValue("replaced", jobs.SelectMany(job => job.Replaces ?? []).ToArray());
 
         return command;
@@ -490,7 +491,8 @@ internal sealed class JobStore(NpgsqlDataSource dataSource, JobSql sql) : IAsync
         CompletedAt = Moment(reader, 21),
         RequestedBy = Text(reader, 22),
         LeaseGeneration = reader.GetInt64(23),
-        OwnerName = Text(reader, 24),
-        OwnerValues = OwnerValues.FromJson(Text(reader, 25))
+        Arguments = Text(reader, 24),
+        OwnerName = Text(reader, 25),
+        OwnerValues = OwnerValues.FromJson(Text(reader, 26))
     };
 }
