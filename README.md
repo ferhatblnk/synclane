@@ -147,6 +147,9 @@ Every operator call is logged with who and why, and is also on HTTP with `SyncLa
 | Each delivery sent once, even if asked twice | `NewJob.DedupKey`, such as `$"movement:{id}"` |
 | One account's deliveries in order, a failed one holding the rest | `queue.Ordered = true` ([ordered queues](docs/operations.md#ordered-queues)) |
 | The handler and the monitor to know who asked | `NewJob.RequestedBy` |
+| The handler handed what it must send, instead of looking it up | `NewJob.Arguments`, read as `job.Arguments` |
+| The latest request for a key to win, whether the earlier one waits, failed or completed | `syncLane.EnqueueOrReplaceAsync(newJob)` |
+| A delivery that got through some other way closed without a run | `syncLane.CompleteAsync(queue, owner, type, keys)` |
 
 ## What it promises
 
@@ -158,7 +161,6 @@ Every operator call is logged with who and why, and is also on HTTP with `SyncLa
 ## Limitations
 
 - **PostgreSQL only, for now.** The lease is a single statement that relies on `FOR UPDATE SKIP LOCKED` and partial unique indexes. Support for other databases is planned; each will come with its own way of keeping the same guarantees, and its own tests.
-- **No job arguments yet.** A job knows its owner (with its values), type, window, dedup key and who asked; anything else the handler looks up.
 - **Periods are aligned to the clock.** "Every day" means once per UTC day.
 - **No dashboard.** The monitor is an API, and HTTP endpoints with `SyncLane.AspNetCore`; the screens are yours.
 

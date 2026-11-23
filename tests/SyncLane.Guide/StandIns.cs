@@ -84,6 +84,8 @@ public sealed class ExpiredDataCleanup : BackgroundService
 
 public sealed record User(string Id);
 
+public sealed record Invoice(long Id, decimal Total);
+
 public sealed class FakeShopClient(int ordersPerPage, int pages) : IShopClient
 {
     public Task<OrdersResponse> GetOrdersAsync(

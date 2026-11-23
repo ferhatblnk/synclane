@@ -10,6 +10,9 @@ What the README's quick start leaves out: every call of `ISyncLane`, what a resu
 | --- | --- | --- |
 | `PlanAsync(queue, owner)` | `SyncResult<int>` | Plan one owner now, for example right after an account connects. |
 | `EnqueueAsync(newJob)` | `SyncResult<long>` | Put one job in by hand, outside the plan. The value is the new job's id. |
+| `EnqueueOrReplaceAsync(newJob)` | `SyncResult<EnqueuedJob>` | The same, but a job with the same owner, type and dedup key takes the new request's place instead of refusing it: the latest request for a key wins. `Replaced` says whether one was there. |
+| `CompleteAsync(queue, owner, type, keys)` | `SyncResult<int>` | Close jobs by their dedup keys without running them, when the work was done some other way. The value is how many were closed. |
+| `GetJobAsync(id)` | `SyncResult<Job>` | One job with its arguments, which a list leaves out. |
 | `RequeueAsync(queue, owner?)` | `SyncResult<int>` | Give failed, deferred and abandoned jobs fresh attempts. Cursors are kept. |
 | `CancelAsync(queue, owner, reason)` | `SyncResult<int>` | Abandon what has not started, for example when an account disconnects. |
 | `GetJobsAsync(query)` | `SyncListResult<Job>` | One page of jobs by queue, owner, status or type, newest first, or of the owners whose name or key contains `Search` ("acme" finds every store of "Acme Toys"). Follow `NextCursor` for the next page; set `IncludeTotal` for a count. |
@@ -31,6 +34,22 @@ return Results.Ok(result.Value);
 ## Who asked
 
 `NewJob.RequestedBy` says who or what asked for a job, such as a user's id or `scheduler`: the handler reads it as `job.RequestedBy`, for example to send it along, and the monitor shows it. A sync-now records its caller there. It is the caller's data, never logged.
+
+## Arguments
+
+`NewJob.Arguments` is what the handler needs for this one job and cannot look up, such as the body of a delivery as it was when the user sent it. It is text of your choosing, JSON for example, up to 262,144 characters; SyncLane stores it with the job and hands it back unread as `job.Arguments`.
+
+- It is never written to a log, a trace, a metric or an error.
+- A list of jobs (`GetJobsAsync`, the monitor, the HTTP endpoints) leaves it out; `GetJobAsync(id)` returns it.
+- Put no credential in it: it is kept in the table. Keep it small, and let the handler read by the job's owner and dedup key whatever it can.
+
+## The latest request wins
+
+A delivery that failed and is waiting for its next attempt is out of date as soon as the user sends a newer one. `EnqueueOrReplaceAsync` puts the new request in the old one's place: the same job, the same id and place in an ordered lane, with the new arguments and a fresh set of attempts. A job that completed runs again; a planned job is never replaced.
+
+A job that is running stays running. Its lease is revoked, so whatever its attempt reports is refused, and it runs again with the new arguments when that lease runs out, at most `LeaseDuration` later. Its lane stays closed until then.
+
+When the work got done some other way, for example a direct call that went through while the job was waiting, `CompleteAsync` closes the job by its key without running it. A running job is closed too and its lane is free at once; the attempt under way may still be inside your handler until its next page or heartbeat, and whatever it reports is refused. Nothing is counted as work done.
 
 ## Priority
 

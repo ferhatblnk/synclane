@@ -90,6 +90,7 @@ Jobs are in `synclane.jobs`. The full definition is in [schema.sql](schema.sql).
 | `priority` | Lower runs first: the band of the job's level (urgent, high, normal 0, low) plus the position of the type's declaration, less 1,000,000 when an operator moved the owner forward. |
 | `window_start`, `window_end` | The range the job covers, if it has one. |
 | `dedup_key` | What makes the job unique for its owner and type. |
+| `arguments` | What the job was enqueued with, for its handler to read. Text the caller chose; SyncLane never reads it. |
 | `cursor` | Where the next page starts. |
 | `processed_count` | Records handled so far, over all pages and attempts. |
 | `attempt_count` | How many times a worker has picked the job up since it last saved a page. A saved page sets it back to 1. |
@@ -240,6 +241,8 @@ Without it there are two choices when a job runs out of attempts, and both are b
 **Stops** (deployment, scale-down): the host's stopping token cancels the handler, the runner writes the job back as `pending` with its cursor, and gives the attempt back, because being interrupted by your own deployment is not a failure.
 
 **Dies** (out of memory, node gone): nobody renews the lease. Once `lease_expires_at` has passed, the job is a candidate again and another slot takes it over, from the cursor. The attempt counts. A job that has been picked up more often than `MaxAttempts + 1` without ever reporting a result is abandoned instead of being run again, so a job that takes its worker down every time does not do so forever.
+
+**Has its job replaced or closed** (`EnqueueOrReplaceAsync`, `CompleteAsync`): the call raises the job's `lease_generation`, so every write of the attempt under way misses, exactly as after a takeover. A replaced job stays `running` and keeps its lane closed; it is taken again with its new arguments when the lease runs out. A closed job is `completed` at once and its lane is free, while the attempt may still be inside the handler until its next page or heartbeat tells it the lease is lost.
 
 ### The lane is closed by the row, not by the lease
 
