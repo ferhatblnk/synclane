@@ -90,6 +90,25 @@ public class JobArgumentsTests : PostgresTest
         Assert.DoesNotContain(log.Lines, line => line.Text.Contains(marker, StringComparison.Ordinal));
     }
 
+    [PostgresFact]
+    public async Task A_job_read_by_its_id_carries_its_arguments()
+    {
+        var id = (await Client().EnqueueAsync(NewJob("delivery-1", Body))).GetValueOrThrow();
+
+        var job = (await Client().GetJobAsync(id)).GetValueOrThrow();
+
+        Assert.Equal(Body, job.Arguments);
+        Assert.Equal("delivery-1", job.DedupKey);
+    }
+
+    [PostgresFact]
+    public async Task Reading_an_id_that_does_not_exist_says_the_job_was_not_found()
+    {
+        var result = await Client().GetJobAsync(987_654);
+
+        Assert.Equal(SyncErrorCodes.JobNotFound, result.Error!.Code);
+    }
+
     private static NewJob NewJob(string key, string? arguments) =>
         new() { Queue = Queue, Owner = new JobOwner("a"), Type = "delivery", DedupKey = key, Arguments = arguments };
 

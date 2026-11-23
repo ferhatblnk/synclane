@@ -62,6 +62,15 @@ public interface ISyncLane
     /// </returns>
     Task<SyncListResult<Job>> GetJobsAsync(JobQuery query, CancellationToken cancellationToken = default);
 
+    /// <summary>
+    /// Reads one job by its id, with its <see cref="Job.Arguments"/>, which a list leaves out. Any job of the schema can
+    /// be read, whichever application runs its queue.
+    /// </summary>
+    /// <param name="id">The job.</param>
+    /// <param name="cancellationToken">Cancels the call.</param>
+    /// <returns>The job. Fails with <see cref="SyncErrorCodes.JobNotFound"/>.</returns>
+    Task<SyncResult<Job>> GetJobAsync(long id, CancellationToken cancellationToken = default);
+
     /// <summary>Reports how far the first load of <paramref name="owner"/> has come.</summary>
     /// <returns>The progress. Fails with <see cref="SyncErrorCodes.QueueNotDeclared"/>.</returns>
     Task<SyncResult<OwnerProgress>> GetProgressAsync(string queue, string owner, CancellationToken cancellationToken = default);

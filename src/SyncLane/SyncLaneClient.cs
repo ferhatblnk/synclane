@@ -122,6 +122,11 @@ internal sealed class SyncLaneClient(SyncLaneOptions options, JobStore store, Qu
         return SyncListResult<Job>.Success(jobs, jobs[^1].Id.ToString(CultureInfo.InvariantCulture), total);
     }
 
+    public async Task<SyncResult<Job>> GetJobAsync(long id, CancellationToken cancellationToken = default) =>
+        await store.FindAsync(id, cancellationToken) is { } job
+            ? SyncResult<Job>.Success(job)
+            : SyncResult<Job>.Failure(SyncLaneErrors.JobNotFound(id));
+
     public async Task<SyncResult<OwnerProgress>> GetProgressAsync(string queue, string owner, CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(queue);
