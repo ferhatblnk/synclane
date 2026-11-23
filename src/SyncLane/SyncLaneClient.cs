@@ -22,32 +22,54 @@ internal sealed class SyncLaneClient(SyncLaneOptions options, JobStore store, Qu
     public async Task<SyncResult<long>> EnqueueAsync(NewJob job, CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(job);
+        if (Check(job, out var queue, out var planned) is { } invalid)
+            return SyncResult<long>.Failure(invalid);
+
+        return await store.EnqueueOneAsync(queue, planned, job.Owner.NameOrNull, job.Owner.Values, time.GetUtcNow(), cancellationToken) is { } id
+            ? SyncResult<long>.Success(id)
+            : SyncResult<long>.Failure(SyncLaneErrors.JobAlreadyExists(queue, planned.Owner, planned.Type, planned.DedupKey));
+    }
+
+    public async Task<SyncResult<EnqueuedJob>> EnqueueOrReplaceAsync(NewJob job, CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(job);
+        if (Check(job, out var queue, out var planned) is { } invalid)
+            return SyncResult<EnqueuedJob>.Failure(invalid);
+
+        return await store.EnqueueOrReplaceAsync(queue, planned, job.Owner.NameOrNull, job.Owner.Values, time.GetUtcNow(), cancellationToken) is { } enqueued
+            ? SyncResult<EnqueuedJob>.Success(enqueued)
+            : SyncResult<EnqueuedJob>.Failure(SyncLaneErrors.JobAlreadyExists(queue, planned.Owner, planned.Type, planned.DedupKey));
+    }
+
+    /// <summary>What both ways of enqueueing check before they write, and the row they then write.</summary>
+    private SyncError? Check(NewJob job, out string queueName, out PlannedJob planned)
+    {
+        queueName = job.Queue;
+        planned = null!;
         var level = job.Priority ?? job.Owner.Priority;
         if (!Enum.IsDefined(level))
             throw new ArgumentOutOfRangeException(nameof(job));
 
         if (options.Find(job.Queue) is not { } queue)
-            return SyncResult<long>.Failure(SyncLaneErrors.QueueNotDeclared(job.Queue));
+            return SyncLaneErrors.QueueNotDeclared(job.Queue);
 
         if (queue.Find(job.Type) is not { } type)
-            return SyncResult<long>.Failure(SyncLaneErrors.JobTypeNotDeclared(queue.Name, job.Type));
+            return SyncLaneErrors.JobTypeNotDeclared(queue.Name, job.Type);
 
         if (OwnerValues.Check(job.Owner) is { } invalid)
-            return SyncResult<long>.Failure(invalid);
+            return invalid;
 
         if (job.RequestedBy is { } by && (by.Length > NewJobLimits.RequestedBy || by.AsSpan().ContainsAnyInRange('\0', '\u001f')))
-            return SyncResult<long>.Failure(SyncLaneErrors.RequestedByInvalid(by.Length));
+            return SyncLaneErrors.RequestedByInvalid(by.Length);
 
         if (job.Arguments is { } arguments && (arguments.Length > NewJobLimits.Arguments || arguments.Contains('\0')))
-            return SyncResult<long>.Failure(SyncLaneErrors.ArgumentsInvalid(arguments.Length));
+            return SyncLaneErrors.ArgumentsInvalid(arguments.Length);
 
-        var planned = new PlannedJob(
+        queueName = queue.Name;
+        planned = new PlannedJob(
             job.Owner.Key, job.Owner.LaneOrKey, type.Name, JobMode.Manual, Priorities.Of(level, type.Priority),
             job.WindowStart, job.WindowEnd, job.DedupKey, RequestedBy: job.RequestedBy, Arguments: job.Arguments);
-
-        return await store.EnqueueOneAsync(queue.Name, planned, job.Owner.NameOrNull, job.Owner.Values, time.GetUtcNow(), cancellationToken) is { } id
-            ? SyncResult<long>.Success(id)
-            : SyncResult<long>.Failure(SyncLaneErrors.JobAlreadyExists(queue.Name, job.Owner.Key, type.Name, job.DedupKey));
+        return null;
     }
 
     public async Task<SyncResult<int>> RequeueAsync(string queue, string? owner = null, CancellationToken cancellationToken = default)

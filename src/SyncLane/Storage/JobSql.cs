@@ -143,6 +143,37 @@ internal sealed class JobSql
         Analyze = $"ANALYZE (SKIP_LOCKED) {table}";
         EnqueueOne = Insert("SELECT id FROM inserted", Remember("ARRAY[@owner_key]", "ARRAY[@owner_name]", "ARRAY[@owner_values]"));
 
+        // The latest request for a key wins. The job that is there keeps its row, so its id and its place in an ordered
+        // lane stay, and starts over with what the new request brings. A running job is not taken from its lane: raising
+        // its lease generation makes every write of the attempt under way miss, the worker sees its lease lost at its
+        // next heartbeat, and the lease takes the job again when it runs out, exactly as after a worker that died.
+        // xmax is 0 only on a row this statement inserted. A planned job is left alone, and then no row comes back.
+        EnqueueOrReplace =
+            $"""
+            WITH remembered AS ({Remember("ARRAY[@owner_key]", "ARRAY[@owner_name]", "ARRAY[@owner_values]")})
+            INSERT INTO {table} AS j
+                (queue, owner, lane, type, mode, priority, window_start, window_end, dedup_key, requested_by, arguments, next_run_at, created_at, updated_at)
+            VALUES (@queue, @owner, @lane, @type, 'manual', @priority, @window_start, @window_end, @dedup_key, @requested_by, @arguments, @now, @now, @now)
+            ON CONFLICT (queue, owner, type, dedup_key) DO UPDATE
+            SET priority = excluded.priority,
+                requested_by = excluded.requested_by,
+                arguments = excluded.arguments,
+                attempt_count = 0,
+                error = NULL,
+                cursor = NULL,
+                processed_count = 0,
+                completed_at = NULL,
+                updated_at = excluded.updated_at,
+                status = CASE WHEN j.status = 'running' THEN j.status ELSE 'pending' END,
+                next_run_at = CASE WHEN j.status = 'running' THEN j.next_run_at ELSE excluded.next_run_at END,
+                started_at = CASE WHEN j.status = 'running' THEN j.started_at END,
+                leased_by = CASE WHEN j.status = 'running' THEN j.leased_by END,
+                lease_expires_at = CASE WHEN j.status = 'running' THEN j.lease_expires_at END,
+                lease_generation = j.lease_generation + (j.status = 'running')::int
+            WHERE j.mode = 'manual'
+            RETURNING j.id, (j.xmax = 0)
+            """;
+
         MarkLoaded =
             $"""
             WITH proposed AS (
@@ -529,6 +560,12 @@ internal sealed class JobSql
 
     /// <summary>The same as <see cref="Enqueue"/> for one job. Returns its id, or nothing when it exists.</summary>
     public string EnqueueOne { get; }
+
+    /// <summary>
+    /// Enqueues one manual job, or lets the manual job with its key take its place. Returns the id and whether the row
+    /// is new, or nothing when the key belongs to a planned job.
+    /// </summary>
+    public string EnqueueOrReplace { get; }
 
     /// <summary>Records history loaded elsewhere as completed initial jobs, and updates the summary.</summary>
     public string MarkLoaded { get; }

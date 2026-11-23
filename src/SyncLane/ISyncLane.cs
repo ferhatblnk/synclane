@@ -24,6 +24,28 @@ public interface ISyncLane
     Task<SyncResult<long>> EnqueueAsync(NewJob job, CancellationToken cancellationToken = default);
 
     /// <summary>
+    /// Enqueues one job by hand, and when a job with the same owner, type and <see cref="NewJob.DedupKey"/> is there
+    /// already, lets it take this request's place instead of refusing it: the latest request for a key wins. That job
+    /// keeps its id and its place in an ordered lane, takes the new arguments, priority and requester, and runs again
+    /// from the start with a fresh set of attempts, whether it was waiting, had failed, was given up or had completed.
+    /// <para>
+    /// A job that is running stays running: its lease is revoked, so whatever its attempt reports is refused, and it is
+    /// taken again with the new arguments when that lease runs out. Its lane stays closed until then.
+    /// </para>
+    /// <para>
+    /// Only jobs enqueued by hand are replaced, never a planned one. Without a <see cref="NewJob.DedupKey"/> there is
+    /// nothing to replace, and every call creates a job.
+    /// </para>
+    /// </summary>
+    /// <param name="job">The job to enqueue.</param>
+    /// <param name="cancellationToken">Cancels the call.</param>
+    /// <returns>
+    /// The job and whether it replaced one. Fails as <see cref="EnqueueAsync"/> does, with
+    /// <see cref="SyncErrorCodes.JobAlreadyExists"/> only when the key belongs to a planned job.
+    /// </returns>
+    Task<SyncResult<EnqueuedJob>> EnqueueOrReplaceAsync(NewJob job, CancellationToken cancellationToken = default);
+
+    /// <summary>
     /// Puts failed, deferred and abandoned jobs back in line with a fresh set of attempts.
     /// Cursors are kept, so each job continues where it stopped.
     /// </summary>

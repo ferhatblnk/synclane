@@ -133,6 +133,29 @@ internal sealed class JobStore(NpgsqlDataSource dataSource, JobSql sql) : IAsync
     }
 
     /// <summary>Records ranges of history as loaded, in one statement. Returns how many were new.</summary>
+    public async Task<EnqueuedJob?> EnqueueOrReplaceAsync(
+        string queue, PlannedJob job, string? ownerName, IReadOnlyDictionary<string, string>? ownerValues, DateTimeOffset now, CancellationToken cancellationToken)
+    {
+        await using var command = dataSource.CreateCommand(sql.EnqueueOrReplace);
+        command.Parameters.AddWithValue("queue", queue);
+        command.Parameters.AddWithValue("now", now.ToUniversalTime());
+        command.Parameters.AddWithValue("owner", job.Owner);
+        command.Parameters.AddWithValue("lane", job.Lane);
+        command.Parameters.AddWithValue("type", job.Type);
+        command.Parameters.AddWithValue("priority", job.Priority);
+        command.Parameters.Add(Moment("window_start", job.WindowStart));
+        command.Parameters.Add(Moment("window_end", job.WindowEnd));
+        command.Parameters.Add(Text("dedup_key", job.DedupKey));
+        command.Parameters.Add(Text("requested_by", job.RequestedBy));
+        command.Parameters.Add(Text("arguments", job.Arguments));
+        command.Parameters.Add(Text("owner_key", job.Owner));
+        command.Parameters.Add(Text("owner_name", ownerName));
+        command.Parameters.Add(Text("owner_values", OwnerValues.ToJson(ownerValues)));
+
+        await using var reader = await command.ExecuteReaderAsync(cancellationToken);
+        return await reader.ReadAsync(cancellationToken) ? new EnqueuedJob(reader.GetInt64(0), !reader.GetBoolean(1)) : null;
+    }
+
     public async Task<int> MarkLoadedAsync(string queue, IReadOnlyList<PlannedJob> loaded, DateTimeOffset now, CancellationToken cancellationToken)
     {
         if (loaded.Count == 0)
@@ -458,6 +481,9 @@ internal sealed class JobStore(NpgsqlDataSource dataSource, JobSql sql) : IAsync
         {
             Value = values.Select(value => value?.ToUniversalTime()).ToArray()
         };
+
+    private static NpgsqlParameter Moment(string name, DateTimeOffset? value) =>
+        new(name, NpgsqlDbType.TimestampTz) { Value = (object?)value?.ToUniversalTime() ?? DBNull.Value };
 
     private static string? Text(NpgsqlDataReader reader, int ordinal) =>
         reader.IsDBNull(ordinal) ? null : reader.GetString(ordinal);
