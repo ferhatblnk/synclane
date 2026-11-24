@@ -121,6 +121,20 @@ public static class Steps
         await syncLane.PlanAsync("shop.stores", new JobOwner(shop.Id.ToString(), Name: shop.Name));
         var progress = await syncLane.GetProgressAsync("shop.stores", shop.Id.ToString());
     }
+
+    public static async Task SendAsync(ISyncLane syncLane, Shop shop, Invoice invoice, User user)
+    {
+        await syncLane.EnqueueOrReplaceAsync(new NewJob
+        {
+            Queue = "shop.stores",
+            Owner = new JobOwner(shop.Id.ToString(), Name: shop.Name),
+            Type = "invoice-upload",
+            DedupKey = $"invoice:{invoice.Id}",
+            Arguments = JsonSerializer.Serialize(invoice),
+            RequestedBy = user.Id
+        });
+        await syncLane.CompleteAsync("shop.stores", shop.Id.ToString(), "invoice-upload", [$"invoice:{invoice.Id}"]);
+    }
 }
 
 /// <summary>Section 5: the end-to-end test.</summary>

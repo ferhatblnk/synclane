@@ -160,6 +160,11 @@ internal static class SyncLaneErrors
         $"NewJob.RequestedBy of {length} characters cannot be used: it is up to {NewJobLimits.RequestedBy} characters on one line, " +
         "such as a user's id. Nothing was enqueued.");
 
+    public static SyncError ArgumentsInvalid(int length) => new(
+        SyncErrorCodes.ArgumentsInvalid, SyncErrorKind.Validation,
+        $"NewJob.Arguments of {length} characters cannot be used: it is up to {NewJobLimits.Arguments} characters without a null " +
+        "character. Keep what the handler cannot look up, and let it read the rest. Nothing was enqueued.");
+
     public static SyncError BudgetLimitInvalid(string budget, string problem) => new(
         SyncErrorCodes.BudgetLimitInvalid, SyncErrorKind.Validation,
         $"The limit on budget '{budget}' was not set: {problem} Give at least 1 request per a positive period, and an end after now or none.");

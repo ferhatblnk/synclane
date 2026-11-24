@@ -23,6 +23,7 @@ internal static class Migrations
         new(14, "lease order", LeaseOrder),
         new(15, "switches", Switches),
         new(16, "declarations", Declarations),
+        new(17, "job arguments", JobArguments),
     ];
 
     public static int Latest => All[^1].Version;
@@ -445,5 +446,15 @@ internal static class Migrations
         $"""
         ALTER TABLE {schema}.{JobSql.OwnersTableName}
             ADD COLUMN IF NOT EXISTS owner_values jsonb;
+        """;
+
+    /// <summary>
+    /// What a job was enqueued with, for its handler to read: text the caller chose, which SyncLane stores and hands
+    /// back unread. Older instances neither write the column nor read it; their jobs have none.
+    /// </summary>
+    private static string JobArguments(string schema) =>
+        $"""
+        ALTER TABLE {schema}.{JobSql.TableName}
+            ADD COLUMN IF NOT EXISTS arguments text;
         """;
 }

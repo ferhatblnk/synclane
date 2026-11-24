@@ -383,6 +383,28 @@ await syncLane.PlanAsync("shop.stores", new JobOwner(shop.Id.ToString(), Name: s
 var progress = await syncLane.GetProgressAsync("shop.stores", shop.Id.ToString());
 ```
 
+Work the project starts itself, such as an upload a user asked for, is a job of a type declared with `Handle`. Give it a `DedupKey` and what the handler must send as `Arguments`; the handler reads `job.Arguments`. Asked again under the same key, the job that is there takes the new request's place, so the latest one is what gets sent:
+
+```csharp
+await syncLane.EnqueueOrReplaceAsync(new NewJob
+{
+    Queue = "shop.stores",
+    Owner = new JobOwner(shop.Id.ToString(), Name: shop.Name),
+    Type = "invoice-upload",
+    DedupKey = $"invoice:{invoice.Id}",
+    Arguments = JsonSerializer.Serialize(invoice),
+    RequestedBy = user.Id
+});
+```
+
+When the upload got through some other way, close its job without running it:
+
+```csharp
+await syncLane.CompleteAsync("shop.stores", shop.Id.ToString(), "invoice-upload", [$"invoice:{invoice.Id}"]);
+```
+
+Arguments hold no credential and are kept small: they are stored in the table ([Working with jobs](jobs.md#arguments)).
+
 Every call returns a result: check `Succeeded`, and map `Error.Kind` with `ToHttpStatusCode()` in an endpoint ([Working with jobs](jobs.md#results-and-errors)).
 
 **Done when** pressing the button creates one job, and pressing it five times quickly still creates one.

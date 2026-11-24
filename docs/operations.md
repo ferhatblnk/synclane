@@ -258,6 +258,7 @@ options.AddQueue("movements", queue =>
 - A job waits while an older job of its lane is unfinished: pending, running, failed, deferred or abandoned. When movement 1 is abandoned, movement 2 and the rest of that lane wait.
 - Only that queue and that lane wait. Other lanes go on, and so does every other queue, pulls included.
 - Fix the cause and requeue the job (`RequeueJobAsync`); when it completes, the lane goes on. A job that must not be sent at all is skipped (`SkipJobAsync(id, reason)`): it is deleted, the actions log keeps who skipped it and why, and the lane goes on.
+- A delivery that reached the other side some other way is closed by its key (`CompleteAsync`), and a newer request for the same key takes the held job's place (`EnqueueOrReplaceAsync`); either way the lane goes on.
 - A deferred job is tried again when due instead of stepping aside, since the jobs behind it are waiting for it.
 - Priority still orders the heads of different lanes; within a lane, order of creation wins over priority.
 - The lease finds the head of each lane through the index `jobs_lane_order`: on 100,000 waiting jobs in 1,000 lanes, about 6 ms.

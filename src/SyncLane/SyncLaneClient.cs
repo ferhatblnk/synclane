@@ -22,29 +22,54 @@ internal sealed class SyncLaneClient(SyncLaneOptions options, JobStore store, Qu
     public async Task<SyncResult<long>> EnqueueAsync(NewJob job, CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(job);
+        if (Check(job, out var queue, out var planned) is { } invalid)
+            return SyncResult<long>.Failure(invalid);
+
+        return await store.EnqueueOneAsync(queue, planned, job.Owner.NameOrNull, job.Owner.Values, time.GetUtcNow(), cancellationToken) is { } id
+            ? SyncResult<long>.Success(id)
+            : SyncResult<long>.Failure(SyncLaneErrors.JobAlreadyExists(queue, planned.Owner, planned.Type, planned.DedupKey));
+    }
+
+    public async Task<SyncResult<EnqueuedJob>> EnqueueOrReplaceAsync(NewJob job, CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(job);
+        if (Check(job, out var queue, out var planned) is { } invalid)
+            return SyncResult<EnqueuedJob>.Failure(invalid);
+
+        return await store.EnqueueOrReplaceAsync(queue, planned, job.Owner.NameOrNull, job.Owner.Values, time.GetUtcNow(), cancellationToken) is { } enqueued
+            ? SyncResult<EnqueuedJob>.Success(enqueued)
+            : SyncResult<EnqueuedJob>.Failure(SyncLaneErrors.JobAlreadyExists(queue, planned.Owner, planned.Type, planned.DedupKey));
+    }
+
+    /// <summary>What both ways of enqueueing check before they write, and the row they then write.</summary>
+    private SyncError? Check(NewJob job, out string queueName, out PlannedJob planned)
+    {
+        queueName = job.Queue;
+        planned = null!;
         var level = job.Priority ?? job.Owner.Priority;
         if (!Enum.IsDefined(level))
             throw new ArgumentOutOfRangeException(nameof(job));
 
         if (options.Find(job.Queue) is not { } queue)
-            return SyncResult<long>.Failure(SyncLaneErrors.QueueNotDeclared(job.Queue));
+            return SyncLaneErrors.QueueNotDeclared(job.Queue);
 
         if (queue.Find(job.Type) is not { } type)
-            return SyncResult<long>.Failure(SyncLaneErrors.JobTypeNotDeclared(queue.Name, job.Type));
+            return SyncLaneErrors.JobTypeNotDeclared(queue.Name, job.Type);
 
         if (OwnerValues.Check(job.Owner) is { } invalid)
-            return SyncResult<long>.Failure(invalid);
+            return invalid;
 
         if (job.RequestedBy is { } by && (by.Length > NewJobLimits.RequestedBy || by.AsSpan().ContainsAnyInRange('\0', '\u001f')))
-            return SyncResult<long>.Failure(SyncLaneErrors.RequestedByInvalid(by.Length));
+            return SyncLaneErrors.RequestedByInvalid(by.Length);
 
-        var planned = new PlannedJob(
+        if (job.Arguments is { } arguments && (arguments.Length > NewJobLimits.Arguments || arguments.Contains('\0')))
+            return SyncLaneErrors.ArgumentsInvalid(arguments.Length);
+
+        queueName = queue.Name;
+        planned = new PlannedJob(
             job.Owner.Key, job.Owner.LaneOrKey, type.Name, JobMode.Manual, Priorities.Of(level, type.Priority),
-            job.WindowStart, job.WindowEnd, job.DedupKey, RequestedBy: job.RequestedBy);
-
-        return await store.EnqueueOneAsync(queue.Name, planned, job.Owner.NameOrNull, job.Owner.Values, time.GetUtcNow(), cancellationToken) is { } id
-            ? SyncResult<long>.Success(id)
-            : SyncResult<long>.Failure(SyncLaneErrors.JobAlreadyExists(queue.Name, job.Owner.Key, type.Name, job.DedupKey));
+            job.WindowStart, job.WindowEnd, job.DedupKey, RequestedBy: job.RequestedBy, Arguments: job.Arguments);
+        return null;
     }
 
     public async Task<SyncResult<int>> RequeueAsync(string queue, string? owner = null, CancellationToken cancellationToken = default)
@@ -65,6 +90,26 @@ internal sealed class SyncLaneClient(SyncLaneOptions options, JobStore store, Qu
             return SyncResult<int>.Failure(SyncLaneErrors.QueueNotDeclared(queue));
 
         return SyncResult<int>.Success(await store.CancelAsync(declared.Name, owner, reason, time.GetUtcNow(), cancellationToken));
+    }
+
+    public async Task<SyncResult<int>> CompleteAsync(
+        string queue, string owner, string type, IReadOnlyList<string> dedupKeys, CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(queue);
+        ArgumentNullException.ThrowIfNull(owner);
+        ArgumentNullException.ThrowIfNull(type);
+        ArgumentNullException.ThrowIfNull(dedupKeys);
+        if (options.Find(queue) is not { } declared)
+            return SyncResult<int>.Failure(SyncLaneErrors.QueueNotDeclared(queue));
+
+        if (declared.Find(type) is not { } declaredType)
+            return SyncResult<int>.Failure(SyncLaneErrors.JobTypeNotDeclared(declared.Name, type));
+
+        if (dedupKeys.Count == 0)
+            return SyncResult<int>.Success(0);
+
+        return SyncResult<int>.Success(
+            await store.CompleteByKeyAsync(declared.Name, owner, declaredType.Name, dedupKeys, time.GetUtcNow(), cancellationToken));
     }
 
     public async Task<SyncResult<int>> MarkLoadedAsync(string queue, IReadOnlyList<LoadedRange> ranges, CancellationToken cancellationToken = default)
@@ -119,6 +164,11 @@ internal sealed class SyncLaneClient(SyncLaneOptions options, JobStore store, Qu
         return SyncListResult<Job>.Success(jobs, jobs[^1].Id.ToString(CultureInfo.InvariantCulture), total);
     }
 
+    public async Task<SyncResult<Job>> GetJobAsync(long id, CancellationToken cancellationToken = default) =>
+        await store.FindAsync(id, cancellationToken) is { } job
+            ? SyncResult<Job>.Success(job)
+            : SyncResult<Job>.Failure(SyncLaneErrors.JobNotFound(id));
+
     public async Task<SyncResult<OwnerProgress>> GetProgressAsync(string queue, string owner, CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(queue);
@@ -133,4 +183,6 @@ internal sealed class SyncLaneClient(SyncLaneOptions options, JobStore store, Qu
 internal static class NewJobLimits
 {
     public const int RequestedBy = 200;
+
+    public const int Arguments = 262_144;
 }

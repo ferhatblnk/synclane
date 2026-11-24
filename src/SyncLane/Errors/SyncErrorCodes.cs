@@ -112,6 +112,9 @@ public static class SyncErrorCodes
     /// <summary>The age after which data counts as stale is zero or negative.</summary>
     public const string StaleAfterInvalid = "SL3017";
 
+    /// <summary>A job's arguments are longer than allowed or hold a null character.</summary>
+    public const string ArgumentsInvalid = "SL3018";
+
     /// <summary>A job with the same owner, type and dedup key already exists.</summary>
     public const string JobAlreadyExists = "SL3101";
 

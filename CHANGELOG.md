@@ -4,6 +4,20 @@ All notable changes to this project are recorded here. The format follows [Keep 
 
 ## [Unreleased]
 
+Sending data out: a job can carry what it must send, a newer request for a key can take the place of the one that is there, and a job whose work was done some other way can be closed without a run. Migration 17 adds one column to `jobs`.
+
+### Added
+
+- `NewJob.Arguments`: what the handler needs for one job, as text of your choosing up to 262,144 characters, read as `job.Arguments`. It is stored with the job (migration 17), never logged, traced or tagged by SyncLane, and left out of every list of jobs; `SL3018` refuses arguments that are too long or hold a null character.
+- `ISyncLane.GetJobAsync(id)` reads one job with its arguments.
+- `ISyncLane.EnqueueOrReplaceAsync(newJob)`: a job enqueued by hand with the same owner, type and dedup key takes the new request's place instead of answering `SL3101`. A job that was waiting, had failed or was given up keeps its id and its place in an ordered lane, and runs again with the new arguments, priority and requester and a fresh set of attempts. A job that had completed is deleted and a new one joins its lane at the back. A running job has its lease revoked: its attempt's result is refused, and it runs again when the lease runs out. The result says whether a job was replaced. `EnqueueAsync` behaves as before.
+- `ISyncLane.CompleteAsync(queue, owner, type, keys)` completes jobs enqueued by hand by their dedup keys without running them, a running one included, and returns how many. Nothing is counted in the hourly volume or in what an owner's data covers.
+
+### Changed
+
+- `ISyncLane` gains `GetJobAsync`, `EnqueueOrReplaceAsync` and `CompleteAsync`. A class of your own that implements the interface, such as a test double, must add them.
+- `Job` gains `Arguments`, which is `null` on every job a list returns.
+
 ## [0.10.0] - 2026-11-20
 
 The monitor reads by owner: each owner's freshness and its jobs by status, across the queues whose owner keys mean the same accounts, so a dashboard needs no SQL of its own. No migration. The package pages on NuGet show the README's pictures.

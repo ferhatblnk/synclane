@@ -32,7 +32,7 @@ internal sealed class JobSql
     [
         "id", "queue", "owner", "lane", "type", "mode", "status", "priority", "window_start", "window_end", "dedup_key",
         "cursor", "processed_count", "attempt_count", "error", "next_run_at", "leased_by", "lease_expires_at",
-        "created_at", "started_at", "heartbeat_at", "completed_at", "requested_by", "lease_generation"
+        "created_at", "started_at", "heartbeat_at", "completed_at", "requested_by", "lease_generation", "arguments"
     ];
 
     public JobSql(string schema)
@@ -40,6 +40,8 @@ internal sealed class JobSql
         Schema = schema;
         var table = $"{schema}.{TableName}";
         var leasedColumns = string.Join(", ", ColumnNames.Select(column => $"j.{column}"));
+        // A list never carries arguments: they can be large, and a page of jobs is read to be looked at, not to be run.
+        var listedColumns = string.Join(", ", ColumnNames.Select(column => column == "arguments" ? "NULL::text" : $"j.{column}"));
         // A write of a running job names the lease it holds, not only the worker: two workers can share a name (two
         // containers with one hostname and process id 1), and a worker that paused past its lease must lose it either way.
         const string held = "id = @id AND status = 'running' AND leased_by = @worker AND lease_generation = @generation";
@@ -115,8 +117,8 @@ internal sealed class JobSql
             WITH {(remember is null ? "" : $"remembered AS ({remember}),")}
             proposed AS (
                 SELECT *
-                FROM unnest(@owners, @lanes, @types, @modes, @priorities, @window_starts, @window_ends, @dedup_keys, @requested_bys)
-                    AS t(owner, lane, type, mode, priority, window_start, window_end, dedup_key, requested_by)
+                FROM unnest(@owners, @lanes, @types, @modes, @priorities, @window_starts, @window_ends, @dedup_keys, @requested_bys, @arguments)
+                    AS t(owner, lane, type, mode, priority, window_start, window_end, dedup_key, requested_by, arguments)
             ),
             replaced AS (
                 DELETE FROM {table}
@@ -124,8 +126,8 @@ internal sealed class JobSql
             ),
             inserted AS (
                 INSERT INTO {table}
-                    (queue, owner, lane, type, mode, priority, window_start, window_end, dedup_key, requested_by, next_run_at, created_at, updated_at)
-                SELECT @queue, owner, lane, type, mode, priority, window_start, window_end, dedup_key, requested_by, @now, @now, @now
+                    (queue, owner, lane, type, mode, priority, window_start, window_end, dedup_key, requested_by, arguments, next_run_at, created_at, updated_at)
+                SELECT @queue, owner, lane, type, mode, priority, window_start, window_end, dedup_key, requested_by, arguments, @now, @now, @now
                 FROM proposed
                 ON CONFLICT (queue, owner, type, dedup_key) DO NOTHING
                 RETURNING id, owner, type, mode, status, window_start, window_end, created_at, completed_at
@@ -140,6 +142,49 @@ internal sealed class JobSql
         Enqueue = Insert($"SELECT count(*)::int, (SELECT greatest(reltuples, 0)::bigint FROM pg_class WHERE oid = '{table}'::regclass) FROM inserted");
         Analyze = $"ANALYZE (SKIP_LOCKED) {table}";
         EnqueueOne = Insert("SELECT id FROM inserted", Remember("ARRAY[@owner_key]", "ARRAY[@owner_name]", "ARRAY[@owner_values]"));
+
+        // A completed job has no place in its lane any more: reset in its old row, it would run ahead of every job the
+        // lane got since, which an ordered lane must not do. So it is deleted, and the statement after it in the batch
+        // inserts a new row at the back. Retention would have deleted it anyway.
+        DeleteCompletedByKey =
+            $"""
+            DELETE FROM {table}
+            WHERE queue = @queue AND owner = @owner AND type = @type AND dedup_key = @dedup_key
+              AND mode = 'manual' AND status = 'completed'
+            RETURNING id
+            """;
+
+        // The latest request for a key wins. A job that has not completed keeps its row, so its id and its place in an
+        // ordered lane stay, and starts over with what the new request brings. One that completes between the two
+        // statements of the batch is reset in place too. A running job is not taken from its lane: raising
+        // its lease generation makes every write of the attempt under way miss, the worker sees its lease lost at its
+        // next heartbeat, and the lease takes the job again when it runs out, exactly as after a worker that died.
+        // xmax is 0 only on a row this statement inserted. A planned job is left alone, and then no row comes back.
+        EnqueueOrReplace =
+            $"""
+            WITH remembered AS ({Remember("ARRAY[@owner_key]", "ARRAY[@owner_name]", "ARRAY[@owner_values]")})
+            INSERT INTO {table} AS j
+                (queue, owner, lane, type, mode, priority, window_start, window_end, dedup_key, requested_by, arguments, next_run_at, created_at, updated_at)
+            VALUES (@queue, @owner, @lane, @type, 'manual', @priority, @window_start, @window_end, @dedup_key, @requested_by, @arguments, @now, @now, @now)
+            ON CONFLICT (queue, owner, type, dedup_key) DO UPDATE
+            SET priority = excluded.priority,
+                requested_by = excluded.requested_by,
+                arguments = excluded.arguments,
+                attempt_count = 0,
+                error = NULL,
+                cursor = NULL,
+                processed_count = 0,
+                completed_at = NULL,
+                updated_at = excluded.updated_at,
+                status = CASE WHEN j.status = 'running' THEN j.status ELSE 'pending' END,
+                next_run_at = CASE WHEN j.status = 'running' THEN j.next_run_at ELSE excluded.next_run_at END,
+                started_at = CASE WHEN j.status = 'running' THEN j.started_at END,
+                leased_by = CASE WHEN j.status = 'running' THEN j.leased_by END,
+                lease_expires_at = CASE WHEN j.status = 'running' THEN j.lease_expires_at END,
+                lease_generation = j.lease_generation + (j.status = 'running')::int
+            WHERE j.mode = 'manual'
+            RETURNING j.id, (j.xmax = 0)
+            """;
 
         MarkLoaded =
             $"""
@@ -381,6 +426,25 @@ internal sealed class JobSql
               AND (@owner::text IS NULL OR owner = @owner)
             """;
 
+        // Work done some other way closes its job without a run, so nothing is counted in the hour and no coverage moves.
+        // A running job is closed too: clearing its lease and raising the generation makes the late write of the attempt
+        // under way miss, so it cannot reopen the job. Planned jobs record what history was loaded and are never closed
+        // this way. The rows are found through jobs_dedup.
+        CompleteByKey =
+            $"""
+            UPDATE {table}
+            SET status = 'completed',
+                completed_at = @now,
+                error = NULL,
+                cursor = NULL,
+                leased_by = NULL,
+                lease_expires_at = NULL,
+                lease_generation = lease_generation + 1,
+                updated_at = @now
+            WHERE queue = @queue AND owner = @owner AND type = @type AND dedup_key = ANY(@dedup_keys)
+              AND mode = 'manual' AND status <> 'completed'
+            """;
+
         Cancel =
             $"""
             UPDATE {table}
@@ -467,7 +531,7 @@ internal sealed class JobSql
 
         List =
             $"""
-            SELECT {leasedColumns}, {ownerName}
+            SELECT {listedColumns}, {ownerName}
             FROM {table} AS j
             WHERE {filters}
               AND (@before::bigint IS NULL OR j.id < @before)
@@ -480,7 +544,7 @@ internal sealed class JobSql
         // under a millisecond this way and 18 ms when every owner matches.
         ListFound =
             $"""
-            SELECT {leasedColumns}, o.name, o.owner_values::text
+            SELECT {listedColumns}, o.name, o.owner_values::text
             FROM ({found}) AS o
             CROSS JOIN LATERAL (
                 SELECT *
@@ -528,6 +592,15 @@ internal sealed class JobSql
     /// <summary>The same as <see cref="Enqueue"/> for one job. Returns its id, or nothing when it exists.</summary>
     public string EnqueueOne { get; }
 
+    /// <summary>Deletes the completed manual job with a key, before <see cref="EnqueueOrReplace"/> inserts its successor.</summary>
+    public string DeleteCompletedByKey { get; }
+
+    /// <summary>
+    /// Enqueues one manual job, or lets the manual job with its key take its place. Returns the id and whether the row
+    /// is new, or nothing when the key belongs to a planned job.
+    /// </summary>
+    public string EnqueueOrReplace { get; }
+
     /// <summary>Records history loaded elsewhere as completed initial jobs, and updates the summary.</summary>
     public string MarkLoaded { get; }
 
@@ -550,6 +623,9 @@ internal sealed class JobSql
     public string Postpone { get; }
 
     public string Requeue { get; }
+
+    /// <summary>Completes an owner's unfinished manual jobs of one type by their dedup keys, a running one included.</summary>
+    public string CompleteByKey { get; }
 
     public string Cancel { get; }
 

@@ -23,6 +23,7 @@
   <!-- The namespaces step 1 of the guide names, and nothing else of SyncLane's. -->
   <ItemGroup>
     <Using Include="SyncLane" />
+    <Using Include="System.Text.Json" />
     <Using Include="SyncLane.Http" />
     <Using Include="SyncLane.AspNetCore" />
     <Using Include="Microsoft.AspNetCore.Builder" />
